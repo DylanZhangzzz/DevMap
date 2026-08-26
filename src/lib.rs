@@ -1,5 +1,6 @@
 pub mod canonical;
 pub mod cli;
+pub mod commands;
 pub mod context;
 pub mod domain;
 pub mod error;
@@ -24,13 +25,11 @@ where
 {
     let cli = Cli::try_parse_from(args)?;
 
-    let command = match cli.command {
-        Command::Init(_) => "init",
+    match cli.command {
+        Command::Init(args) => commands::init(args),
         Command::CommonGround {
             command: CommonGroundCommand::Approve(_),
-        } => "common-ground approve",
-        Command::Status(_) => "status",
-    };
-
-    Err(DevMapError::UnsupportedCommand(command))
+        } => Err(DevMapError::UnsupportedCommand("common-ground approve")),
+        Command::Status(_) => Err(DevMapError::UnsupportedCommand("status")),
+    }
 }

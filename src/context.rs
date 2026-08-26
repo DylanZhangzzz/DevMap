@@ -60,6 +60,57 @@ impl ContextRepo {
         &self.root
     }
 
+    pub fn current_branch(&self) -> Result<String, DevMapError> {
+        self.git(["branch", "--show-current"])
+    }
+
+    pub fn branch_exists(&self, branch: &str) -> Result<bool, DevMapError> {
+        let reference = format!("refs/heads/{branch}");
+        let arguments = [
+            OsString::from("show-ref"),
+            OsString::from("--verify"),
+            OsString::from("--quiet"),
+            OsString::from(reference),
+        ];
+        let output = git_output(&self.root, &arguments)?;
+        Ok(output.status.success())
+    }
+
+    pub fn checkout(&self, branch: &str) -> Result<(), DevMapError> {
+        self.git(["checkout", branch])?;
+        Ok(())
+    }
+
+    pub fn create_branch(&self, branch: &str) -> Result<(), DevMapError> {
+        self.git(["checkout", "-b", branch])?;
+        Ok(())
+    }
+
+    pub fn write_owned(&self, relative_path: &str, bytes: &[u8]) -> Result<(), DevMapError> {
+        let normalized = relative_path.replace('\\', "/");
+        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
+            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
+        }
+        let absolute_path = self.root.join(&normalized);
+        if let Some(parent) = absolute_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(absolute_path, bytes)?;
+        Ok(())
+    }
+
+    pub fn read_owned(&self, relative_path: &str) -> Result<Option<Vec<u8>>, DevMapError> {
+        let normalized = relative_path.replace('\\', "/");
+        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
+            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
+        }
+        let absolute_path = self.root.join(normalized);
+        if !absolute_path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(fs::read(absolute_path)?))
+    }
+
     pub fn write_canonical<T: Serialize>(
         &self,
         kind: &str,
@@ -233,4 +284,3 @@ fn display_command(arguments: &[OsString]) -> String {
         .join(" ");
     format!("git {arguments}")
 }
-

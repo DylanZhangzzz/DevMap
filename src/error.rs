@@ -48,4 +48,31 @@ pub enum DevMapError {
 
     #[error("Git returned malformed porcelain status")]
     MalformedGitStatus,
+
+    #[error("failed to format timestamp: {0}")]
+    TimeFormat(#[from] time::error::Format),
+
+    #[error("source and Context repositories must be independent (source: {source_path}, context: {context_path})")]
+    RepositoriesOverlap {
+        source_path: PathBuf,
+        context_path: PathBuf,
+    },
+
+    #[error("invalid Context Repository path: {0}")]
+    InvalidContextPath(PathBuf),
+
+    #[error("invalid requirement locator: {0}")]
+    InvalidRequirementLocator(String),
+
+    #[error("requirement document is outside the source repository: {0}")]
+    RequirementOutsideSource(PathBuf),
+
+    #[error("requirement anchor '{anchor}' must match exactly once; found {matches}")]
+    RequirementAnchorMatch { anchor: String, matches: usize },
+
+    #[error("a conflicting Common Ground draft already exists")]
+    ConflictingCommonGroundDraft,
+
+    #[error("unexpected Context Repository branch: {0}")]
+    UnexpectedContextBranch(String),
 }
