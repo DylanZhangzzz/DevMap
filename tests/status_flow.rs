@@ -59,7 +59,11 @@ fn status_reports_draft_and_approved_lifecycles() {
     let draft = run(status_args(&draft_context, false)).unwrap();
     assert_eq!(draft.exit_code, 0);
     assert!(draft.stdout.contains("lifecycle=draft"));
-    assert!(draft.stdout.contains(&format!("adoption_boundary_commit={boundary}")));
+    assert!(
+        draft
+            .stdout
+            .contains(&format!("adoption_boundary_commit={boundary}"))
+    );
     assert!(draft.stdout.contains("capture_grade=C"));
     assert!(draft.stdout.contains("integrity=valid"));
 
@@ -96,9 +100,11 @@ fn status_detects_tampered_and_missing_canonical_objects() {
         .output()
         .unwrap();
     assert!(!process.status.success());
-    assert!(String::from_utf8(process.stdout)
-        .unwrap()
-        .contains("integrity=invalid"));
+    assert!(
+        String::from_utf8(process.stdout)
+            .unwrap()
+            .contains("integrity=invalid")
+    );
 
     fs::write(&object, original).unwrap();
     let approval = only_json_file(context.join("objects/approval"));

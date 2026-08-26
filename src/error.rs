@@ -52,7 +52,9 @@ pub enum DevMapError {
     #[error("failed to format timestamp: {0}")]
     TimeFormat(#[from] time::error::Format),
 
-    #[error("source and Context repositories must be independent (source: {source_path}, context: {context_path})")]
+    #[error(
+        "source and Context repositories must be independent (source: {source_path}, context: {context_path})"
+    )]
     RepositoriesOverlap {
         source_path: PathBuf,
         context_path: PathBuf,
@@ -81,4 +83,7 @@ pub enum DevMapError {
 
     #[error("Common Ground draft is missing")]
     MissingCommonGroundDraft,
+
+    #[error("Common Ground is already approved; a future change must supersede it explicitly")]
+    CommonGroundAlreadyApproved,
 }

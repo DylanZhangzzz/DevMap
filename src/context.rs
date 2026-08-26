@@ -43,7 +43,10 @@ impl ContextRepo {
         }))?;
         fs::write(root.join(CONTEXT_MARKER), metadata)?;
         git_checked(&root, ["add", "--", CONTEXT_MARKER])?;
-        git_checked(&root, ["commit", "-m", "Initialize DevMap context repository"])?;
+        git_checked(
+            &root,
+            ["commit", "-m", "Initialize DevMap context repository"],
+        )?;
 
         Ok(Self { root })
     }

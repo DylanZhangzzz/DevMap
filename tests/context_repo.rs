@@ -59,11 +59,14 @@ fn commit_refuses_unexpected_context_files() {
         .unwrap();
     fs::write(root.join("unexpected.txt"), "not owned by DevMap\n").unwrap();
 
-    let error = context.commit_all("must not commit everything").unwrap_err();
+    let error = context
+        .commit_all("must not commit everything")
+        .unwrap_err();
 
     assert!(error.to_string().contains("unexpected.txt"));
-    assert!(git(&root, ["status", "--porcelain=v1"])
-        .lines()
-        .any(|line| line.ends_with("unexpected.txt")));
+    assert!(
+        git(&root, ["status", "--porcelain=v1"])
+            .lines()
+            .any(|line| line.ends_with("unexpected.txt"))
+    );
 }
-

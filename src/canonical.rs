@@ -42,4 +42,3 @@ fn normalize(value: Value) -> Result<Value, DevMapError> {
         scalar => Ok(scalar),
     }
 }
-

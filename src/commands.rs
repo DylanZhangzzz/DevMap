@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use crate::CommandOutput;
 use crate::canonical::{canonical_json, sha256_hex};
 use crate::cli::{ApproveArgs, InitArgs, StatusArgs};
 use crate::context::ContextRepo;
@@ -14,7 +15,6 @@ use crate::domain::{
 };
 use crate::error::DevMapError;
 use crate::git::SourceGitInspector;
-use crate::CommandOutput;
 
 const DRAFT_PATH: &str = "bootstrap/common-ground-draft.json";
 const BOOTSTRAP_BRANCH: &str = "bootstrap/initial";
@@ -41,6 +41,9 @@ pub fn init(args: InitArgs) -> Result<CommandOutput, DevMapError> {
     } else {
         ContextRepo::create(&context_root)?
     };
+    if context.read_owned(CURRENT_STATE_PATH)?.is_some() {
+        return Err(DevMapError::CommonGroundAlreadyApproved);
+    }
     prepare_bootstrap_branch(&context)?;
 
     let draft = match context.read_owned(DRAFT_PATH)? {
@@ -88,11 +91,8 @@ pub fn approve(args: ApproveArgs) -> Result<CommandOutput, DevMapError> {
     let approved_at = OffsetDateTime::now_utc().format(&Rfc3339)?;
     let approval = ApprovalEvent::new(args.actor, approved_at.clone(), draft_sha256)?;
     let approval_object = context.write_canonical("approval", &approval)?;
-    let common_ground = CommonGround::from_approved_draft(
-        draft,
-        approval_object.id.clone(),
-        approved_at,
-    )?;
+    let common_ground =
+        CommonGround::from_approved_draft(draft, approval_object.id.clone(), approved_at)?;
     let common_ground_object = context.write_canonical("common-ground", &common_ground)?;
 
     let manifest = CommonGroundManifest {
@@ -205,9 +205,11 @@ pub fn status(args: StatusArgs) -> Result<CommandOutput, DevMapError> {
         integrity: IntegrityReport { valid, errors },
     };
     let stdout = if args.json {
-        format!("{}\n", String::from_utf8(canonical_json(&report)?).map_err(|_| {
-            DevMapError::NonUtf8GitOutput("canonical status report".into())
-        })?)
+        format!(
+            "{}\n",
+            String::from_utf8(canonical_json(&report)?)
+                .map_err(|_| { DevMapError::NonUtf8GitOutput("canonical status report".into()) })?
+        )
     } else {
         render_status(&report)
     };
@@ -333,7 +335,10 @@ fn verify_object(
 }
 
 fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn render_status(report: &StatusReport) -> String {
@@ -345,7 +350,11 @@ fn render_status(report: &StatusReport) -> String {
         report.capture_grade,
         report.capture_grade_reason,
         report.context_dirty,
-        if report.integrity.valid { "valid" } else { "invalid" }
+        if report.integrity.valid {
+            "valid"
+        } else {
+            "invalid"
+        }
     );
     for (kind, count) in &report.object_counts {
         output.push_str(&format!("object_count.{kind}={count}\n"));
@@ -430,10 +439,10 @@ fn select_markdown_section(contents: &str, requested_anchor: &str) -> Result<Str
     let lines: Vec<_> = contents.lines().collect();
     let mut matches = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        if let Some((level, title)) = markdown_heading(line) {
-            if slug(title) == requested_anchor {
-                matches.push((index, level));
-            }
+        if let Some((level, title)) = markdown_heading(line)
+            && slug(title) == requested_anchor
+        {
+            matches.push((index, level));
         }
     }
     if matches.len() != 1 {

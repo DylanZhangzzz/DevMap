@@ -53,7 +53,10 @@ fn init_creates_a_reviewable_draft_without_mutating_source() {
     assert!(output.stdout.contains("draft_sha256="));
     assert!(output.stdout.contains("dirty_at_adoption=true"));
     assert!(output.stdout.contains("common-ground approve"));
-    assert_eq!(git(&context, ["branch", "--show-current"]), "bootstrap/initial");
+    assert_eq!(
+        git(&context, ["branch", "--show-current"]),
+        "bootstrap/initial"
+    );
     assert!(context.join("bootstrap/common-ground-draft.json").is_file());
     assert!(!context.join("objects/common-ground").exists());
     assert!(
@@ -98,7 +101,11 @@ fn init_creates_a_reviewable_draft_without_mutating_source() {
     ])
     .unwrap();
 
-    assert!(approval.stdout.contains("common_ground_id=common-ground:sha256-"));
+    assert!(
+        approval
+            .stdout
+            .contains("common_ground_id=common-ground:sha256-")
+    );
     assert!(approval.stdout.contains("approval_id=approval:sha256-"));
     assert!(approval.stdout.contains("capture_grade=C"));
     assert_eq!(git(&context, ["branch", "--show-current"]), "main");
@@ -107,8 +114,9 @@ fn init_creates_a_reviewable_draft_without_mutating_source() {
     assert!(context.join("objects/approval").is_dir());
     assert!(context.join("manifests/common-ground.json").is_file());
     assert!(context.join("state/current.json").is_file());
-    assert!(!git(&context, ["branch", "--list", "bootstrap/initial"])
-        .contains("bootstrap/initial"));
+    assert!(
+        !git(&context, ["branch", "--list", "bootstrap/initial"]).contains("bootstrap/initial")
+    );
 
     let refs = git(&context, ["for-each-ref", "--format=%(refname)"]);
     assert!(!refs.contains("refs/devmap"));

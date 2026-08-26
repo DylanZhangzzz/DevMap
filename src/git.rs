@@ -33,9 +33,7 @@ impl SourceGitInspector {
         let head_commit = self.required_git(["rev-parse", "HEAD"])?;
         let default_branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
         let remote_url = self.optional_git(["remote", "get-url", "origin"])?;
-        let dirty_at_adoption = !self
-            .required_git(["status", "--porcelain=v1"])?
-            .is_empty();
+        let dirty_at_adoption = !self.required_git(["status", "--porcelain=v1"])?.is_empty();
 
         let identity = match remote_url.as_deref() {
             Some(remote) => normalize_remote(remote),
@@ -124,4 +122,3 @@ fn normalize_remote(remote: &str) -> String {
         .unwrap_or(remote.trim().trim_end_matches('/'))
         .replace('\\', "/")
 }
-

@@ -15,6 +15,8 @@ fn help_exposes_phase_1a_commands() {
         stdout.contains("common-ground"),
         "missing common-ground command: {stdout}"
     );
-    assert!(stdout.contains("status"), "missing status command: {stdout}");
+    assert!(
+        stdout.contains("status"),
+        "missing status command: {stdout}"
+    );
 }
-
