@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use std::path::PathBuf;
+
 #[derive(Debug, Error)]
 pub enum DevMapError {
     #[error(transparent)]
@@ -16,4 +18,16 @@ pub enum DevMapError {
 
     #[error("invalid domain value: {0} must not be blank")]
     InvalidDomain(&'static str),
+
+    #[error("path is not inside a Git repository: {0}")]
+    NotGitRepository(PathBuf),
+
+    #[error("Git command failed ({command}): {stderr}")]
+    GitCommand { command: String, stderr: String },
+
+    #[error("Git command returned non-UTF-8 output: {0}")]
+    NonUtf8GitOutput(String),
+
+    #[error("I/O operation failed: {0}")]
+    Io(#[from] std::io::Error),
 }
