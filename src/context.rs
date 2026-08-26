@@ -90,10 +90,7 @@ impl ContextRepo {
     }
 
     pub fn write_owned(&self, relative_path: &str, bytes: &[u8]) -> Result<(), DevMapError> {
-        let normalized = relative_path.replace('\\', "/");
-        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
-            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
-        }
+        let normalized = validate_owned_relative_path(relative_path)?;
         let absolute_path = self.root.join(&normalized);
         if let Some(parent) = absolute_path.parent() {
             fs::create_dir_all(parent)?;
@@ -103,10 +100,7 @@ impl ContextRepo {
     }
 
     pub fn read_owned(&self, relative_path: &str) -> Result<Option<Vec<u8>>, DevMapError> {
-        let normalized = relative_path.replace('\\', "/");
-        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
-            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
-        }
+        let normalized = validate_owned_relative_path(relative_path)?;
         let absolute_path = self.root.join(normalized);
         if !absolute_path.exists() {
             return Ok(None);
@@ -115,10 +109,7 @@ impl ContextRepo {
     }
 
     pub fn remove_owned(&self, relative_path: &str) -> Result<(), DevMapError> {
-        let normalized = relative_path.replace('\\', "/");
-        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
-            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
-        }
+        let normalized = validate_owned_relative_path(relative_path)?;
         let absolute_path = self.root.join(normalized);
         if absolute_path.exists() {
             fs::remove_file(absolute_path)?;
@@ -266,6 +257,18 @@ fn is_owned_path(path: &str) -> bool {
         || ["objects/", "manifests/", "bootstrap/", "state/"]
             .iter()
             .any(|prefix| path.starts_with(prefix))
+}
+
+fn validate_owned_relative_path(path: &str) -> Result<String, DevMapError> {
+    let normalized = path.replace('\\', "/");
+    let parsed = Path::new(&normalized);
+    let contains_only_normal_components = parsed
+        .components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)));
+    if !contains_only_normal_components || !is_owned_path(&normalized) {
+        return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
+    }
+    Ok(normalized)
 }
 
 fn git_checked<I, S>(root: &Path, args: I) -> Result<String, DevMapError>

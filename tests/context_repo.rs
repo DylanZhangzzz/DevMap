@@ -70,3 +70,19 @@ fn commit_refuses_unexpected_context_files() {
             .any(|line| line.ends_with("unexpected.txt"))
     );
 }
+
+#[test]
+fn owned_paths_cannot_escape_the_context_repository() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("project-context");
+    let context = ContextRepo::create(&root).unwrap();
+    fs::write(parent.path().join("outside.json"), br#"{"secret":true}"#).unwrap();
+
+    let read_error = context.read_owned("state/../../outside.json").unwrap_err();
+    assert!(read_error.to_string().contains("state/../../outside.json"));
+
+    let write_error = context
+        .write_owned("objects/../outside.json", b"must not escape")
+        .unwrap_err();
+    assert!(write_error.to_string().contains("objects/../outside.json"));
+}
