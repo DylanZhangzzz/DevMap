@@ -1,5 +1,6 @@
 pub mod canonical;
 pub mod cli;
+pub mod domain;
 pub mod error;
 
 use std::ffi::OsString;

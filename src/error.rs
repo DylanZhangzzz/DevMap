@@ -13,4 +13,7 @@ pub enum DevMapError {
 
     #[error("JSON serialization failed: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("invalid domain value: {0} must not be blank")]
+    InvalidDomain(&'static str),
 }
