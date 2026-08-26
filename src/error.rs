@@ -30,4 +30,22 @@ pub enum DevMapError {
 
     #[error("I/O operation failed: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Context Repository path is not empty: {0}")]
+    ContextPathNotEmpty(PathBuf),
+
+    #[error("path is not a DevMap Context Repository: {0}")]
+    NotContextRepository(PathBuf),
+
+    #[error("invalid canonical object kind: {0}")]
+    InvalidObjectKind(String),
+
+    #[error("content-address collision at {0}")]
+    ContentAddressCollision(String),
+
+    #[error("refusing to commit unexpected Context Repository paths: {0:?}")]
+    UnexpectedContextPaths(Vec<String>),
+
+    #[error("Git returned malformed porcelain status")]
+    MalformedGitStatus,
 }

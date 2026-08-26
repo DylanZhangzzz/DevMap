@@ -1,5 +1,6 @@
 pub mod canonical;
 pub mod cli;
+pub mod context;
 pub mod domain;
 pub mod error;
 pub mod git;

@@ -34,6 +34,7 @@ where
         .expect("run git")
 }
 
+#[allow(dead_code)]
 pub fn committed_repo() -> TempDir {
     let directory = tempfile::tempdir().expect("create temporary repository");
     git(directory.path(), ["init", "-b", "main"]);
@@ -47,4 +48,3 @@ pub fn committed_repo() -> TempDir {
     git(directory.path(), ["commit", "-m", "initial fixture"]);
     directory
 }
-
