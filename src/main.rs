@@ -6,7 +6,7 @@ fn main() -> ExitCode {
     match devmap::run(std::env::args_os()) {
         Ok(output) => {
             print!("{}", output.stdout);
-            ExitCode::SUCCESS
+            ExitCode::from(output.exit_code)
         }
         Err(DevMapError::Cli(error)) => error.exit(),
         Err(error) => {

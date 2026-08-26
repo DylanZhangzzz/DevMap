@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -5,7 +6,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::canonical::{canonical_json, sha256_hex};
-use crate::cli::{ApproveArgs, InitArgs};
+use crate::cli::{ApproveArgs, InitArgs, StatusArgs};
 use crate::context::ContextRepo;
 use crate::domain::{
     ApprovalEvent, CanonicalObjectRef, CommonGround, CommonGroundDraft, CommonGroundManifest,
@@ -67,6 +68,7 @@ pub fn init(args: InitArgs) -> Result<CommandOutput, DevMapError> {
             draft.source.dirty_at_adoption,
             context.root().display()
         ),
+        exit_code: 0,
     })
 }
 
@@ -95,6 +97,7 @@ pub fn approve(args: ApproveArgs) -> Result<CommandOutput, DevMapError> {
 
     let manifest = CommonGroundManifest {
         schema_version: SCHEMA_VERSION.into(),
+        draft_sha256: approval.draft_sha256.clone(),
         common_ground: object_reference(&common_ground_object),
         approval: object_reference(&approval_object),
     };
@@ -117,7 +120,240 @@ pub fn approve(args: ApproveArgs) -> Result<CommandOutput, DevMapError> {
             "common_ground=approved\ncommon_ground_id={}\napproval_id={}\ncontext_commit={context_commit}\ncapture_grade=C\n",
             common_ground_object.id, approval_object.id
         ),
+        exit_code: 0,
     })
+}
+
+#[derive(Debug, serde::Serialize)]
+struct StatusReport {
+    schema_version: String,
+    lifecycle: String,
+    adoption_boundary_commit: Option<String>,
+    context_commit: Option<String>,
+    capture_grade: String,
+    capture_grade_reason: String,
+    context_dirty: bool,
+    object_counts: BTreeMap<String, usize>,
+    integrity: IntegrityReport,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct IntegrityReport {
+    valid: bool,
+    errors: Vec<String>,
+}
+
+pub fn status(args: StatusArgs) -> Result<CommandOutput, DevMapError> {
+    let context = ContextRepo::open(absolute_candidate(&args.context)?)?;
+    let context_dirty = !context
+        .git(["status", "--porcelain=v1", "--untracked-files=all"])?
+        .is_empty();
+    let context_commit = context.git(["rev-parse", "main"]).ok();
+    let draft_bytes = context.read_owned(DRAFT_PATH)?;
+    let state_bytes = context.read_owned(CURRENT_STATE_PATH)?;
+    let mut errors = Vec::new();
+    let mut object_counts = BTreeMap::new();
+    let mut adoption_boundary_commit = None;
+
+    let lifecycle = match (&draft_bytes, &state_bytes) {
+        (Some(_), Some(_)) => {
+            errors.push("ambiguous_lifecycle:draft_and_approved_state_present".into());
+            "invalid"
+        }
+        (Some(bytes), None) => {
+            match serde_json::from_slice::<CommonGroundDraft>(bytes) {
+                Ok(draft) => adoption_boundary_commit = Some(draft.source.head_commit),
+                Err(error) => errors.push(format!("malformed_draft:{error}")),
+            }
+            "draft"
+        }
+        (None, Some(bytes)) => {
+            verify_approved_state(
+                &context,
+                bytes,
+                &mut adoption_boundary_commit,
+                &mut object_counts,
+                &mut errors,
+            );
+            "approved"
+        }
+        (None, None) => "absent",
+    };
+
+    let forbidden_refs = context.git([
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/devmap",
+        "refs/notes",
+    ])?;
+    for reference in forbidden_refs.lines().filter(|line| !line.is_empty()) {
+        errors.push(format!("forbidden_ref:{reference}"));
+    }
+
+    errors.sort();
+    errors.dedup();
+    let valid = errors.is_empty();
+    let report = StatusReport {
+        schema_version: SCHEMA_VERSION.into(),
+        lifecycle: lifecycle.into(),
+        adoption_boundary_commit,
+        context_commit,
+        capture_grade: "C".into(),
+        capture_grade_reason: "explicit CLI capture; automatic Agent hooks are not active".into(),
+        context_dirty,
+        object_counts,
+        integrity: IntegrityReport { valid, errors },
+    };
+    let stdout = if args.json {
+        format!("{}\n", String::from_utf8(canonical_json(&report)?).map_err(|_| {
+            DevMapError::NonUtf8GitOutput("canonical status report".into())
+        })?)
+    } else {
+        render_status(&report)
+    };
+
+    Ok(CommandOutput {
+        stdout,
+        exit_code: if valid { 0 } else { 1 },
+    })
+}
+
+fn verify_approved_state(
+    context: &ContextRepo,
+    state_bytes: &[u8],
+    adoption_boundary_commit: &mut Option<String>,
+    object_counts: &mut BTreeMap<String, usize>,
+    errors: &mut Vec<String>,
+) {
+    let state: CurrentState = match serde_json::from_slice(state_bytes) {
+        Ok(state) => state,
+        Err(error) => {
+            errors.push(format!("malformed_state:{error}"));
+            return;
+        }
+    };
+    if state.lifecycle != "approved" {
+        errors.push(format!("invalid_state_lifecycle:{}", state.lifecycle));
+    }
+    if state.capture_grade != "C" {
+        errors.push(format!("invalid_capture_grade:{}", state.capture_grade));
+    }
+
+    let manifest_bytes = match context.read_owned(&state.manifest_path) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            errors.push(format!("missing_manifest:{}", state.manifest_path));
+            return;
+        }
+        Err(error) => {
+            errors.push(format!("manifest_read_error:{error}"));
+            return;
+        }
+    };
+    let manifest: CommonGroundManifest = match serde_json::from_slice(&manifest_bytes) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            errors.push(format!("malformed_manifest:{error}"));
+            return;
+        }
+    };
+    if state.common_ground_id != manifest.common_ground.id {
+        errors.push("state_common_ground_mismatch".into());
+    }
+    if manifest.common_ground.path == manifest.approval.path
+        || manifest.common_ground.id == manifest.approval.id
+    {
+        errors.push("duplicate_manifest_object".into());
+    }
+
+    *object_counts.entry("common-ground".into()).or_insert(0) += 1;
+    *object_counts.entry("approval".into()).or_insert(0) += 1;
+    let common_ground_bytes = verify_object(context, &manifest.common_ground, errors);
+    let approval_bytes = verify_object(context, &manifest.approval, errors);
+
+    let common_ground = common_ground_bytes.and_then(|bytes| {
+        serde_json::from_slice::<CommonGround>(&bytes)
+            .map_err(|error| errors.push(format!("malformed_common_ground:{error}")))
+            .ok()
+    });
+    let approval = approval_bytes.and_then(|bytes| {
+        serde_json::from_slice::<ApprovalEvent>(&bytes)
+            .map_err(|error| errors.push(format!("malformed_approval:{error}")))
+            .ok()
+    });
+
+    if let Some(common_ground) = &common_ground {
+        *adoption_boundary_commit = Some(common_ground.adoption_boundary_commit.clone());
+        if common_ground.approval_id != manifest.approval.id {
+            errors.push("common_ground_approval_mismatch".into());
+        }
+        if common_ground.adoption_boundary_commit != common_ground.source.head_commit {
+            errors.push("adoption_boundary_mismatch".into());
+        }
+    }
+    if let Some(approval) = &approval {
+        if approval.draft_sha256 != manifest.draft_sha256 {
+            errors.push("approval_draft_hash_mismatch".into());
+        }
+        if !is_sha256(&approval.draft_sha256) {
+            errors.push("invalid_draft_hash".into());
+        }
+    }
+}
+
+fn verify_object(
+    context: &ContextRepo,
+    object: &CanonicalObjectRef,
+    errors: &mut Vec<String>,
+) -> Option<Vec<u8>> {
+    let bytes = match context.read_owned(&object.path) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            errors.push(format!("missing_object:{}", object.id));
+            return None;
+        }
+        Err(error) => {
+            errors.push(format!("object_read_error:{}:{error}", object.id));
+            return None;
+        }
+    };
+    let actual = sha256_hex(&bytes);
+    if actual != object.sha256 {
+        errors.push(format!(
+            "hash_mismatch:{}:expected={}:actual={actual}",
+            object.id, object.sha256
+        ));
+    }
+    let kind = object.id.split_once(":sha256-").map(|(kind, _)| kind);
+    match kind {
+        Some(kind) if object.id == format!("{kind}:sha256-{actual}") => {}
+        _ => errors.push(format!("content_id_mismatch:{}", object.id)),
+    }
+    Some(bytes)
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn render_status(report: &StatusReport) -> String {
+    let mut output = format!(
+        "lifecycle={}\nadoption_boundary_commit={}\ncontext_commit={}\ncapture_grade={}\ncapture_grade_reason={}\ncontext_dirty={}\nintegrity={}\n",
+        report.lifecycle,
+        report.adoption_boundary_commit.as_deref().unwrap_or("none"),
+        report.context_commit.as_deref().unwrap_or("none"),
+        report.capture_grade,
+        report.capture_grade_reason,
+        report.context_dirty,
+        if report.integrity.valid { "valid" } else { "invalid" }
+    );
+    for (kind, count) in &report.object_counts {
+        output.push_str(&format!("object_count.{kind}={count}\n"));
+    }
+    for error in &report.integrity.errors {
+        output.push_str(&format!("integrity_error={error}\n"));
+    }
+    output
 }
 
 fn object_reference(object: &crate::context::StoredObject) -> CanonicalObjectRef {

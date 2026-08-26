@@ -122,6 +122,7 @@ pub struct CanonicalObjectRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommonGroundManifest {
     pub schema_version: String,
+    pub draft_sha256: String,
     pub common_ground: CanonicalObjectRef,
     pub approval: CanonicalObjectRef,
 }

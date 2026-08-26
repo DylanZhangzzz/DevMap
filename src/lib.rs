@@ -16,6 +16,7 @@ use crate::error::DevMapError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOutput {
     pub stdout: String,
+    pub exit_code: u8,
 }
 
 pub fn run<I, T>(args: I) -> Result<CommandOutput, DevMapError>
@@ -30,6 +31,6 @@ where
         Command::CommonGround {
             command: CommonGroundCommand::Approve(args),
         } => commands::approve(args),
-        Command::Status(_) => Err(DevMapError::UnsupportedCommand("status")),
+        Command::Status(args) => commands::status(args),
     }
 }
