@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="720" viewBox="0 0 1440 720" role="img" aria-labelledby="title desc">
+  <title id="title">DevMap development topology vision</title>
+  <desc id="desc">A dark shared development map connecting Common Ground, requirements, agents, decisions, pull requests, commits, evidence, and a release gate. The interactive Viewer is planned.</desc>
+
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080B16"/>
+      <stop offset="0.55" stop-color="#0D1324"/>
+      <stop offset="1" stop-color="#11182A"/>
+    </linearGradient>
+    <radialGradient id="violetGlow">
+      <stop offset="0" stop-color="#7C6DFF" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#7C6DFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="greenGlow">
+      <stop offset="0" stop-color="#42D392" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#42D392" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8290B8" stroke-opacity="0.055" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-50%" width="160%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.38"/>
+    </filter>
+    <style>
+      .edge { fill: none; stroke: #8390AE; stroke-opacity: .34; stroke-width: 1.4; }
+      .edge-strong { fill: none; stroke: #A59CFF; stroke-opacity: .68; stroke-width: 2; }
+      .edge-evidence { fill: none; stroke: #42D392; stroke-opacity: .62; stroke-width: 1.8; }
+      .edge-dashed { fill: none; stroke: #F5B83D; stroke-opacity: .55; stroke-width: 1.5; stroke-dasharray: 6 7; }
+      .small-node { stroke: #C9D2EA; stroke-opacity: .42; stroke-width: 1; }
+      .label { fill: #DDE5F7; font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .micro { fill: #8F9BB8; font: 500 11px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; }
+      .cluster { fill: #F5F7FF; font: 600 12px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="720" rx="24" fill="url(#background)"/>
+  <rect width="1440" height="720" rx="24" fill="url(#grid)"/>
+  <circle cx="325" cy="370" r="290" fill="url(#violetGlow)"/>
+  <circle cx="1095" cy="445" r="250" fill="url(#greenGlow)"/>
+
+  <g opacity="0.8">
+    <text x="64" y="72" fill="#F5F7FF" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="700" letter-spacing="0.04em">DEVELOPMENT TOPOLOGY</text>
+    <text x="64" y="100" fill="#8390AE" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14">One shared route from human intent to verified delivery</text>
+  </g>
+
+  <!-- Cross-cluster evidence routes -->
+  <path class="edge-strong" d="M344 346 C480 248 583 224 704 197"/>
+  <path class="edge-strong" d="M348 386 C500 421 610 412 746 364"/>
+  <path class="edge" d="M341 401 C495 527 697 567 933 491"/>
+  <path class="edge-strong" d="M775 205 C813 244 818 286 805 329"/>
+  <path class="edge-evidence" d="M829 371 C922 374 973 403 1043 437"/>
+  <path class="edge-evidence" d="M819 397 C896 490 950 509 1044 472"/>
+  <path class="edge-evidence" d="M1118 420 C1111 318 1035 246 902 188"/>
+  <path class="edge-dashed" d="M760 336 C706 283 681 261 626 250"/>
+
+  <!-- Common Ground cluster -->
+  <g>
+    <text class="cluster" x="128" y="190">COMMON GROUND</text>
+    <path class="edge" d="M306 348L226 276M313 343L303 250M330 343L391 265M342 353L446 322M344 371L459 381M335 395L415 478M315 397L291 493M299 387L210 448M295 367L180 358"/>
+    <path class="edge" d="M226 276L178 240M226 276L248 216M303 250L326 202M391 265L429 223M446 322L492 286M459 381L512 396M415 478L457 526M291 493L275 548M210 448L157 483M180 358L128 335"/>
+
+    <circle cx="320" cy="370" r="31" fill="#7568FF" filter="url(#shadow)"/>
+    <circle cx="320" cy="370" r="21" fill="#9D94FF"/>
+    <path d="M310 371l7 7 14-17" fill="none" stroke="#0B1020" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="label" x="278" y="418">Common Ground</text>
+
+    <g fill="#55A7FF">
+      <circle class="small-node" cx="226" cy="276" r="10"/><circle class="small-node" cx="303" cy="250" r="8"/>
+      <circle class="small-node" cx="391" cy="265" r="9"/><circle class="small-node" cx="446" cy="322" r="7"/>
+      <circle class="small-node" cx="459" cy="381" r="8"/><circle class="small-node" cx="415" cy="478" r="9"/>
+      <circle class="small-node" cx="291" cy="493" r="7"/><circle class="small-node" cx="210" cy="448" r="8"/>
+      <circle class="small-node" cx="180" cy="358" r="7"/>
+    </g>
+    <g fill="#7A86A5">
+      <circle cx="178" cy="240" r="4"/><circle cx="248" cy="216" r="4"/><circle cx="326" cy="202" r="4"/>
+      <circle cx="429" cy="223" r="4"/><circle cx="492" cy="286" r="4"/><circle cx="512" cy="396" r="4"/>
+      <circle cx="457" cy="526" r="4"/><circle cx="275" cy="548" r="4"/><circle cx="157" cy="483" r="4"/>
+      <circle cx="128" cy="335" r="4"/>
+    </g>
+    <text class="micro" x="178" y="302">REQUIREMENTS</text>
+    <text class="micro" x="368" y="506">POLICY</text>
+  </g>
+
+  <!-- Agent and decision route -->
+  <g>
+    <text class="cluster" x="540" y="172">ROUTE &amp; DECISIONS</text>
+    <path class="edge" d="M608 246L566 218M608 246L583 292M608 246L650 217M608 246L665 273"/>
+    <circle cx="608" cy="246" r="18" fill="#F4B740" filter="url(#shadow)"/>
+    <path d="M600 248h16M608 240v16" stroke="#17130B" stroke-width="2.5" stroke-linecap="round"/>
+    <circle class="small-node" cx="566" cy="218" r="7" fill="#F4B740"/>
+    <circle class="small-node" cx="583" cy="292" r="7" fill="#F4B740"/>
+    <circle class="small-node" cx="650" cy="217" r="7" fill="#F4B740"/>
+    <circle class="small-node" cx="665" cy="273" r="7" fill="#F4B740"/>
+    <text class="label" x="566" y="326">Agent Decision</text>
+  </g>
+
+  <!-- Release cluster -->
+  <g>
+    <text class="cluster" x="705" y="90">DELIVERY</text>
+    <path class="edge" d="M778 178L724 135M778 178L795 120M778 178L844 142M778 178L863 202"/>
+    <circle cx="778" cy="178" r="28" fill="#A995FF" filter="url(#shadow)"/>
+    <path d="M766 180l8 8 17-21" fill="none" stroke="#151126" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle class="small-node" cx="724" cy="135" r="7" fill="#7D89A8"/>
+    <circle class="small-node" cx="795" cy="120" r="6" fill="#7D89A8"/>
+    <circle class="small-node" cx="844" cy="142" r="8" fill="#7D89A8"/>
+    <circle class="small-node" cx="863" cy="202" r="6" fill="#7D89A8"/>
+    <text class="label" x="744" y="227">Release</text>
+  </g>
+
+  <!-- Pull request cluster -->
+  <g>
+    <text class="cluster" x="720" y="302">PULL REQUEST</text>
+    <path class="edge" d="M790 372L730 414M790 372L762 457M790 372L837 433M790 372L875 382M790 372L829 318"/>
+    <circle cx="790" cy="372" r="25" fill="#36BFF2" filter="url(#shadow)"/>
+    <path d="M779 362v18a7 7 0 0 0 7 7h5M801 382v-20M797 366l4-4 4 4" fill="none" stroke="#09202A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#54C9F4">
+      <circle class="small-node" cx="730" cy="414" r="7"/><circle class="small-node" cx="762" cy="457" r="8"/>
+      <circle class="small-node" cx="837" cy="433" r="7"/><circle class="small-node" cx="875" cy="382" r="8"/>
+      <circle class="small-node" cx="829" cy="318" r="6"/>
+    </g>
+    <text class="micro" x="727" y="489">COMMITS</text>
+  </g>
+
+  <!-- Evidence cluster -->
+  <g>
+    <text class="cluster" x="1018" y="332">VERIFIED EVIDENCE</text>
+    <path class="edge-evidence" d="M1090 454L1020 408M1090 454L1005 475M1090 454L1045 533M1090 454L1137 529M1090 454L1178 481M1090 454L1162 397"/>
+    <path class="edge" d="M1020 408L980 371M1005 475L953 482M1045 533L1011 579M1137 529L1160 579M1178 481L1230 499M1162 397L1203 363"/>
+    <circle cx="1090" cy="454" r="30" fill="#42D392" filter="url(#shadow)"/>
+    <path d="M1078 455l8 8 18-21" fill="none" stroke="#08251A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#42D392">
+      <circle class="small-node" cx="1020" cy="408" r="8"/><circle class="small-node" cx="1005" cy="475" r="7"/>
+      <circle class="small-node" cx="1045" cy="533" r="9"/><circle class="small-node" cx="1137" cy="529" r="8"/>
+      <circle class="small-node" cx="1178" cy="481" r="7"/><circle class="small-node" cx="1162" cy="397" r="8"/>
+    </g>
+    <g fill="#6E7B9B">
+      <circle cx="980" cy="371" r="4"/><circle cx="953" cy="482" r="4"/><circle cx="1011" cy="579" r="4"/>
+      <circle cx="1160" cy="579" r="4"/><circle cx="1230" cy="499" r="4"/><circle cx="1203" cy="363" r="4"/>
+    </g>
+    <text class="label" x="1052" y="503">Evidence</text>
+    <text class="micro" x="995" y="604">TEST · BUILD · REVIEW · ATTEST</text>
+  </g>
+
+  <!-- Agent actors -->
+  <g filter="url(#softShadow)">
+    <rect x="525" y="486" width="190" height="84" rx="16" fill="#141D31" stroke="#35415E"/>
+    <text class="micro" x="548" y="511">MULTI-AGENT ROUTE</text>
+    <circle cx="555" cy="540" r="11" fill="#A995FF"/><circle cx="596" cy="540" r="11" fill="#55A7FF"/><circle cx="637" cy="540" r="11" fill="#F4B740"/>
+    <text x="551" y="544" fill="#0B1020" font-family="system-ui" font-size="10" font-weight="700">A</text>
+    <text x="592" y="544" fill="#0B1020" font-family="system-ui" font-size="10" font-weight="700">B</text>
+    <text x="633" y="544" fill="#0B1020" font-family="system-ui" font-size="10" font-weight="700">C</text>
+    <path class="edge" d="M650 540H690"/>
+  </g>
+
+  <!-- Legend and status -->
+  <g transform="translate(64 642)">
+    <circle cx="6" cy="0" r="5" fill="#55A7FF"/><text class="micro" x="18" y="4">REQUIREMENT</text>
+    <circle cx="144" cy="0" r="5" fill="#F4B740"/><text class="micro" x="156" y="4">DECISION</text>
+    <circle cx="264" cy="0" r="5" fill="#36BFF2"/><text class="micro" x="276" y="4">CODE</text>
+    <circle cx="350" cy="0" r="5" fill="#42D392"/><text class="micro" x="362" y="4">EVIDENCE</text>
+  </g>
+
+  <g transform="translate(1048 632)">
+    <rect width="328" height="44" rx="22" fill="#171F33" stroke="#38445F"/>
+    <circle cx="24" cy="22" r="6" fill="#F4B740"/>
+    <text x="42" y="27" fill="#DDE5F7" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600">PRODUCT VISION · VIEWER PLANNED</text>
+  </g>
+</svg>
