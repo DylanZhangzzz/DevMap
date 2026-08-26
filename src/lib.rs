@@ -1,3 +1,4 @@
+pub mod canonical;
 pub mod cli;
 pub mod error;
 
@@ -30,4 +31,3 @@ where
 
     Err(DevMapError::UnsupportedCommand(command))
 }
-
