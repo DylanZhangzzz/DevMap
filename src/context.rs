@@ -111,6 +111,33 @@ impl ContextRepo {
         Ok(Some(fs::read(absolute_path)?))
     }
 
+    pub fn remove_owned(&self, relative_path: &str) -> Result<(), DevMapError> {
+        let normalized = relative_path.replace('\\', "/");
+        if !is_owned_path(&normalized) || Path::new(&normalized).is_absolute() {
+            return Err(DevMapError::UnexpectedContextPaths(vec![normalized]));
+        }
+        let absolute_path = self.root.join(normalized);
+        if absolute_path.exists() {
+            fs::remove_file(absolute_path)?;
+        }
+        Ok(())
+    }
+
+    pub fn ensure_clean(&self) -> Result<(), DevMapError> {
+        let status = self.git(["status", "--porcelain=v1", "--untracked-files=all"])?;
+        if !status.is_empty() {
+            return Err(DevMapError::ContextNotClean(status));
+        }
+        Ok(())
+    }
+
+    pub fn promote_fast_forward(&self, branch: &str) -> Result<String, DevMapError> {
+        self.git(["checkout", "main"])?;
+        self.git(["merge", "--ff-only", branch])?;
+        self.git(["branch", "-d", branch])?;
+        self.git(["rev-parse", "HEAD"])
+    }
+
     pub fn write_canonical<T: Serialize>(
         &self,
         kind: &str,

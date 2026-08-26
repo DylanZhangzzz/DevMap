@@ -75,4 +75,10 @@ pub enum DevMapError {
 
     #[error("unexpected Context Repository branch: {0}")]
     UnexpectedContextBranch(String),
+
+    #[error("Context Repository must be clean before approval: {0}")]
+    ContextNotClean(String),
+
+    #[error("Common Ground draft is missing")]
+    MissingCommonGroundDraft,
 }

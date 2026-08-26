@@ -5,15 +5,20 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::canonical::{canonical_json, sha256_hex};
-use crate::cli::InitArgs;
+use crate::cli::{ApproveArgs, InitArgs};
 use crate::context::ContextRepo;
-use crate::domain::{CommonGroundDraft, HistoricalScope, RequirementTrace};
+use crate::domain::{
+    ApprovalEvent, CanonicalObjectRef, CommonGround, CommonGroundDraft, CommonGroundManifest,
+    CurrentState, HistoricalScope, RequirementTrace, SCHEMA_VERSION,
+};
 use crate::error::DevMapError;
 use crate::git::SourceGitInspector;
 use crate::CommandOutput;
 
 const DRAFT_PATH: &str = "bootstrap/common-ground-draft.json";
 const BOOTSTRAP_BRANCH: &str = "bootstrap/initial";
+const MANIFEST_PATH: &str = "manifests/common-ground.json";
+const CURRENT_STATE_PATH: &str = "state/current.json";
 
 pub fn init(args: InitArgs) -> Result<CommandOutput, DevMapError> {
     let inspector = SourceGitInspector::open(&args.source)?;
@@ -63,6 +68,64 @@ pub fn init(args: InitArgs) -> Result<CommandOutput, DevMapError> {
             context.root().display()
         ),
     })
+}
+
+pub fn approve(args: ApproveArgs) -> Result<CommandOutput, DevMapError> {
+    let context = ContextRepo::open(absolute_candidate(&args.context)?)?;
+    let branch = context.current_branch()?;
+    if branch != BOOTSTRAP_BRANCH {
+        return Err(DevMapError::UnexpectedContextBranch(branch));
+    }
+    context.ensure_clean()?;
+
+    let draft_bytes = context
+        .read_owned(DRAFT_PATH)?
+        .ok_or(DevMapError::MissingCommonGroundDraft)?;
+    let draft: CommonGroundDraft = serde_json::from_slice(&draft_bytes)?;
+    let draft_sha256 = sha256_hex(&draft_bytes);
+    let approved_at = OffsetDateTime::now_utc().format(&Rfc3339)?;
+    let approval = ApprovalEvent::new(args.actor, approved_at.clone(), draft_sha256)?;
+    let approval_object = context.write_canonical("approval", &approval)?;
+    let common_ground = CommonGround::from_approved_draft(
+        draft,
+        approval_object.id.clone(),
+        approved_at,
+    )?;
+    let common_ground_object = context.write_canonical("common-ground", &common_ground)?;
+
+    let manifest = CommonGroundManifest {
+        schema_version: SCHEMA_VERSION.into(),
+        common_ground: object_reference(&common_ground_object),
+        approval: object_reference(&approval_object),
+    };
+    context.write_owned(MANIFEST_PATH, &canonical_json(&manifest)?)?;
+    let state = CurrentState {
+        schema_version: SCHEMA_VERSION.into(),
+        lifecycle: "approved".into(),
+        manifest_path: MANIFEST_PATH.into(),
+        common_ground_id: common_ground_object.id.clone(),
+        capture_grade: "C".into(),
+    };
+    context.write_owned(CURRENT_STATE_PATH, &canonical_json(&state)?)?;
+    context.remove_owned(DRAFT_PATH)?;
+
+    context.commit_all("Approve initial DevMap Common Ground")?;
+    let context_commit = context.promote_fast_forward(BOOTSTRAP_BRANCH)?;
+
+    Ok(CommandOutput {
+        stdout: format!(
+            "common_ground=approved\ncommon_ground_id={}\napproval_id={}\ncontext_commit={context_commit}\ncapture_grade=C\n",
+            common_ground_object.id, approval_object.id
+        ),
+    })
+}
+
+fn object_reference(object: &crate::context::StoredObject) -> CanonicalObjectRef {
+    CanonicalObjectRef {
+        id: object.id.clone(),
+        path: object.relative_path.clone(),
+        sha256: object.sha256.clone(),
+    }
 }
 
 fn prepare_bootstrap_branch(context: &ContextRepo) -> Result<(), DevMapError> {

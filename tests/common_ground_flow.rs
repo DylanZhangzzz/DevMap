@@ -86,5 +86,112 @@ fn init_creates_a_reviewable_draft_without_mutating_source() {
     let second_output = run(args).unwrap();
     assert_eq!(first_head, git(&context, ["rev-parse", "HEAD"]));
     assert_eq!(output.stdout, second_output.stdout);
+
+    let approval = run(vec![
+        OsString::from("devmap"),
+        OsString::from("common-ground"),
+        OsString::from("approve"),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--actor"),
+        OsString::from("Dylan"),
+    ])
+    .unwrap();
+
+    assert!(approval.stdout.contains("common_ground_id=common-ground:sha256-"));
+    assert!(approval.stdout.contains("approval_id=approval:sha256-"));
+    assert!(approval.stdout.contains("capture_grade=C"));
+    assert_eq!(git(&context, ["branch", "--show-current"]), "main");
+    assert!(!context.join("bootstrap/common-ground-draft.json").exists());
+    assert!(context.join("objects/common-ground").is_dir());
+    assert!(context.join("objects/approval").is_dir());
+    assert!(context.join("manifests/common-ground.json").is_file());
+    assert!(context.join("state/current.json").is_file());
+    assert!(!git(&context, ["branch", "--list", "bootstrap/initial"])
+        .contains("bootstrap/initial"));
+
+    let refs = git(&context, ["for-each-ref", "--format=%(refname)"]);
+    assert!(!refs.contains("refs/devmap"));
+    assert!(!refs.contains("refs/notes"));
 }
 
+#[test]
+fn approval_refuses_a_tampered_draft() {
+    let source = committed_repo();
+    let parent = tempfile::tempdir().unwrap();
+    let context = parent.path().join("context");
+    run(vec![
+        OsString::from("devmap"),
+        OsString::from("init"),
+        OsString::from("--source"),
+        source.path().as_os_str().to_owned(),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--goal"),
+        OsString::from("Adopt DevMap from this commit"),
+    ])
+    .unwrap();
+    fs::write(
+        context.join("bootstrap/common-ground-draft.json"),
+        br#"{"tampered":true}"#,
+    )
+    .unwrap();
+
+    let error = run(vec![
+        OsString::from("devmap"),
+        OsString::from("common-ground"),
+        OsString::from("approve"),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--actor"),
+        OsString::from("Dylan"),
+    ])
+    .unwrap_err();
+
+    assert!(error.to_string().contains("clean"));
+    assert!(!context.join("objects/common-ground").exists());
+}
+
+#[test]
+fn approval_requires_a_human_actor_and_the_bootstrap_branch() {
+    let source = committed_repo();
+    let parent = tempfile::tempdir().unwrap();
+    let context = parent.path().join("context");
+    run(vec![
+        OsString::from("devmap"),
+        OsString::from("init"),
+        OsString::from("--source"),
+        source.path().as_os_str().to_owned(),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--goal"),
+        OsString::from("Adopt DevMap from this commit"),
+    ])
+    .unwrap();
+
+    let blank_actor = run(vec![
+        OsString::from("devmap"),
+        OsString::from("common-ground"),
+        OsString::from("approve"),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--actor"),
+        OsString::from("  "),
+    ])
+    .unwrap_err();
+    assert!(blank_actor.to_string().contains("actor"));
+    assert!(!context.join("objects/common-ground").exists());
+
+    git(&context, ["checkout", "main"]);
+    let wrong_branch = run(vec![
+        OsString::from("devmap"),
+        OsString::from("common-ground"),
+        OsString::from("approve"),
+        OsString::from("--context"),
+        context.as_os_str().to_owned(),
+        OsString::from("--actor"),
+        OsString::from("Dylan"),
+    ])
+    .unwrap_err();
+    assert!(wrong_branch.to_string().contains("branch"));
+}

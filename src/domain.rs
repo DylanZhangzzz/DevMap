@@ -112,6 +112,29 @@ pub struct CommonGround {
     pub approval_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanonicalObjectRef {
+    pub id: String,
+    pub path: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommonGroundManifest {
+    pub schema_version: String,
+    pub common_ground: CanonicalObjectRef,
+    pub approval: CanonicalObjectRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurrentState {
+    pub schema_version: String,
+    pub lifecycle: String,
+    pub manifest_path: String,
+    pub common_ground_id: String,
+    pub capture_grade: String,
+}
+
 impl CommonGround {
     pub fn from_approved_draft(
         draft: CommonGroundDraft,
@@ -145,4 +168,3 @@ fn required_trimmed(value: String, field: &'static str) -> Result<String, DevMap
     }
     Ok(value.to_owned())
 }
-

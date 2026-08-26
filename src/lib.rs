@@ -28,8 +28,8 @@ where
     match cli.command {
         Command::Init(args) => commands::init(args),
         Command::CommonGround {
-            command: CommonGroundCommand::Approve(_),
-        } => Err(DevMapError::UnsupportedCommand("common-ground approve")),
+            command: CommonGroundCommand::Approve(args),
+        } => commands::approve(args),
         Command::Status(_) => Err(DevMapError::UnsupportedCommand("status")),
     }
 }
