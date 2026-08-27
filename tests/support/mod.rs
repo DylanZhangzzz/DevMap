@@ -48,3 +48,19 @@ pub fn committed_repo() -> TempDir {
     git(directory.path(), ["commit", "-m", "initial fixture"]);
     directory
 }
+
+#[allow(dead_code)]
+pub fn linked_worktree(repo: &Path, branch: &str) -> TempDir {
+    let directory = tempfile::tempdir().expect("create linked worktree directory");
+    git(
+        repo,
+        [
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            directory.path().to_str().expect("worktree path is UTF-8"),
+        ],
+    );
+    directory
+}

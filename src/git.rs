@@ -6,6 +6,14 @@ use crate::canonical::sha256_hex;
 use crate::domain::SourceAnchor;
 use crate::error::DevMapError;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceWorkspace {
+    pub root: PathBuf,
+    pub git_dir: PathBuf,
+    pub branch: Option<String>,
+    pub head: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceGitInspector {
     root: PathBuf,
@@ -47,6 +55,26 @@ impl SourceGitInspector {
             head_commit,
             default_branch,
             dirty_at_adoption,
+        })
+    }
+
+    pub fn workspace(&self) -> Result<SourceWorkspace, DevMapError> {
+        let root = self.required_git(["rev-parse", "--show-toplevel"])?;
+        let git_dir = self.required_git(["rev-parse", "--git-dir"])?;
+        let head = self.required_git(["rev-parse", "HEAD"])?;
+        let branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
+        let root = PathBuf::from(root);
+        let git_dir = PathBuf::from(git_dir);
+
+        Ok(SourceWorkspace {
+            git_dir: if git_dir.is_absolute() {
+                git_dir
+            } else {
+                root.join(git_dir)
+            },
+            root,
+            branch,
+            head,
         })
     }
 
