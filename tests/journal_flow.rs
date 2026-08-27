@@ -178,3 +178,61 @@ fn append_rejects_non_next_sequences_and_duplicate_event_ids() {
     assert!(store.append(event(2, "evt-1")).is_err());
     assert!(store.append(event(3, "evt-skipped")).is_err());
 }
+
+#[test]
+fn journal_rejects_session_ids_that_are_not_one_normal_path_component() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+
+    for session_id in [
+        "",
+        ".",
+        "..",
+        "one/two",
+        "one\\two",
+        "C:escape",
+        "C:\\escape",
+    ] {
+        assert!(
+            JournalStore::open(&workspace, session_id).is_err(),
+            "{session_id:?} must not escape the session root"
+        );
+    }
+}
+
+#[test]
+fn replay_requires_newline_delimited_canonical_records_without_unknown_fields() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    store.append(event(1, "evt-1")).unwrap();
+    let path = journal_path(&workspace.git_dir, "session-1");
+    let original = fs::read_to_string(&path).unwrap();
+
+    fs::write(&path, original.trim_end_matches('\n')).unwrap();
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
+
+    fs::write(&path, original.replacen('{', "{ ", 1)).unwrap();
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
+
+    let value: serde_json::Value = serde_json::from_str(original.trim_end()).unwrap();
+    let reordered = format!(
+        "{{\"sha256\":{},\"sequence\":{},\"event\":{},\"previous_sha256\":{}}}\n",
+        value["sha256"], value["sequence"], value["event"], value["previous_sha256"]
+    );
+    fs::write(&path, reordered).unwrap();
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
+
+    let unknown = format!(
+        "{},\"extra\":true}}\n",
+        original.trim_end().trim_end_matches('}')
+    );
+    fs::write(&path, unknown).unwrap();
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
+}

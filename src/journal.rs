@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,7 @@ use crate::events::EventEnvelope;
 use crate::git::SourceWorkspace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalRecord {
     pub sequence: u64,
     pub event: EventEnvelope,
@@ -33,11 +34,7 @@ struct UnsignedJournalRecord<'a> {
 
 impl JournalStore {
     pub fn open(workspace: &SourceWorkspace, session_id: &str) -> Result<Self, DevMapError> {
-        if session_id.trim().is_empty()
-            || session_id.contains(['/', '\\'])
-            || session_id == "."
-            || session_id == ".."
-        {
+        if !is_normal_session_component(session_id) {
             return Err(DevMapError::JournalCorruption(
                 "session ID must be a non-empty path component".to_owned(),
             ));
@@ -93,20 +90,36 @@ impl JournalStore {
             return Ok(Vec::new());
         }
 
-        let reader = BufReader::new(File::open(path)?);
+        let mut reader = BufReader::new(File::open(path)?);
         let mut records = Vec::new();
         let mut event_ids = HashSet::new();
         let mut previous_sha256 = None;
 
-        for (offset, line) in reader.lines().enumerate() {
-            let line = line?;
-            let line_number = offset + 1;
-            if line.is_empty() {
+        let mut line = Vec::new();
+        let mut line_number = 0;
+        loop {
+            line.clear();
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
+            line_number += 1;
+            if line.last() != Some(&b'\n') {
+                return Err(corruption(format!(
+                    "record at line {line_number} is missing its terminating newline"
+                )));
+            }
+            let raw_record = &line[..line.len() - 1];
+            if raw_record.is_empty() {
                 return Err(corruption(format!("empty record at line {line_number}")));
             }
-            let record: JournalRecord = serde_json::from_str(&line).map_err(|error| {
+            let record: JournalRecord = serde_json::from_slice(raw_record).map_err(|error| {
                 corruption(format!("malformed JSON at line {line_number}: {error}"))
             })?;
+            if raw_record != canonical_json(&record)?.as_slice() {
+                return Err(corruption(format!(
+                    "record at line {line_number} is not canonical JSON"
+                )));
+            }
             let expected_sequence = records.len() as u64 + 1;
             if record.sequence < expected_sequence {
                 return Err(DevMapError::DuplicateSequence(record.sequence));
@@ -148,6 +161,15 @@ impl JournalStore {
     fn events_path(&self) -> PathBuf {
         self.root.join(&self.session_id).join("events.ndjson")
     }
+}
+
+fn is_normal_session_component(session_id: &str) -> bool {
+    if session_id.trim().is_empty() || session_id.contains(['/', '\\']) {
+        return false;
+    }
+
+    let mut components = Path::new(session_id).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
 impl JournalRecord {
