@@ -529,4 +529,3 @@ git commit -m "[TEST](workflow): validate controlled git automation"
 - [ ] Confirm `work/` was neither changed nor staged.
 - [ ] Run full format, lint, test, build, and help checks from a clean checkout.
 - [ ] Request code review before integrating Phase 1C.1.
-
