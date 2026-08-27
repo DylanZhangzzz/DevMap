@@ -6,8 +6,30 @@ use crate::error::DevMapError;
 
 pub fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>, DevMapError> {
     let value = serde_json::to_value(value)?;
+    ensure_no_floating_points(&value)?;
     let normalized = normalize(value)?;
     Ok(serde_json::to_vec(&normalized)?)
+}
+
+/// Rejects values that cannot have a stable JSON canonical representation.
+pub fn ensure_no_floating_points(value: &Value) -> Result<(), DevMapError> {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                ensure_no_floating_points(value)?;
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                ensure_no_floating_points(value)?;
+            }
+        }
+        Value::Number(number) if !number.is_i64() && !number.is_u64() => {
+            return Err(DevMapError::FloatingPointNotCanonical);
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -36,9 +58,7 @@ fn normalize(value: Value) -> Result<Value, DevMapError> {
             }
             Ok(Value::Object(normalized))
         }
-        Value::Number(number) if !number.is_i64() && !number.is_u64() => {
-            Err(DevMapError::FloatingPointNotCanonical)
-        }
+        Value::Number(_) => Ok(value),
         scalar => Ok(scalar),
     }
 }

@@ -4,6 +4,7 @@ pub mod commands;
 pub mod context;
 pub mod domain;
 pub mod error;
+pub mod events;
 pub mod git;
 
 use std::ffi::OsString;
