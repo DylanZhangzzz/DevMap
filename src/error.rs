@@ -10,6 +10,24 @@ pub enum DevMapError {
     #[error("command is not implemented yet: {0}")]
     UnsupportedCommand(&'static str),
 
+    #[error("malformed adapter configuration: {0}")]
+    MalformedAdapterConfig(String),
+
+    #[error("unsupported host event: {0}")]
+    UnsupportedHostEvent(String),
+
+    #[error("invalid event envelope: {0}")]
+    InvalidEventEnvelope(String),
+
+    #[error("capture journal is corrupt: {0}")]
+    JournalCorruption(String),
+
+    #[error("duplicate journal sequence: {0}")]
+    DuplicateSequence(u64),
+
+    #[error("unsafe installer overwrite refused: {0}")]
+    UnsafeInstallerOverwrite(PathBuf),
+
     #[error("floating point values are not allowed in canonical evidence")]
     FloatingPointNotCanonical,
 

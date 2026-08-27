@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -24,6 +24,92 @@ pub enum Command {
     },
     /// Verify and summarize a Context Repository.
     Status(StatusArgs),
+    /// Plan, install, verify, or remove a project-local host adapter.
+    Adapter {
+        #[command(subcommand)]
+        command: AdapterCommand,
+    },
+    /// Normalize a native host lifecycle event into capture events.
+    Hook {
+        #[command(subcommand)]
+        command: HookCommand,
+    },
+    /// Run the generic MCP capture endpoint.
+    Mcp(McpArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AdapterCommand {
+    /// Show the bindings an adapter would install.
+    Plan(AdapterPlanArgs),
+    /// Install project-local adapter bindings.
+    Install(AdapterInstallArgs),
+    /// Verify installed adapter bindings and capabilities.
+    Verify(AdapterVerifyArgs),
+    /// Remove DevMap-owned adapter bindings.
+    Uninstall(AdapterUninstallArgs),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AdapterHost {
+    Codex,
+    Claude,
+    #[value(name = "generic-mcp")]
+    GenericMcp,
+}
+
+#[derive(Debug, Args)]
+pub struct AdapterPlanArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub host: AdapterHost,
+}
+
+#[derive(Debug, Args)]
+pub struct AdapterInstallArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub host: AdapterHost,
+}
+
+#[derive(Debug, Args)]
+pub struct AdapterVerifyArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub host: Option<AdapterHost>,
+}
+
+#[derive(Debug, Args)]
+pub struct AdapterUninstallArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub host: AdapterHost,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HookCommand {
+    /// Handle one host lifecycle event from the native hook protocol.
+    Handle(HookHandleArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct HookHandleArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub host: AdapterHost,
+    #[arg(long)]
+    pub event: String,
+}
+
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    #[arg(long)]
+    pub source: PathBuf,
 }
 
 #[derive(Debug, Args)]

@@ -10,7 +10,7 @@ use std::ffi::OsString;
 
 use clap::Parser;
 
-use crate::cli::{Cli, Command, CommonGroundCommand};
+use crate::cli::{AdapterCommand, Cli, Command, CommonGroundCommand, HookCommand};
 use crate::error::DevMapError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,5 +32,25 @@ where
             command: CommonGroundCommand::Approve(args),
         } => commands::approve(args),
         Command::Status(args) => commands::status(args),
+        Command::Adapter { command } => dispatch_adapter(command),
+        Command::Hook { command } => dispatch_hook(command),
+        Command::Mcp(_) => Err(DevMapError::UnsupportedCommand("mcp")),
     }
+}
+
+fn dispatch_adapter(command: AdapterCommand) -> Result<CommandOutput, DevMapError> {
+    let name = match command {
+        AdapterCommand::Plan(_) => "adapter plan",
+        AdapterCommand::Install(_) => "adapter install",
+        AdapterCommand::Verify(_) => "adapter verify",
+        AdapterCommand::Uninstall(_) => "adapter uninstall",
+    };
+    Err(DevMapError::UnsupportedCommand(name))
+}
+
+fn dispatch_hook(command: HookCommand) -> Result<CommandOutput, DevMapError> {
+    let name = match command {
+        HookCommand::Handle(_) => "hook handle",
+    };
+    Err(DevMapError::UnsupportedCommand(name))
 }
