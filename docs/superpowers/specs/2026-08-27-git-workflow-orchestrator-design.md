@@ -364,7 +364,9 @@ Delivery order:
 
 1. **Phase 1B:** Canonical Event Protocol, Capture Kernel integration,
    Mutation Ledger, project-local installer, Codex/Claude/Generic adapters, and
-   conformance tests. It makes no source Git mutation.
+   conformance tests. It may create or merge only explicitly approved
+   project-local adapter configuration files; it does not create branches or
+   worktrees, stage, commit, push, or otherwise change source Git state.
 2. **Phase 1C.1:** controlled branch/worktree/commit automation, recovery, and
    dynamic gear changes in local Git sandboxes.
 3. **Phase 1C.2:** full-auto push and remote confirmation.
