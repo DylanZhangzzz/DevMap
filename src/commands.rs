@@ -6,11 +6,13 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
-use crate::adapter::{install_adapter, plan_adapter, uninstall_adapter, verify_adapter};
+use crate::adapter::{
+    install_adapter, plan_adapter, plan_uninstall_adapter, uninstall_adapter, verify_adapter,
+};
 use crate::canonical::{canonical_json, sha256_hex};
 use crate::cli::{
-    AdapterHost, AdapterInstallArgs, AdapterPlanArgs, AdapterUninstallArgs, AdapterVerifyArgs,
-    ApproveArgs, InitArgs, StatusArgs,
+    AdapterHost, AdapterInstallArgs, AdapterPlanAction, AdapterPlanArgs, AdapterUninstallArgs,
+    AdapterVerifyArgs, ApproveArgs, InitArgs, StatusArgs,
 };
 use crate::context::ContextRepo;
 use crate::domain::{
@@ -26,12 +28,25 @@ const MANIFEST_PATH: &str = "manifests/common-ground.json";
 const CURRENT_STATE_PATH: &str = "state/current.json";
 
 pub fn adapter_plan(args: AdapterPlanArgs) -> Result<CommandOutput, DevMapError> {
-    let plan = plan_adapter(&args.source, args.host)?;
+    let plan = match args.action {
+        AdapterPlanAction::Install => plan_adapter(&args.source, args.host)?,
+        AdapterPlanAction::Uninstall => plan_uninstall_adapter(&args.source, args.host)?,
+    };
     let mut stdout = format!(
-        "host={}\nconfig_path={}\nkernel_command_path=devmap hook handle\ncapture_grade={}\n",
+        "host={}\naction={}\nconfig_path={}\nkernel_command_path={}\ncapture_grade={}\nplan_digest={}\n",
         host_name(plan.host),
+        match args.action {
+            AdapterPlanAction::Install => "install",
+            AdapterPlanAction::Uninstall => "uninstall",
+        },
         plan.config_path.display(),
-        grade_name(plan.capture_grade)
+        if plan.host == AdapterHost::GenericMcp {
+            "devmap mcp"
+        } else {
+            "devmap hook handle"
+        },
+        grade_name(plan.capture_grade),
+        plan.plan_digest,
     );
     for binding in plan.bindings {
         stdout.push_str(&format!(
@@ -46,7 +61,7 @@ pub fn adapter_plan(args: AdapterPlanArgs) -> Result<CommandOutput, DevMapError>
 }
 
 pub fn adapter_install(args: AdapterInstallArgs) -> Result<CommandOutput, DevMapError> {
-    let report = install_adapter(plan_adapter(&args.source, args.host)?)?;
+    let report = install_adapter(plan_adapter(&args.source, args.host)?, &args.plan_digest)?;
     Ok(CommandOutput {
         stdout: format!(
             "host={}\nconfig_path={}\nchanged={}\nadded={}\n",
@@ -62,7 +77,11 @@ pub fn adapter_install(args: AdapterInstallArgs) -> Result<CommandOutput, DevMap
 pub fn adapter_verify(args: AdapterVerifyArgs) -> Result<CommandOutput, DevMapError> {
     let hosts = match args.host {
         Some(host) => vec![host],
-        None => vec![AdapterHost::Codex, AdapterHost::Claude],
+        None => vec![
+            AdapterHost::Codex,
+            AdapterHost::Claude,
+            AdapterHost::GenericMcp,
+        ],
     };
     let mut stdout = String::new();
     let mut exit_code = 0;
@@ -70,18 +89,21 @@ pub fn adapter_verify(args: AdapterVerifyArgs) -> Result<CommandOutput, DevMapEr
         let report = verify_adapter(&args.source, host)?;
         let capabilities = serde_json::to_string(&report.capabilities)?;
         stdout.push_str(&format!(
-            "host={}\nconfig_path={}\nkernel_command_path={}\npresent={}\nmissing={}\nmodified={}\ncapabilities={}\ncapture_grade={}\ndrift_reason={}\n",
+            "host={}\nconfig_path={}\nkernel_command_path={}\nconfigured={}\nactivation_verified={}\npresent={}\nmissing={}\nmodified={}\ncapabilities={}\ncapture_grade={}\ndrift_reason={}\nactivation_reason={}\n",
             host_name(report.host),
             report.config_path.display(),
             report.kernel_command_path,
+            report.configured,
+            report.activation_verified,
             report.present.join(","),
             report.missing.join(","),
             report.modified.join(","),
             capabilities,
             grade_name(report.capture_grade),
-            report.drift_reasons.join("; ")
+            report.drift_reasons.join("; "),
+            report.activation_reasons.join("; ")
         ));
-        if report.capture_grade == crate::events::CaptureGrade::D {
+        if !report.configured {
             exit_code = 1;
         }
     }
@@ -89,7 +111,10 @@ pub fn adapter_verify(args: AdapterVerifyArgs) -> Result<CommandOutput, DevMapEr
 }
 
 pub fn adapter_uninstall(args: AdapterUninstallArgs) -> Result<CommandOutput, DevMapError> {
-    let report = uninstall_adapter(&args.source, args.host)?;
+    let report = uninstall_adapter(
+        plan_uninstall_adapter(&args.source, args.host)?,
+        &args.plan_digest,
+    )?;
     Ok(CommandOutput {
         stdout: format!(
             "host={}\nconfig_path={}\nchanged={}\nremoved={}\n",

@@ -181,7 +181,7 @@ fn stdio_handles_initialize_list_all_tools_and_multiple_messages() {
     );
     assert_eq!(context["branch"], "main");
     assert_eq!(context["head"], workspace.head);
-    assert_eq!(context["capture_grade"], "C");
+    assert_eq!(context["capture_grade"], "D");
     assert_eq!(
         context["journal_location"],
         workspace
@@ -235,12 +235,12 @@ fn stdio_preserves_ids_and_returns_json_rpc_errors_without_answering_notificatio
 
     assert_eq!(responses.len(), 5);
     assert_eq!(responses[0]["id"], "unsupported");
-    assert_eq!(responses[0]["error"]["code"], -32602);
     assert_eq!(
-        responses[0]["error"]["data"]["supported"],
-        json!([LEGACY_PROTOCOL_VERSION])
+        responses[0]["result"]["protocolVersion"],
+        LEGACY_PROTOCOL_VERSION
     );
-    assert_eq!(responses[0]["error"]["data"]["requested"], "1900-01-01");
+    assert_eq!(responses[0]["result"]["capabilities"], json!({"tools": {}}));
+    assert!(responses[0].get("error").is_none());
     assert_eq!(responses[1]["id"], 7);
     assert_eq!(responses[2]["id"], 1.5);
     assert!(responses[2].get("result").is_some());
@@ -284,7 +284,7 @@ fn dual_era_stdio_serves_modern_discovery_and_stateless_tools_alongside_legacy()
     assert_eq!(discovery["resultType"], "complete");
     assert_eq!(
         discovery["supportedVersions"],
-        json!([MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION])
+        json!([MODERN_PROTOCOL_VERSION])
     );
     assert_eq!(discovery["capabilities"], json!({"tools": {}}));
     assert_eq!(
@@ -371,7 +371,7 @@ fn legacy_metadata_without_namespaced_protocol_version_stays_legacy_after_initia
 }
 
 #[test]
-fn dual_era_rejects_unsupported_missing_and_mixed_version_metadata() {
+fn modern_rejects_bad_metadata_while_legacy_initialize_counteroffers() {
     let repository = committed_repo();
     let unsupported_modern = |id: &str, version: &str| {
         request(
@@ -419,16 +419,16 @@ fn dual_era_rejects_unsupported_missing_and_mixed_version_metadata() {
         assert_eq!(response["error"]["code"], -32022);
         assert_eq!(
             response["error"]["data"]["supported"],
-            json!([MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION])
+            json!([MODERN_PROTOCOL_VERSION])
         );
     }
     assert_eq!(responses[3]["error"]["code"], -32602);
     assert_eq!(responses[4]["error"]["code"], -32602);
-    assert_eq!(responses[5]["error"]["code"], -32602);
     assert_eq!(
-        responses[5]["error"]["data"]["supported"],
-        json!([LEGACY_PROTOCOL_VERSION])
+        responses[5]["result"]["protocolVersion"],
+        LEGACY_PROTOCOL_VERSION
     );
+    assert!(responses[5].get("error").is_none());
     assert_eq!(responses[6]["error"]["code"], -32602);
 }
 

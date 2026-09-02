@@ -7,6 +7,7 @@ pub mod context;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub(crate) mod fs_security;
 pub mod git;
 pub mod hook;
 pub mod journal;
@@ -54,18 +55,6 @@ where
 
 fn dispatch_adapter(command: AdapterCommand) -> Result<CommandOutput, DevMapError> {
     match command {
-        AdapterCommand::Plan(args) if args.host == cli::AdapterHost::GenericMcp => {
-            mcp::plan_generic_adapter(&args.source)
-        }
-        AdapterCommand::Install(args) if args.host == cli::AdapterHost::GenericMcp => {
-            mcp::install_generic_adapter(&args.source)
-        }
-        AdapterCommand::Verify(args) if args.host == Some(cli::AdapterHost::GenericMcp) => {
-            mcp::verify_generic_adapter(&args.source)
-        }
-        AdapterCommand::Uninstall(args) if args.host == cli::AdapterHost::GenericMcp => {
-            mcp::uninstall_generic_adapter(&args.source)
-        }
         AdapterCommand::Plan(args) => commands::adapter_plan(args),
         AdapterCommand::Install(args) => commands::adapter_install(args),
         AdapterCommand::Verify(args) => commands::adapter_verify(args),

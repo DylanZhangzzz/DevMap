@@ -311,13 +311,7 @@ fn replay_rejects_tampered_records_and_invalid_sequence_streams() {
             + "\n",
     )
     .unwrap();
-    assert!(
-        store
-            .replay()
-            .unwrap_err()
-            .to_string()
-            .contains("duplicate journal sequence")
-    );
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
 
     fs::write(&path, &original).unwrap();
     let mut skipped: Vec<serde_json::Value> = original
@@ -343,7 +337,7 @@ fn replay_rejects_tampered_records_and_invalid_sequence_streams() {
 }
 
 #[test]
-fn append_rejects_non_next_sequences_and_duplicate_event_ids() {
+fn append_rejects_non_next_sequences_and_accepts_an_equivalent_identifiable_retry() {
     let repository = committed_repo();
     let workspace = SourceGitInspector::open(repository.path())
         .unwrap()
@@ -353,7 +347,9 @@ fn append_rejects_non_next_sequences_and_duplicate_event_ids() {
     store.append(event(1, "evt-1")).unwrap();
 
     assert!(store.append(event(1, "evt-duplicate-sequence")).is_err());
-    assert!(store.append(event(2, "evt-1")).is_err());
+    let retry = store.append(event(2, "evt-1")).unwrap();
+    assert_eq!(retry.sequence, 1);
+    assert_eq!(store.replay().unwrap().len(), 1);
     assert!(store.append(event(3, "evt-skipped")).is_err());
 }
 

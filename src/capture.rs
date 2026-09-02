@@ -2,10 +2,14 @@ use serde_json::json;
 
 use crate::error::DevMapError;
 use crate::events::{
-    ActorIdentity, CaptureGrade, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity,
-    SessionContext,
+    ActorIdentity, CaptureCapabilities, EVENT_SCHEMA_VERSION, EventEnvelope, EventType,
+    HostIdentity, SessionContext,
 };
 use crate::journal::{JournalRecord, JournalStore};
+
+pub const MAX_CAPTURE_STRING_BYTES: usize = 16 * 1024;
+pub const MAX_CAPTURE_LIST_ITEMS: usize = 64;
+const MAX_CAPTURE_LIST_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequirementTraceInput {
@@ -36,7 +40,7 @@ pub struct EvidenceInput {
 #[derive(Debug, Clone)]
 pub struct CaptureKernel {
     journal: JournalStore,
-    capture_grade: CaptureGrade,
+    capabilities: CaptureCapabilities,
     host: HostIdentity,
     actor: ActorIdentity,
     context: SessionContext,
@@ -45,18 +49,24 @@ pub struct CaptureKernel {
 impl CaptureKernel {
     pub fn new(
         journal: JournalStore,
-        capture_grade: CaptureGrade,
+        capabilities: CaptureCapabilities,
         host: HostIdentity,
         actor: ActorIdentity,
         context: SessionContext,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, DevMapError> {
+        if journal.session_id() != context.session_id() {
+            return Err(DevMapError::SessionMismatch {
+                journal_session: journal.session_id().to_owned(),
+                event_session: context.session_id().to_owned(),
+            });
+        }
+        Ok(Self {
             journal,
-            capture_grade,
+            capabilities,
             host,
             actor,
             context,
-        }
+        })
     }
 
     pub fn record_requirement(
@@ -89,7 +99,7 @@ impl CaptureKernel {
             EventType::InstructionObserved,
             occurred_at,
             json!({
-                "capture_grade": self.capture_grade,
+                "capture_grade": self.capabilities.grade(),
                 "requirement_trace": {
                     "source": {"kind": source_kind, "locator": source_locator},
                     "approved_quotation": quoted_text,
@@ -126,7 +136,7 @@ impl CaptureKernel {
             EventType::DecisionRecorded,
             occurred_at,
             json!({
-                "capture_grade": self.capture_grade,
+                "capture_grade": self.capabilities.grade(),
                 "agent_decision": {
                     "decision": decision,
                     "basis": basis,
@@ -166,7 +176,7 @@ impl CaptureKernel {
             EventType::EvidenceRecorded,
             occurred_at,
             json!({
-                "capture_grade": self.capture_grade,
+                "capture_grade": self.capabilities.grade(),
                 "evidence": {"kind": kind, "target": target, "command": command, "outcome": outcome},
                 "provisional": provisional,
             }),
@@ -188,7 +198,7 @@ impl CaptureKernel {
             EventType::CaptureGap,
             occurred_at,
             json!({
-                "capture_grade": self.capture_grade,
+                "capture_grade": self.capabilities.grade(),
                 "reason": reason,
                 "mutation_target": mutation_target,
             }),
@@ -230,6 +240,12 @@ fn required(field: &'static str, value: String) -> Result<String, DevMapError> {
     if value.trim().is_empty() {
         return Err(DevMapError::InvalidDomain(field));
     }
+    if value.len() > MAX_CAPTURE_STRING_BYTES {
+        return Err(DevMapError::ResourceLimit {
+            resource: field,
+            limit: MAX_CAPTURE_STRING_BYTES,
+        });
+    }
     Ok(value)
 }
 
@@ -241,10 +257,23 @@ fn required_list(field: &'static str, values: Vec<String>) -> Result<Vec<String>
     if values.is_empty() {
         return Err(DevMapError::InvalidDomain(field));
     }
-    values
+    if values.len() > MAX_CAPTURE_LIST_ITEMS {
+        return Err(DevMapError::ResourceLimit {
+            resource: field,
+            limit: MAX_CAPTURE_LIST_ITEMS,
+        });
+    }
+    let values = values
         .into_iter()
         .map(|value| required(field, value))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if values.iter().map(String::len).sum::<usize>() > MAX_CAPTURE_LIST_BYTES {
+        return Err(DevMapError::ResourceLimit {
+            resource: field,
+            limit: MAX_CAPTURE_LIST_BYTES,
+        });
+    }
+    Ok(values)
 }
 
 fn validate_evidence_target(target: String) -> Result<String, DevMapError> {

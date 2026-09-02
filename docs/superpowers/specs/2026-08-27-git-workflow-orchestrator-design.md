@@ -242,7 +242,7 @@ All adapters emit the same ordered Event Envelope:
 
 First-release event types are:
 
-- `session.started`, `session.stopped`;
+- `session.started`, `session.stopped`, `turn.completed`;
 - `instruction.observed`;
 - `agent.started`, `agent.stopped`;
 - `tool.requested`, `tool.completed`;
@@ -263,14 +263,17 @@ DevMap MCP tools and optional wrappers; their Capture Grade is based on actual
 capability, never on a prompt alone. Project-local installation is the default:
 
 ```text
-devmap adapter plan --host codex
-devmap adapter install --host codex
-devmap adapter install --host claude
-devmap adapter install --host generic-mcp
-devmap adapter verify
+devmap adapter plan --source . --host codex
+devmap adapter install --source . --host codex --plan-digest <reviewed-plan-digest>
+devmap adapter plan --source . --host claude
+devmap adapter install --source . --host claude --plan-digest <reviewed-plan-digest>
+devmap adapter plan --source . --host generic-mcp
+devmap adapter install --source . --host generic-mcp --plan-digest <reviewed-plan-digest>
+devmap adapter verify --source .
 ```
 
-The installer preview is mandatory, merges idempotently, preserves unrelated
+The installer preview and its exact plan digest are mandatory. Installation
+merges idempotently, preserves unrelated
 hooks, and tags DevMap-owned handlers for safe uninstall. It adds project-local
 Codex and Claude hook entries rather than copying Kernel rules into settings.
 CI checks Kernel and policy hash drift.

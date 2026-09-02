@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use devmap::adapter::{install_adapter, plan_adapter, uninstall_adapter, verify_adapter};
+use devmap::adapter::{
+    AdapterPlan, InstallReport, install_adapter as install_reviewed, plan_adapter,
+    plan_uninstall_adapter, uninstall_adapter as uninstall_reviewed, verify_adapter,
+};
 use devmap::cli::{AdapterHost, Cli};
 use devmap::error::DevMapError;
 use devmap::events::CaptureGrade;
@@ -26,6 +29,17 @@ const EVENTS: [&str; 10] = [
     "SessionEnd",
 ];
 
+fn install_adapter(plan: AdapterPlan) -> Result<InstallReport, DevMapError> {
+    let token = plan.plan_digest.clone();
+    install_reviewed(plan, &token)
+}
+
+fn uninstall_adapter(source: &Path, host: AdapterHost) -> Result<InstallReport, DevMapError> {
+    let plan = plan_uninstall_adapter(source, host)?;
+    let token = plan.plan_digest.clone();
+    uninstall_reviewed(plan, &token)
+}
+
 #[test]
 fn plan_is_read_only_and_emits_executable_official_host_bindings() {
     for host in [AdapterHost::Codex, AdapterHost::Claude] {
@@ -37,7 +51,7 @@ fn plan_is_read_only_and_emits_executable_official_host_bindings() {
 
         assert_eq!(plan.host, host);
         assert_eq!(plan.config_path, fixture.config_path);
-        assert_eq!(plan.capture_grade, CaptureGrade::A);
+        assert_eq!(plan.capture_grade, CaptureGrade::D);
         assert_eq!(
             plan.bindings
                 .iter()
@@ -94,11 +108,8 @@ fn generic_mcp_plan_is_read_only_and_names_only_the_stdio_descriptor() {
             .stdout
             .contains(&format!("config_path={}", config_path.display()))
     );
-    assert!(
-        output.stdout.contains(
-            r#"descriptor={"command":["devmap","mcp","--source","."],"transport":"stdio"}"#
-        )
-    );
+    assert!(output.stdout.contains("capture_grade=D"));
+    assert!(output.stdout.contains("plan_digest=sha256-"));
     assert!(!config_path.exists());
     assert_eq!(repository_snapshot(root.path()), before);
 }
@@ -109,6 +120,8 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
     let config_path = root.path().join(".devmap/mcp.json");
     let relative_config = Path::new(".devmap/mcp.json");
     let before_git = git_metadata_snapshot(root.path());
+    let first_plan = plan_adapter(root.path(), AdapterHost::GenericMcp).unwrap();
+    let first_token = first_plan.plan_digest;
 
     let install = devmap::run([
         "devmap",
@@ -118,6 +131,8 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
         root.path().to_str().unwrap(),
         "--host",
         "generic-mcp",
+        "--plan-digest",
+        &first_token,
     ])
     .unwrap();
     assert!(install.stdout.contains("changed=true"));
@@ -150,6 +165,8 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
     );
     assert!(git(root.path(), ["diff", "--cached", "--name-only"]).is_empty());
 
+    let second_plan = plan_adapter(root.path(), AdapterHost::GenericMcp).unwrap();
+    let second_token = second_plan.plan_digest;
     let second = devmap::run([
         "devmap",
         "adapter",
@@ -158,6 +175,8 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
         root.path().to_str().unwrap(),
         "--host",
         "generic-mcp",
+        "--plan-digest",
+        &second_token,
     ])
     .unwrap();
     assert!(second.stdout.contains("changed=false"));
@@ -175,8 +194,10 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
     .unwrap();
     assert_eq!(verify.exit_code, 0);
     assert!(verify.stdout.contains("present=descriptor"));
-    assert!(verify.stdout.contains("capture_grade=C"));
+    assert!(verify.stdout.contains("capture_grade=D"));
 
+    let removal_plan = plan_uninstall_adapter(root.path(), AdapterHost::GenericMcp).unwrap();
+    let removal_token = removal_plan.plan_digest;
     let uninstall = devmap::run([
         "devmap",
         "adapter",
@@ -185,10 +206,14 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
         root.path().to_str().unwrap(),
         "--host",
         "generic-mcp",
+        "--plan-digest",
+        &removal_token,
     ])
     .unwrap();
     assert!(uninstall.stdout.contains("changed=true"));
     assert!(!config_path.exists());
+    let second_removal = plan_uninstall_adapter(root.path(), AdapterHost::GenericMcp).unwrap();
+    let second_removal_token = second_removal.plan_digest;
     let second_uninstall = devmap::run([
         "devmap",
         "adapter",
@@ -197,6 +222,8 @@ fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
         root.path().to_str().unwrap(),
         "--host",
         "generic-mcp",
+        "--plan-digest",
+        &second_removal_token,
     ])
     .unwrap();
     assert!(second_uninstall.stdout.contains("changed=false"));
@@ -210,16 +237,8 @@ fn generic_mcp_never_overwrites_unrecognized_or_stale_config() {
         fs::create_dir_all(config_path.parent().unwrap()).unwrap();
         fs::write(&config_path, bytes).unwrap();
 
-        let error = devmap::run([
-            "devmap",
-            "adapter",
-            "install",
-            "--source",
-            root.path().to_str().unwrap(),
-            "--host",
-            "generic-mcp",
-        ])
-        .expect_err("unrecognized Generic MCP config must be preserved");
+        let error = plan_adapter(root.path(), AdapterHost::GenericMcp)
+            .expect_err("unrecognized Generic MCP config must be preserved");
 
         assert!(matches!(error, DevMapError::MalformedAdapterConfig(_)));
         assert_eq!(fs::read(&config_path).unwrap(), bytes);
@@ -229,6 +248,8 @@ fn generic_mcp_never_overwrites_unrecognized_or_stale_config() {
     let stale = root.path().join(".devmap/mcp.json.devmap-tmp");
     fs::create_dir_all(stale.parent().unwrap()).unwrap();
     fs::write(&stale, b"stale").unwrap();
+    let plan = plan_adapter(root.path(), AdapterHost::GenericMcp).unwrap();
+    let token = plan.plan_digest;
     let error = devmap::run([
         "devmap",
         "adapter",
@@ -237,6 +258,8 @@ fn generic_mcp_never_overwrites_unrecognized_or_stale_config() {
         root.path().to_str().unwrap(),
         "--host",
         "generic-mcp",
+        "--plan-digest",
+        &token,
     ])
     .expect_err("a stale transaction artifact must stop installation");
     assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
@@ -260,16 +283,8 @@ fn generic_mcp_install_refuses_an_existing_symlink_even_when_content_matches() {
         return;
     }
 
-    let error = devmap::run([
-        "devmap",
-        "adapter",
-        "install",
-        "--source",
-        root.path().to_str().unwrap(),
-        "--host",
-        "generic-mcp",
-    ])
-    .expect_err("an existing descriptor symlink must not be trusted");
+    let error = plan_adapter(root.path(), AdapterHost::GenericMcp)
+        .expect_err("an existing descriptor symlink must not be trusted");
 
     assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
     assert_eq!(fs::read(&external_config).unwrap(), descriptor);
@@ -359,7 +374,7 @@ fn malformed_or_unrecognized_hook_structures_are_never_overwritten() {
         fs::write(&path, invalid).unwrap();
         let before = fs::read(&path).unwrap();
 
-        let error = install_adapter(plan_adapter(root.path(), AdapterHost::Codex).unwrap())
+        let error = plan_adapter(root.path(), AdapterHost::Codex)
             .expect_err("unsafe existing config must be refused");
 
         assert!(matches!(error, DevMapError::MalformedAdapterConfig(_)));
@@ -587,7 +602,7 @@ fn install_rejects_a_tampered_plan_without_writing() {
 
     let error = install_adapter(plan).expect_err("only canonical plans may be installed");
 
-    assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+    assert!(matches!(error, DevMapError::AdapterPlanStale(_)));
     assert_eq!(fs::read(&fixture.config_path).unwrap(), before);
 }
 
@@ -625,7 +640,7 @@ fn install_refuses_a_symlinked_config_without_changing_its_target() {
         return;
     }
 
-    let error = install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Codex).unwrap())
+    let error = plan_adapter(fixture.root.path(), AdapterHost::Codex)
         .expect_err("a project config symlink must never be replaced");
 
     assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
@@ -648,7 +663,7 @@ fn verify_reports_present_missing_and_modified_bindings_with_real_grade() {
     assert!(healthy.missing.is_empty());
     assert!(healthy.modified.is_empty());
     assert_eq!(healthy.kernel_command_path, "devmap hook handle");
-    assert_eq!(healthy.capture_grade, CaptureGrade::A);
+    assert_eq!(healthy.capture_grade, CaptureGrade::D);
     assert!(healthy.drift_reasons.is_empty());
 
     let mut config: Value =
@@ -702,8 +717,8 @@ fn adapter_verify_cli_reports_the_capability_handshake() {
             .contains("kernel_command_path=devmap hook handle")
     );
     assert!(output.stdout.contains("capabilities={"));
-    assert!(output.stdout.contains("\"pre_mutation_blocking\":true"));
-    assert!(output.stdout.contains("capture_grade=A"));
+    assert!(output.stdout.contains("\"pre_mutation_blocking\":false"));
+    assert!(output.stdout.contains("capture_grade=D"));
 }
 
 #[test]
@@ -735,10 +750,13 @@ fn uninstall_removes_only_devmap_owned_handlers_and_preserves_mixed_groups() {
     let report = uninstall_adapter(fixture.root.path(), AdapterHost::Codex).unwrap();
 
     assert!(report.changed);
-    assert_eq!(report.removed.len(), EVENTS.len() + 1);
+    assert_eq!(report.removed.len(), EVENTS.len());
     let uninstalled: Value =
         serde_json::from_slice(&fs::read(&fixture.config_path).unwrap()).unwrap();
-    assert!(owned_binding_ids(&uninstalled).is_empty());
+    assert_eq!(
+        owned_binding_ids(&uninstalled),
+        BTreeSet::from(["devmap/v1/legacy/SessionStart".to_owned()])
+    );
     assert!(handlers(&uninstalled).any(|handler| handler == &deceptive_user_handler));
     assert_eq!(unrelated_handler(&uninstalled), &unrelated);
     assert!(
@@ -998,10 +1016,8 @@ fn assert_install_refused_without_rewrite(fixture: &AdapterFixture, document: &V
     let bytes = serde_json::to_vec_pretty(document).unwrap();
     fs::write(&fixture.config_path, &bytes).unwrap();
 
-    let error = install_adapter(
-        plan_adapter(fixture.root.path(), fixture_host(&fixture.relative_config)).unwrap(),
-    )
-    .expect_err("unsupported or malformed host configuration must be refused");
+    let error = plan_adapter(fixture.root.path(), fixture_host(&fixture.relative_config))
+        .expect_err("unsupported or malformed host configuration must be refused");
 
     assert!(matches!(error, DevMapError::MalformedAdapterConfig(_)));
     assert_eq!(fs::read(&fixture.config_path).unwrap(), bytes);

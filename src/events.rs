@@ -1,16 +1,21 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::canonical::{canonical_json, ensure_no_floating_points, sha256_hex};
+use crate::cli::AdapterHost;
 use crate::error::DevMapError;
 
 pub const EVENT_SCHEMA_VERSION: &str = "devmap/event/1";
+pub const MAX_EVENT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     SessionStarted,
     SessionStopped,
+    TurnCompleted,
     InstructionObserved,
     AgentStarted,
     AgentStopped,
@@ -215,18 +220,34 @@ impl EventEnvelope {
         actor.validate()?;
         context.validate()?;
         ensure_no_floating_points(&payload)?;
+        let occurred_at = required("occurred_at", occurred_at.into())?;
+        OffsetDateTime::parse(&occurred_at, &Rfc3339)
+            .map_err(|_| invalid("occurred_at must be RFC 3339"))?;
+        if serde_json::to_vec(&payload)?.len() > MAX_EVENT_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "event payload",
+                limit: MAX_EVENT_BYTES,
+            });
+        }
 
-        Ok(Self {
+        let event = Self {
             schema_version,
             event_id: required("event_id", event_id.into())?,
             event_type,
             sequence,
-            occurred_at: required("occurred_at", occurred_at.into())?,
+            occurred_at,
             host,
             actor,
             context,
             payload,
-        })
+        };
+        if serde_json::to_vec(&event)?.len() > MAX_EVENT_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "event envelope",
+                limit: MAX_EVENT_BYTES,
+            });
+        }
+        Ok(event)
     }
 
     pub fn schema_version(&self) -> &str {
@@ -344,6 +365,44 @@ impl CaptureCapabilities {
     }
 }
 
+pub fn host_capabilities(host: AdapterHost) -> CaptureCapabilities {
+    match host {
+        AdapterHost::Codex | AdapterHost::Claude => CaptureCapabilities {
+            lifecycle_events: vec![
+                EventType::SessionStarted,
+                EventType::SessionStopped,
+                EventType::TurnCompleted,
+                EventType::InstructionObserved,
+                EventType::AgentStarted,
+                EventType::AgentStopped,
+                EventType::ToolRequested,
+                EventType::ToolCompleted,
+                EventType::ContextCompacting,
+                EventType::ContextCompacted,
+            ],
+            pre_mutation_blocking: false,
+            subagent_lifecycle: true,
+            workspace_rebind: false,
+            tool_results: false,
+            commit_mapping: false,
+            raw_transcript: false,
+        },
+        AdapterHost::GenericMcp => CaptureCapabilities {
+            lifecycle_events: vec![
+                EventType::InstructionObserved,
+                EventType::DecisionRecorded,
+                EventType::EvidenceRecorded,
+            ],
+            pre_mutation_blocking: false,
+            subagent_lifecycle: false,
+            workspace_rebind: false,
+            tool_results: false,
+            commit_mapping: false,
+            raw_transcript: false,
+        },
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureGrade {
     A,
@@ -364,11 +423,13 @@ fn optional(field: &'static str, value: Option<String>) -> Result<Option<String>
 }
 
 fn validate_lowercase_sha(field: &'static str, value: String) -> Result<String, DevMapError> {
-    let is_sha_like =
-        matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit());
-    if is_sha_like && value.bytes().any(|byte| byte.is_ascii_uppercase()) {
+    let valid = matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+    if !valid {
         return Err(invalid(format!(
-            "{field} must use lower-case SHA identifiers"
+            "{field} must be a lower-case 40- or 64-hex identifier"
         )));
     }
     Ok(value)

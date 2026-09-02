@@ -63,7 +63,7 @@ DevMap 不会回溯重建或猜测接入前的历史决策。它把当前源码 
 
 完整产品将在这个基础上加入分支路线、PR Context Capsule、签名证据和共享图谱投影。
 
-Phase 1B 现在会把结构化生命周期事件和语义事件写入每个 worktree 对应 Git 目录下的 append-only journal。轻量的 Codex、Claude adapter 通过同一个 Kernel 归一化原生 Hooks；通用宿主可以调用本地 stdio MCP 端点。原生 Hooks 不保存完整 prompt transcript。
+Phase 1B 现在会把结构化生命周期事件和语义事件写入每个 worktree 对应 Git 目录下的 append-only journal。轻量的 Codex、Claude adapter 把原生生命周期/活动信号归一化到共享 event 与 journal contract；通用宿主通过本地 stdio MCP 端点和共享 Capture Kernel 显式记录语义条目。原生 Hooks 不保存完整 prompt transcript。
 
 ## 当前状态
 
@@ -83,7 +83,7 @@ Phase 1B 现在会把结构化生命周期事件和语义事件写入每个 work
 | 测试、构建和发布签名证明 | | ✓ |
 | 交互式力导向拓扑 Viewer | | ✓ |
 
-Capture Grade 根据实际存在的 adapter 计算。完整且精确的 Codex 或 Claude 原生安装报告 **A**；Generic MCP fallback 报告 **C**；必要 binding 缺失或被修改时报告 **D**。协议也定义了 **B**，但当前内置安装计划预计不会报告该等级。
+Capture Grade 根据运行时可验证的能力计算，而不是根据 adapter 名称或配置中的字面量计算。Codex Hooks、Claude Hooks 与 Generic MCP 当前的有效等级均为 **D**，即使配置完全匹配也是如此，因为 Phase 1B 尚不能观测 mutation 状态、建立 Evidence 与 mutation 的关联或映射到 commit。配置状态与有效激活状态会分开报告。
 
 ## 快速开始
 
@@ -149,16 +149,19 @@ Unix 类系统的可执行文件是 `target/release/devmap`，Windows 下是 `ta
 ./target/release/devmap adapter plan --source /work/payment-service --host codex
 ```
 
-安装前检查输出的 bindings 和目标路径。原生安装只会修改 `.codex/hooks.json` 或 `.claude/settings.json`；Generic MCP 只会修改 `.devmap/mcp.json`。
+安装前检查输出的 bindings、目标路径和 `plan_digest`。digest 对精确的宿主、操作、source identity、原字节/文件 identity 和预期结果进行授权；期间发生任何修改都必须重新生成 plan。原生安装只会修改 `.codex/hooks.json` 或 `.claude/settings.json`；Generic MCP 只会修改 `.devmap/mcp.json`。
 
 ```bash
-./target/release/devmap adapter install --source /work/payment-service --host codex
+./target/release/devmap adapter install --source /work/payment-service --host codex \
+  --plan-digest 'sha256-<reviewed-digest>'
 ./target/release/devmap adapter verify --source /work/payment-service --host codex
 ```
 
-安装后检查生成的配置，并在开始捕获 session 前完成宿主要求的 trust 或 review 步骤。DevMap 不会绕过宿主的信任控制。宿主或项目配置变化后再次运行 `adapter verify`：它根据磁盘上的实际 bindings 报告有效等级，而不是复述 plan 阶段请求的等级。
+安装后检查生成的配置，并在开始捕获 session 前完成宿主要求的 trust 或 review 步骤。DevMap 不会绕过宿主的信任控制。`adapter verify` 会把配置漂移与有效激活分开报告；当 executable reachability、原生宿主 trust 或 managed-policy permission、Generic MCP 宿主注册状态无法验证时，会明确列出未解决的激活原因。不带 `--host` 时会同时验证 Codex、Claude 和 Generic MCP。
 
-对于 Generic MCP 宿主，需要检查并注册 `.devmap/mcp.json` descriptor。它通过 stdio 启动 `devmap mcp --source .`，同时支持 legacy `2025-11-25` initialize 流程和当前 `2026-07-28` per-request metadata/discovery 流程。其显式 Requirement、Decision 和 Evidence 工具报告 Grade C。
+对于 Generic MCP 宿主，需要检查并注册 `.devmap/mcp.json` descriptor。它通过 stdio 启动 `devmap mcp --source .`。现代 discovery 只公布 `2026-07-28`；legacy `2025-11-25` 仅保留在 initialize 协商中，其他 legacy 版本会得到成功的受支持版本 counteroffer。
+
+Codex Hooks、Claude Hooks 和 Generic MCP 当前的有效 Capture Grade 都是 D。原生 Hooks 只提供有界的生命周期与活动信号：`Stop` 表示一次 turn 完成，只有 `SessionEnd` 表示 session 完成。可写工具只产生工具活动和 `mutation_unverified` gap，绝不猜测 mutation。显式 Requirement、Decision 和 Evidence 记录统一通过 MCP/Capture Kernel surface 写入。只有未来可在运行时验证 mutation、Evidence 关联与 commit mapping 后，才可能提升到 Grade A。
 
 Capture journal 按 worktree 保存在：
 
@@ -166,10 +169,12 @@ Capture journal 按 worktree 保存在：
 <git rev-parse --git-dir>/devmap/sessions/<session-id>/events.ndjson
 ```
 
-这些 append-only 本地证据不会被暂存到源码仓库。要仅移除 DevMap 所有的 bindings 或精确匹配的 Generic descriptor，请运行：
+这些 append-only 本地证据不会被暂存到源码仓库。要仅移除 DevMap 所有的 bindings 或精确匹配的 Generic descriptor，必须先检查 removal plan 并传入独立 digest：
 
 ```bash
-./target/release/devmap adapter uninstall --source /work/payment-service --host codex
+./target/release/devmap adapter plan --source /work/payment-service --host codex --action uninstall
+./target/release/devmap adapter uninstall --source /work/payment-service --host codex \
+  --plan-digest 'sha256-<reviewed-removal-digest>'
 ```
 
 Phase 1B 只观察和记录；它**不会**创建或切换 branch/worktree，不会 stage、commit、stash、配置 remote 或 push。源码 Git 工作流管理将在后续阶段实现。
@@ -214,7 +219,7 @@ DevMap 只暂存自己的路径；发现意外文件时 Bot commit 会停止。C
 2. Requirement Trace 表示人类意图，不是 Agent Decision。
 3. 先读取 `state/current.json`、对应 Manifest 和相关 Canonical Objects，再决定是否加载更大上下文。
 4. 信任对象前必须验证内容 ID 和哈希。
-5. Capture Grade 表示实际观测覆盖：A 是经过验证的精确原生安装，C 是显式 Generic MCP fallback，D 表示必要 binding 缺失或漂移。
+5. Capture Grade 表示基于能力的实际观测覆盖。Phase 1B 原生 Hooks 与 Generic MCP 即使配置精确也都是 Grade D；配置、激活与能力等级是三个独立事实。更高等级要求可在运行时验证 mutation、Evidence 关联与 commit mapping。
 6. 不得覆盖 Canonical Objects；未来变更必须明确建立 supersession。
 
 ## 路线图

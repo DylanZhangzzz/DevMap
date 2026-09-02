@@ -1,6 +1,5 @@
-use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -9,8 +8,8 @@ use time::format_description::well_known::Rfc3339;
 use crate::CommandOutput;
 use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
 use crate::error::DevMapError;
-use crate::events::{ActorIdentity, CaptureGrade, HostIdentity, SessionContext};
-use crate::git::SourceGitInspector;
+use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
+use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
 
 pub const MCP_TOOLS: [&str; 4] = [
@@ -23,23 +22,39 @@ pub const MCP_TOOLS: [&str; 4] = [
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
 const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 const MCP_ADAPTER_VERSION: &str = "devmap-mcp/1";
-const GENERIC_DESCRIPTOR_PATH: &str = ".devmap/mcp.json";
+pub const MAX_MCP_LINE_BYTES: usize = 1024 * 1024;
+pub const MAX_MCP_METADATA_BYTES: usize = 64 * 1024;
+pub const MAX_MCP_ARGUMENT_BYTES: usize = 256 * 1024;
+pub const MAX_SEMANTIC_STRING_BYTES: usize = 16 * 1024;
+pub const MAX_SEMANTIC_ARRAY_ITEMS: usize = 64;
+const MAX_IDENTIFIER_BYTES: usize = 512;
 
 pub fn serve_mcp(
     source: &Path,
-    reader: impl BufRead,
+    mut reader: impl BufRead,
     mut writer: impl Write,
 ) -> Result<(), DevMapError> {
+    // Workspace identity is stable for the lifetime of this stdio process. Resolving it once
+    // avoids spawning multiple Git commands for every semantic capture.
+    let workspace = SourceGitInspector::open(source)?.workspace()?;
     let mut legacy_initialized = false;
-    for line in reader.lines() {
-        let line = line?;
-        let response = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle_message(source, &message, &mut legacy_initialized),
-            Err(error) => Some(json_rpc_error(
+    loop {
+        let response = match read_bounded_line(&mut reader)? {
+            None => break,
+            Some(Ok(line)) => match serde_json::from_slice::<Value>(&line) {
+                Ok(message) => handle_message(&workspace, &message, &mut legacy_initialized),
+                Err(error) => Some(json_rpc_error(
+                    Value::Null,
+                    -32700,
+                    "Parse error",
+                    Some(json!({"detail": error.to_string()})),
+                )),
+            },
+            Some(Err(())) => Some(json_rpc_error(
                 Value::Null,
-                -32700,
-                "Parse error",
-                Some(json!({"detail": error.to_string()})),
+                -32600,
+                "MCP line exceeds the configured byte limit",
+                Some(json!({"resource": "MCP line", "limit": MAX_MCP_LINE_BYTES})),
             )),
         };
         if let Some(response) = response {
@@ -51,7 +66,54 @@ pub fn serve_mcp(
     Ok(())
 }
 
-fn handle_message(source: &Path, message: &Value, legacy_initialized: &mut bool) -> Option<Value> {
+fn read_bounded_line(
+    reader: &mut impl BufRead,
+) -> Result<Option<Result<Vec<u8>, ()>>, DevMapError> {
+    let mut line = Vec::with_capacity(4096);
+    let mut exceeded = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if line.is_empty() && !exceeded {
+                return Ok(None);
+            }
+            if exceeded {
+                return Ok(Some(Err(())));
+            }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(Some(Ok(line)));
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(available.len(), |index| index + 1);
+        let content = newline.map_or(available, |index| &available[..index]);
+        if !exceeded {
+            if line.len().saturating_add(content.len()) > MAX_MCP_LINE_BYTES {
+                exceeded = true;
+                line.clear();
+            } else {
+                line.extend_from_slice(content);
+            }
+        }
+        reader.consume(consumed);
+        if newline.is_some() {
+            if exceeded {
+                return Ok(Some(Err(())));
+            }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(Some(Ok(line)));
+        }
+    }
+}
+
+fn handle_message(
+    workspace: &SourceWorkspace,
+    message: &Value,
+    legacy_initialized: &mut bool,
+) -> Option<Value> {
     let Some(object) = message.as_object() else {
         return Some(json_rpc_error(Value::Null, -32600, "Invalid Request", None));
     };
@@ -92,7 +154,7 @@ fn handle_message(source: &Path, message: &Value, legacy_initialized: &mut bool)
         "server/discover" if era == RequestEra::Modern => json_rpc_result(id, discovery_result()),
         "server/discover" => invalid_params(id, "server/discover requires modern request metadata"),
         "tools/list" => list_tools_response(id, params),
-        "tools/call" => call_tool_response(source, id, params),
+        "tools/call" => call_tool_response(workspace, id, params),
         _ => json_rpc_error(id, -32601, "Method not found", None),
     };
     Some(if era == RequestEra::Modern {
@@ -153,22 +215,13 @@ fn request_era(
             code: -32022,
             message: "Unsupported protocol version".into(),
             data: Some(json!({
-                "supported": [MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION],
+                "supported": [MODERN_PROTOCOL_VERSION],
                 "requested": requested,
             })),
         });
     }
     let metadata = metadata.expect("modern protocol metadata came from an object");
-    if !metadata
-        .get("io.modelcontextprotocol/clientCapabilities")
-        .is_some_and(Value::is_object)
-    {
-        return Err(PendingError {
-            code: -32602,
-            message: "modern clientCapabilities metadata must be an object".into(),
-            data: None,
-        });
-    }
+    validate_modern_metadata(metadata)?;
     Ok(RequestEra::Modern)
 }
 
@@ -183,22 +236,21 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
     let Some(requested) = params.get("protocolVersion").and_then(Value::as_str) else {
         return invalid_params(id, "protocolVersion must be a string");
     };
-    if requested != LEGACY_PROTOCOL_VERSION {
-        return json_rpc_error(
-            id,
-            -32602,
-            "Unsupported protocol version",
-            Some(json!({
-                "supported": [LEGACY_PROTOCOL_VERSION],
-                "requested": requested,
-            })),
-        );
+    let Some(capabilities) = params.get("capabilities").and_then(Value::as_object) else {
+        return invalid_params(id, "capabilities must be an object");
+    };
+    if let Err(message) = validate_capabilities(capabilities) {
+        return invalid_params(id, message);
     }
-    if !params.get("capabilities").is_some_and(Value::is_object)
-        || !params.get("clientInfo").is_some_and(Value::is_object)
-    {
-        return invalid_params(id, "capabilities and clientInfo must be objects");
+    let Some(client_info) = params.get("clientInfo").and_then(Value::as_object) else {
+        return invalid_params(id, "clientInfo must be an object");
+    };
+    if let Err(message) = validate_implementation(client_info) {
+        return invalid_params(id, message);
     }
+    // Legacy MCP requires a successful supported-version counteroffer when the requested
+    // initialize version is unsupported. The client may accept it or disconnect.
+    let _counteroffered = requested != LEGACY_PROTOCOL_VERSION;
     json_rpc_result(
         id,
         json!({
@@ -214,9 +266,192 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
 
 fn discovery_result() -> Value {
     json!({
-        "supportedVersions": [MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION],
+        "supportedVersions": [MODERN_PROTOCOL_VERSION],
         "capabilities": {"tools": {}}
     })
+}
+
+fn validate_modern_metadata(metadata: &Map<String, Value>) -> Result<(), PendingError> {
+    let encoded = serde_json::to_vec(metadata).map_err(|_| invalid_metadata("invalid metadata"))?;
+    if encoded.len() > MAX_MCP_METADATA_BYTES {
+        return Err(invalid_metadata(format!(
+            "modern metadata exceeds {MAX_MCP_METADATA_BYTES} bytes"
+        )));
+    }
+    if let Some(client_info) = metadata.get("io.modelcontextprotocol/clientInfo") {
+        let client_info = client_info
+            .as_object()
+            .ok_or_else(|| invalid_metadata("modern clientInfo must be an object"))?;
+        validate_implementation(client_info).map_err(invalid_metadata)?;
+    }
+    let capabilities = metadata
+        .get("io.modelcontextprotocol/clientCapabilities")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_metadata("modern clientCapabilities must be an object"))?;
+    validate_capabilities(capabilities).map_err(invalid_metadata)?;
+    if let Some(log_level) = metadata.get("io.modelcontextprotocol/logLevel")
+        && !matches!(
+            log_level.as_str(),
+            Some(
+                "debug"
+                    | "info"
+                    | "notice"
+                    | "warning"
+                    | "error"
+                    | "critical"
+                    | "alert"
+                    | "emergency"
+            )
+        )
+    {
+        return Err(invalid_metadata("modern logLevel is invalid"));
+    }
+    if metadata
+        .get("progressToken")
+        .is_some_and(|value| !value.is_string() && !value.is_number())
+    {
+        return Err(invalid_metadata(
+            "modern progressToken must be a string or number",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_implementation(value: &Map<String, Value>) -> Result<(), String> {
+    for field in ["name", "version"] {
+        let Some(text) = value.get(field).and_then(Value::as_str) else {
+            return Err(format!("clientInfo.{field} must be a string"));
+        };
+        if text.trim().is_empty() || text.len() > MAX_IDENTIFIER_BYTES {
+            return Err(format!("clientInfo.{field} is invalid"));
+        }
+    }
+    for field in ["title", "description", "websiteUrl"] {
+        if value.get(field).is_some_and(|value| {
+            !value.as_str().is_some_and(|text| {
+                !text.trim().is_empty() && text.len() <= MAX_SEMANTIC_STRING_BYTES
+            })
+        }) {
+            return Err(format!(
+                "clientInfo.{field} must be a bounded non-empty string"
+            ));
+        }
+    }
+    if let Some(icons) = value.get("icons") {
+        let Some(icons) = icons.as_array() else {
+            return Err("clientInfo.icons must be an array".into());
+        };
+        if icons.len() > MAX_SEMANTIC_ARRAY_ITEMS {
+            return Err("clientInfo.icons has too many entries".into());
+        }
+        for icon in icons {
+            validate_icon(icon)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_icon(value: &Value) -> Result<(), String> {
+    let Some(icon) = value.as_object() else {
+        return Err("clientInfo.icons entries must be objects".into());
+    };
+    let Some(src) = icon.get("src").and_then(Value::as_str) else {
+        return Err("clientInfo.icons.src must be a string".into());
+    };
+    if src.trim().is_empty() || src.len() > MAX_SEMANTIC_STRING_BYTES {
+        return Err("clientInfo.icons.src is invalid".into());
+    }
+    if icon.get("mimeType").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(|text| !text.trim().is_empty() && text.len() <= MAX_IDENTIFIER_BYTES)
+    }) {
+        return Err("clientInfo.icons.mimeType must be a bounded non-empty string".into());
+    }
+    if icon.get("sizes").is_some_and(|value| {
+        !value.as_array().is_some_and(|sizes| {
+            sizes.len() <= MAX_SEMANTIC_ARRAY_ITEMS
+                && sizes.iter().all(|size| {
+                    size.as_str().is_some_and(|text| {
+                        !text.trim().is_empty() && text.len() <= MAX_IDENTIFIER_BYTES
+                    })
+                })
+        })
+    }) {
+        return Err("clientInfo.icons.sizes must be an array of bounded strings".into());
+    }
+    if icon
+        .get("theme")
+        .is_some_and(|value| !matches!(value.as_str(), Some("light" | "dark")))
+    {
+        return Err("clientInfo.icons.theme must be light or dark".into());
+    }
+    Ok(())
+}
+
+fn validate_capabilities(value: &Map<String, Value>) -> Result<(), String> {
+    for (name, capability) in value {
+        let Some(capability) = capability.as_object() else {
+            return Err(format!("clientCapabilities.{name} must be an object"));
+        };
+        match name.as_str() {
+            "sampling" => validate_object_members(capability, &["context", "tools"], name)?,
+            "elicitation" => validate_object_members(capability, &["form", "url"], name)?,
+            "experimental" | "extensions" => {
+                if capability.values().any(|nested| !nested.is_object()) {
+                    return Err(format!("clientCapabilities.{name} entries must be objects"));
+                }
+                if name == "extensions"
+                    && capability
+                        .keys()
+                        .any(|extension| !is_prefixed_extension_name(extension))
+                {
+                    return Err("clientCapabilities.extensions keys require a valid prefix".into());
+                }
+            }
+            // `roots` is an object and the capability model is intentionally open to future
+            // object-valued extensions.
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn is_prefixed_extension_name(value: &str) -> bool {
+    let mut parts = value.split('/');
+    let (Some(prefix), Some(name), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    [prefix, name].into_iter().all(|part| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    })
+}
+
+fn validate_object_members(
+    value: &Map<String, Value>,
+    known: &[&str],
+    capability: &str,
+) -> Result<(), String> {
+    if let Some((name, _)) = value
+        .iter()
+        .find(|(name, nested)| known.contains(&name.as_str()) && !nested.is_object())
+    {
+        return Err(format!(
+            "clientCapabilities.{capability}.{name} must be an object"
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_metadata(message: impl Into<String>) -> PendingError {
+    PendingError {
+        code: -32602,
+        message: message.into(),
+        data: None,
+    }
 }
 
 fn add_modern_result_fields(method: &str, mut response: Value) -> Value {
@@ -252,7 +487,7 @@ fn list_tools_response(id: Value, params: Option<&Value>) -> Value {
     json_rpc_result(id, json!({"tools": tool_descriptors()}))
 }
 
-fn call_tool_response(source: &Path, id: Value, params: Option<&Value>) -> Value {
+fn call_tool_response(workspace: &SourceWorkspace, id: Value, params: Option<&Value>) -> Value {
     let Some(params) = params.and_then(Value::as_object) else {
         return invalid_params(id, "tools/call params must be an object");
     };
@@ -264,38 +499,40 @@ fn call_tool_response(source: &Path, id: Value, params: Option<&Value>) -> Value
         Some(Value::Object(arguments)) => arguments.clone(),
         Some(_) => return invalid_params(id, "tools/call arguments must be an object"),
     };
+    if serde_json::to_vec(&arguments).is_ok_and(|bytes| bytes.len() > MAX_MCP_ARGUMENT_BYTES) {
+        return invalid_params(id, "tools/call arguments exceed the configured byte limit");
+    }
     if !MCP_TOOLS.contains(&name) {
         return invalid_params(id, format!("Unknown tool: {name}"));
     }
 
-    match call_tool(source, name, &arguments) {
+    match call_tool(workspace, name, &arguments) {
         Ok(structured) => json_rpc_result(id, tool_result(structured)),
         Err(error) => json_rpc_result(id, tool_error(error)),
     }
 }
 
 fn call_tool(
-    source: &Path,
+    workspace: &SourceWorkspace,
     name: &str,
     arguments: &Map<String, Value>,
 ) -> Result<Value, DevMapError> {
-    let workspace = SourceGitInspector::open(source)?.workspace()?;
     if name == "devmap_context" {
         ensure_fields(arguments, &[])?;
         return Ok(json!({
             "workspace": workspace.root.to_string_lossy(),
-            "branch": workspace.branch,
+            "branch": workspace.branch.clone(),
             "head": workspace.head,
             "journal_location": workspace.git_dir.join("devmap/sessions").to_string_lossy(),
-            "capture_grade": "C",
+            "capture_grade": host_capabilities(crate::cli::AdapterHost::GenericMcp).grade(),
         }));
     }
 
     let common = CommonCaptureArgs::parse(arguments, name)?;
-    let journal = JournalStore::open(&workspace, &common.session_id)?;
+    let journal = JournalStore::open(workspace, &common.session_id)?;
     let kernel = CaptureKernel::new(
         journal,
-        CaptureGrade::C,
+        host_capabilities(crate::cli::AdapterHost::GenericMcp),
         HostIdentity::new("generic_mcp", MCP_ADAPTER_VERSION)?,
         ActorIdentity::new(common.agent_id, common.parent_agent_id)?,
         SessionContext::new(
@@ -303,10 +540,10 @@ fn call_tool(
             common.route_id,
             workspace.root.to_string_lossy(),
             Some(workspace.root.to_string_lossy().into_owned()),
-            workspace.branch,
-            Some(workspace.head),
+            workspace.branch.clone(),
+            Some(workspace.head.clone()),
         )?,
-    );
+    )?;
 
     let record = match name {
         "devmap_record_requirement" => kernel.record_requirement_with_id(
@@ -442,10 +679,19 @@ fn required_string(
     arguments: &Map<String, Value>,
     field: &'static str,
 ) -> Result<String, DevMapError> {
-    match arguments.get(field).and_then(Value::as_str) {
-        Some(value) if !value.trim().is_empty() => Ok(value.to_owned()),
-        _ => Err(DevMapError::InvalidDomain(field)),
+    let value = arguments
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(DevMapError::InvalidDomain(field))?;
+    let limit = semantic_string_limit(field);
+    if value.len() > limit {
+        return Err(DevMapError::ResourceLimit {
+            resource: field,
+            limit,
+        });
     }
+    Ok(value.to_owned())
 }
 
 fn optional_string(
@@ -454,8 +700,28 @@ fn optional_string(
 ) -> Result<Option<String>, DevMapError> {
     match arguments.get(field) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) if !value.trim().is_empty() => Ok(Some(value.clone())),
+        Some(Value::String(value)) if !value.trim().is_empty() => {
+            let limit = semantic_string_limit(field);
+            if value.len() > limit {
+                return Err(DevMapError::ResourceLimit {
+                    resource: field,
+                    limit,
+                });
+            }
+            Ok(Some(value.to_owned()))
+        }
         _ => Err(DevMapError::InvalidDomain(field)),
+    }
+}
+
+fn semantic_string_limit(field: &str) -> usize {
+    if matches!(
+        field,
+        "session_id" | "agent_id" | "parent_agent_id" | "route_id" | "event_id"
+    ) {
+        MAX_IDENTIFIER_BYTES
+    } else {
+        MAX_SEMANTIC_STRING_BYTES
     }
 }
 
@@ -474,19 +740,42 @@ fn required_string_array(
     arguments: &Map<String, Value>,
     field: &'static str,
 ) -> Result<Vec<String>, DevMapError> {
-    arguments
+    let values = arguments
         .get(field)
         .and_then(Value::as_array)
-        .ok_or(DevMapError::InvalidDomain(field))?
-        .iter()
-        .map(|value| {
-            value
-                .as_str()
-                .filter(|value| !value.trim().is_empty())
-                .map(str::to_owned)
-                .ok_or(DevMapError::InvalidDomain(field))
-        })
-        .collect()
+        .ok_or(DevMapError::InvalidDomain(field))?;
+    if values.is_empty() {
+        return Err(DevMapError::InvalidDomain(field));
+    }
+    if values.len() > MAX_SEMANTIC_ARRAY_ITEMS {
+        return Err(DevMapError::ResourceLimit {
+            resource: field,
+            limit: MAX_SEMANTIC_ARRAY_ITEMS,
+        });
+    }
+    let mut parsed = Vec::with_capacity(values.len());
+    let mut total_bytes = 0usize;
+    for value in values {
+        let value = value
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(DevMapError::InvalidDomain(field))?;
+        if value.len() > MAX_SEMANTIC_STRING_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: field,
+                limit: MAX_SEMANTIC_STRING_BYTES,
+            });
+        }
+        total_bytes = total_bytes.saturating_add(value.len());
+        if total_bytes > MAX_MCP_ARGUMENT_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: field,
+                limit: MAX_MCP_ARGUMENT_BYTES,
+            });
+        }
+        parsed.push(value.to_owned());
+    }
+    Ok(parsed)
 }
 
 fn tool_descriptors() -> Vec<Value> {
@@ -626,232 +915,38 @@ fn json_rpc_error(id: Value, code: i64, message: impl Into<String>, data: Option
 }
 
 pub fn plan_generic_adapter(source: &Path) -> Result<CommandOutput, DevMapError> {
-    let path = generic_config_path(source)?;
-    Ok(CommandOutput {
-        stdout: format!(
-            "host=generic-mcp\nconfig_path={}\ndescriptor={}\ncapture_grade=C\n",
-            path.display(),
-            generic_descriptor()
-        ),
-        exit_code: 0,
+    crate::commands::adapter_plan(crate::cli::AdapterPlanArgs {
+        source: source.to_path_buf(),
+        host: crate::cli::AdapterHost::GenericMcp,
+        action: crate::cli::AdapterPlanAction::Install,
     })
 }
 
-pub fn install_generic_adapter(source: &Path) -> Result<CommandOutput, DevMapError> {
-    let path = generic_config_path(source)?;
-    let changed = match read_generic_config(&path)? {
-        Some(document) => {
-            ensure_named_local_target(&path, false)?;
-            validate_generic_descriptor(&path, &document)?;
-            false
-        }
-        None => {
-            write_new_generic_config(&path)?;
-            true
-        }
-    };
-    Ok(CommandOutput {
-        stdout: format!(
-            "host=generic-mcp\nconfig_path={}\nchanged={changed}\nadded={}\n",
-            path.display(),
-            if changed { "descriptor" } else { "" }
-        ),
-        exit_code: 0,
+pub fn install_generic_adapter(
+    source: &Path,
+    approval_token: &str,
+) -> Result<CommandOutput, DevMapError> {
+    crate::commands::adapter_install(crate::cli::AdapterInstallArgs {
+        source: source.to_path_buf(),
+        host: crate::cli::AdapterHost::GenericMcp,
+        plan_digest: approval_token.to_owned(),
     })
 }
 
 pub fn verify_generic_adapter(source: &Path) -> Result<CommandOutput, DevMapError> {
-    let path = generic_config_path(source)?;
-    let present = match read_generic_config(&path)? {
-        Some(document) => {
-            ensure_named_local_target(&path, false)?;
-            validate_generic_descriptor(&path, &document)?;
-            true
-        }
-        None => false,
-    };
-    Ok(CommandOutput {
-        stdout: format!(
-            "host=generic-mcp\nconfig_path={}\nkernel_command_path=devmap mcp\npresent={}\nmissing={}\nmodified=\ncapture_grade={}\ndrift_reason={}\n",
-            path.display(),
-            if present { "descriptor" } else { "" },
-            if present { "" } else { "descriptor" },
-            if present { "C" } else { "D" },
-            if present { "" } else { "missing descriptor" }
-        ),
-        exit_code: if present { 0 } else { 1 },
+    crate::commands::adapter_verify(crate::cli::AdapterVerifyArgs {
+        source: source.to_path_buf(),
+        host: Some(crate::cli::AdapterHost::GenericMcp),
     })
 }
 
-pub fn uninstall_generic_adapter(source: &Path) -> Result<CommandOutput, DevMapError> {
-    let path = generic_config_path(source)?;
-    let changed = match read_generic_config(&path)? {
-        Some(document) => {
-            validate_generic_descriptor(&path, &document)?;
-            ensure_named_local_target(&path, false)?;
-            fs::remove_file(&path)?;
-            true
-        }
-        None => false,
-    };
-    Ok(CommandOutput {
-        stdout: format!(
-            "host=generic-mcp\nconfig_path={}\nchanged={changed}\nremoved={}\n",
-            path.display(),
-            if changed { "descriptor" } else { "" }
-        ),
-        exit_code: 0,
+pub fn uninstall_generic_adapter(
+    source: &Path,
+    approval_token: &str,
+) -> Result<CommandOutput, DevMapError> {
+    crate::commands::adapter_uninstall(crate::cli::AdapterUninstallArgs {
+        source: source.to_path_buf(),
+        host: crate::cli::AdapterHost::GenericMcp,
+        plan_digest: approval_token.to_owned(),
     })
-}
-
-fn generic_descriptor() -> Value {
-    json!({
-        "command": ["devmap", "mcp", "--source", "."],
-        "transport": "stdio"
-    })
-}
-
-fn generic_config_path(source: &Path) -> Result<PathBuf, DevMapError> {
-    Ok(SourceGitInspector::open(source)?
-        .root()
-        .join(GENERIC_DESCRIPTOR_PATH))
-}
-
-fn read_generic_config(path: &Path) -> Result<Option<Value>, DevMapError> {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|error| {
-            DevMapError::MalformedAdapterConfig(format!("{}: {error}", path.display()))
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn validate_generic_descriptor(path: &Path, document: &Value) -> Result<(), DevMapError> {
-    if document == &generic_descriptor() {
-        Ok(())
-    } else {
-        Err(DevMapError::MalformedAdapterConfig(format!(
-            "{}: existing Generic MCP descriptor is not DevMap's exact descriptor",
-            path.display()
-        )))
-    }
-}
-
-fn write_new_generic_config(path: &Path) -> Result<(), DevMapError> {
-    write_new_generic_config_with(path, || Ok(()))
-}
-
-fn write_new_generic_config_with(
-    path: &Path,
-    before_commit: impl FnOnce() -> std::io::Result<()>,
-) -> Result<(), DevMapError> {
-    ensure_named_local_target(path, true)?;
-    let temporary = path.with_file_name("mcp.json.devmap-tmp");
-    let backup = path.with_file_name("mcp.json.devmap-backup");
-    for artifact in [&temporary, &backup] {
-        if fs::symlink_metadata(artifact).is_ok() {
-            return Err(DevMapError::UnsafeInstallerOverwrite(artifact.clone()));
-        }
-    }
-    let mut bytes = serde_json::to_vec_pretty(&generic_descriptor())?;
-    bytes.push(b'\n');
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
-    if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
-        drop(file);
-        return Err(generic_transaction_error(path, error, &temporary));
-    }
-    drop(file);
-    if let Err(error) = before_commit().and_then(|()| fs::hard_link(&temporary, path)) {
-        return Err(generic_transaction_error(path, error, &temporary));
-    }
-    match fs::read(path) {
-        Ok(actual) if actual == bytes => {}
-        Ok(_) => {
-            return Err(generic_transaction_error(
-                path,
-                std::io::Error::other("named adapter config did not match serialized bytes"),
-                &temporary,
-            ));
-        }
-        Err(error) => return Err(generic_transaction_error(path, error, &temporary)),
-    }
-    fs::remove_file(&temporary).map_err(|error| DevMapError::AdapterConfigTransaction {
-        path: path.to_path_buf(),
-        operation_error: "descriptor committed but temporary link cleanup failed".into(),
-        cleanup: format!("failed: {error}"),
-    })?;
-    Ok(())
-}
-
-fn generic_transaction_error(
-    path: &Path,
-    operation_error: std::io::Error,
-    temporary: &Path,
-) -> DevMapError {
-    let cleanup = match fs::remove_file(temporary) {
-        Ok(()) => "succeeded".to_owned(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "succeeded".to_owned(),
-        Err(error) => format!("failed: {error}"),
-    };
-    DevMapError::AdapterConfigTransaction {
-        path: path.to_path_buf(),
-        operation_error: operation_error.to_string(),
-        cleanup,
-    }
-}
-
-fn ensure_named_local_target(path: &Path, create_parent: bool) -> Result<(), DevMapError> {
-    if path.file_name().and_then(|name| name.to_str()) != Some("mcp.json")
-        || path
-            .parent()
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
-            != Some(".devmap")
-    {
-        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
-    }
-    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()))?;
-    let root = parent
-        .parent()
-        .ok_or_else(|| DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()))?
-        .canonicalize()?;
-    if create_parent {
-        fs::create_dir_all(parent)?;
-    }
-    let resolved_parent = parent.canonicalize()?;
-    if resolved_parent.parent() != Some(root.as_path()) {
-        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn generic_commit_never_replaces_a_destination_that_appears_after_temp_sync() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join(".devmap/mcp.json");
-        let user_bytes = b"user-owned descriptor";
-
-        let error = write_new_generic_config_with(&path, || fs::write(&path, user_bytes))
-            .expect_err("an appearing destination must win the no-replace race");
-
-        assert!(matches!(
-            error,
-            DevMapError::AdapterConfigTransaction { .. }
-        ));
-        assert_eq!(fs::read(&path).unwrap(), user_bytes);
-        assert!(!path.with_file_name("mcp.json.devmap-tmp").exists());
-    }
 }

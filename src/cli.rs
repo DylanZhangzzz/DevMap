@@ -67,6 +67,15 @@ pub struct AdapterPlanArgs {
     pub source: PathBuf,
     #[arg(long)]
     pub host: AdapterHost,
+    /// Plan an installation or a removal. The emitted digest approves only this action.
+    #[arg(long, value_enum, default_value_t = AdapterPlanAction::Install)]
+    pub action: AdapterPlanAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AdapterPlanAction {
+    Install,
+    Uninstall,
 }
 
 #[derive(Debug, Args)]
@@ -75,6 +84,9 @@ pub struct AdapterInstallArgs {
     pub source: PathBuf,
     #[arg(long)]
     pub host: AdapterHost,
+    /// Exact digest emitted by `adapter plan` after review.
+    #[arg(long)]
+    pub plan_digest: String,
 }
 
 #[derive(Debug, Args)]
@@ -91,6 +103,9 @@ pub struct AdapterUninstallArgs {
     pub source: PathBuf,
     #[arg(long)]
     pub host: AdapterHost,
+    /// Exact digest emitted by `adapter plan --action uninstall` after review.
+    #[arg(long)]
+    pub plan_digest: String,
 }
 
 #[derive(Debug, Subcommand)]

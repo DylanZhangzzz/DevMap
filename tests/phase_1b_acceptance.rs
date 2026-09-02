@@ -11,7 +11,6 @@ use devmap::events::CaptureGrade;
 use devmap::git::SourceGitInspector;
 use devmap::hook::handle_hook;
 use devmap::journal::JournalStore;
-use devmap::mcp::{install_generic_adapter, plan_generic_adapter, verify_generic_adapter};
 use devmap::run;
 use support::{assert_only_source_paths_changed, committed_repo, source_snapshot};
 
@@ -25,34 +24,20 @@ fn adapter_installation_changes_only_the_named_file_and_no_git_state() {
         let repository = committed_repo();
         let before = source_snapshot(repository.path());
 
-        match host {
-            AdapterHost::Codex | AdapterHost::Claude => {
-                let plan = plan_adapter(repository.path(), host).unwrap();
-                assert_eq!(plan.config_path, repository.path().join(relative));
-                assert_eq!(
-                    source_snapshot(repository.path()),
-                    before,
-                    "plan must be read-only"
-                );
-                install_adapter(plan).unwrap();
-                let report = verify_adapter(repository.path(), host).unwrap();
-                assert_eq!(report.capture_grade, CaptureGrade::A);
-                assert!(report.missing.is_empty());
-                assert!(report.modified.is_empty());
-            }
-            AdapterHost::GenericMcp => {
-                plan_generic_adapter(repository.path()).unwrap();
-                assert_eq!(
-                    source_snapshot(repository.path()),
-                    before,
-                    "plan must be read-only"
-                );
-                install_generic_adapter(repository.path()).unwrap();
-                let report = verify_generic_adapter(repository.path()).unwrap();
-                assert!(report.stdout.contains("capture_grade=C"));
-                assert!(report.stdout.contains("present=descriptor"));
-            }
-        }
+        let plan = plan_adapter(repository.path(), host).unwrap();
+        assert_eq!(plan.config_path, repository.path().join(relative));
+        assert_eq!(
+            source_snapshot(repository.path()),
+            before,
+            "plan must be read-only"
+        );
+        let token = plan.plan_digest.clone();
+        install_adapter(plan, &token).unwrap();
+        let report = verify_adapter(repository.path(), host).unwrap();
+        assert_eq!(report.capture_grade, CaptureGrade::D);
+        assert!(report.configured);
+        assert!(report.missing.is_empty());
+        assert!(report.modified.is_empty());
 
         let after = source_snapshot(repository.path());
         assert_only_source_paths_changed(&before, &after, &[relative]);
@@ -103,12 +88,7 @@ fn malformed_hook_and_adapter_inputs_fail_closed() {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, b"{not valid json").unwrap();
         let before = source_snapshot(repository.path());
-        let failed = match host {
-            AdapterHost::Codex | AdapterHost::Claude => {
-                install_adapter(plan_adapter(repository.path(), host).unwrap()).is_err()
-            }
-            AdapterHost::GenericMcp => install_generic_adapter(repository.path()).is_err(),
-        };
+        let failed = plan_adapter(repository.path(), host).is_err();
         assert!(failed);
         assert_eq!(fs::read(&path).unwrap(), b"{not valid json");
         assert_eq!(source_snapshot(repository.path()), before);
@@ -122,9 +102,14 @@ fn verification_reports_installed_capability_not_requested_grade() {
     assert_eq!(missing.capture_grade, CaptureGrade::D);
     assert!(!missing.missing.is_empty());
 
-    install_adapter(plan_adapter(repository.path(), AdapterHost::Codex).unwrap()).unwrap();
+    let plan = plan_adapter(repository.path(), AdapterHost::Codex).unwrap();
+    let token = plan.plan_digest.clone();
+    install_adapter(plan, &token).unwrap();
     let installed = verify_adapter(repository.path(), AdapterHost::Codex).unwrap();
-    assert_eq!(installed.capture_grade, CaptureGrade::A);
+    assert_eq!(installed.capture_grade, CaptureGrade::D);
+    assert!(installed.configured);
+    assert!(!installed.activation_verified);
+    assert!(!installed.activation_reasons.is_empty());
 
     let config = repository.path().join(".codex/hooks.json");
     let mut document: serde_json::Value =

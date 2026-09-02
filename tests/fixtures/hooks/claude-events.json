@@ -1,0 +1,95 @@
+{
+  "SessionStart": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "hook_event_name": "SessionStart",
+    "source": "startup",
+    "model": "claude-sonnet-4-6"
+  },
+  "UserPromptSubmit": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "permission_mode": "default",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "CANARY_PROMPT_SECRET"
+  },
+  "PreToolUse": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_use_id": "tool-001",
+    "tool_input": {"command": "CANARY_COMMAND_SECRET"}
+  },
+  "PostToolUse": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_use_id": "tool-001",
+    "tool_input": {"command": "CANARY_COMMAND_SECRET"},
+    "tool_response": {"output": "CANARY_OUTPUT_SECRET"}
+  },
+  "PreCompact": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "hook_event_name": "PreCompact",
+    "trigger": "manual",
+    "custom_instructions": "CANARY_COMPACT_SECRET"
+  },
+  "PostCompact": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "hook_event_name": "PostCompact",
+    "trigger": "manual",
+    "compact_summary": "CANARY_COMPACT_SECRET"
+  },
+  "SubagentStart": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "hook_event_name": "SubagentStart",
+    "agent_id": "agent-child",
+    "agent_type": "explorer"
+  },
+  "SubagentStop": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "permission_mode": "default",
+    "hook_event_name": "SubagentStop",
+    "agent_id": "agent-child",
+    "agent_type": "explorer",
+    "agent_transcript_path": "CANARY_SUBAGENT_TRANSCRIPT_SECRET",
+    "stop_hook_active": false,
+    "last_assistant_message": "CANARY_ASSISTANT_SECRET",
+    "background_tasks": [],
+    "session_crons": []
+  },
+  "Stop": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "permission_mode": "default",
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "CANARY_ASSISTANT_SECRET",
+    "background_tasks": [],
+    "session_crons": []
+  },
+  "SessionEnd": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CLAUDE_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CLAUDE_CWD_SECRET",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+  }
+}

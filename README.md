@@ -63,7 +63,7 @@ DevMap does not reconstruct or invent decisions made before adoption. It records
 
 The full product will extend this foundation with branch routes, PR Context Capsules, signed evidence, and a shared graph projection.
 
-Phase 1B now captures structured lifecycle and semantic events in an append-only journal under the resolved Git directory for each worktree. Thin Codex and Claude adapters normalize native hooks through the same kernel; Generic hosts can call the local stdio MCP endpoint. Full prompt transcripts are not stored by native hooks.
+Phase 1B now captures structured lifecycle and semantic events in an append-only journal under the resolved Git directory for each worktree. Thin Codex and Claude adapters normalize native lifecycle/activity into the shared event and journal contract; Generic hosts use the local stdio MCP endpoint and shared Capture Kernel for explicit semantic entries. Full prompt transcripts are not stored by native hooks.
 
 ## Current status
 
@@ -83,7 +83,7 @@ Phase 1B now captures structured lifecycle and semantic events in an append-only
 | Signed test, build, and release attestations | | ✓ |
 | Interactive force-directed topology Viewer | | ✓ |
 
-Capture Grade is derived from the adapter that is actually present. A complete, exact Codex or Claude native install reports **A**; the Generic MCP fallback reports **C**; missing or modified required bindings report **D**. The protocol also defines **B**, although no current bundled install plan is expected to report it.
+Capture Grade is derived from runtime-verifiable capabilities, not the adapter name or a literal in its configuration. Codex hooks, Claude hooks, and Generic MCP currently report an effective **D**, including when their configuration is exact, because Phase 1B does not yet observe mutation state, associate evidence with mutations, or map records to commits. Configuration and effective activation are reported separately.
 
 ## Quick start
 
@@ -149,16 +149,19 @@ Always preview the exact project-local change first. Replace the host with `clau
 ./target/release/devmap adapter plan --source /work/payment-service --host codex
 ```
 
-Review the printed bindings and destination before installing. Native installs change only `.codex/hooks.json` or `.claude/settings.json`; Generic MCP changes only `.devmap/mcp.json`.
+Review the printed bindings, destination, and `plan_digest` before installing. The digest approves the exact host, action, source identity, prior bytes/file identity, and proposed result; any intervening edit requires a new plan. Native installs change only `.codex/hooks.json` or `.claude/settings.json`; Generic MCP changes only `.devmap/mcp.json`.
 
 ```bash
-./target/release/devmap adapter install --source /work/payment-service --host codex
+./target/release/devmap adapter install --source /work/payment-service --host codex \
+  --plan-digest 'sha256-<reviewed-digest>'
 ./target/release/devmap adapter verify --source /work/payment-service --host codex
 ```
 
-After installation, inspect the resulting configuration and complete any trust or review step required by the host before opening a capture session. DevMap does not bypass host trust controls. Run `adapter verify` again after host or project configuration changes: it reports the effective grade from bindings on disk, not the grade requested at planning time.
+After installation, inspect the resulting configuration and complete any trust or review step required by the host before opening a capture session. DevMap does not bypass host trust controls. `adapter verify` reports configuration drift separately from effective activation; executable reachability, native-host trust or managed-policy permission, and Generic MCP host registration remain explicit unresolved activation reasons when they cannot be verified. Omitting `--host` verifies Codex, Claude, and Generic MCP together.
 
-For a Generic MCP host, `.devmap/mcp.json` is the descriptor to review and register. It starts `devmap mcp --source .` over stdio and supports both the legacy `2025-11-25` initialize flow and the current `2026-07-28` per-request metadata/discovery flow. Its explicit Requirement, Decision, and Evidence tools report Grade C.
+For a Generic MCP host, `.devmap/mcp.json` is the descriptor to review and register. It starts `devmap mcp --source .` over stdio. Modern discovery advertises only `2026-07-28`; the legacy `2025-11-25` version remains available only through initialize negotiation, including the required successful counteroffer for another legacy version.
+
+Codex hooks, Claude hooks, and Generic MCP all currently have an honest effective Capture Grade D. Native hooks provide bounded lifecycle and activity signals: `Stop` means turn completion, while only `SessionEnd` means session completion. A write-capable tool produces tool activity plus a `mutation_unverified` gap, never a guessed mutation. Explicit Requirement, Decision, and Evidence records use the shared MCP/Capture Kernel surface. Grade A remains unavailable until mutation state, evidence association, and commit mapping are runtime-observable.
 
 Capture journals are local to each worktree at:
 
@@ -166,10 +169,12 @@ Capture journals are local to each worktree at:
 <git rev-parse --git-dir>/devmap/sessions/<session-id>/events.ndjson
 ```
 
-They are append-only local evidence and are not staged in the source repository. To remove only DevMap-owned bindings or the exact Generic descriptor:
+They are append-only local evidence and are not staged in the source repository. To remove only DevMap-owned bindings or the exact Generic descriptor, review a removal plan and pass its separate digest:
 
 ```bash
-./target/release/devmap adapter uninstall --source /work/payment-service --host codex
+./target/release/devmap adapter plan --source /work/payment-service --host codex --action uninstall
+./target/release/devmap adapter uninstall --source /work/payment-service --host codex \
+  --plan-digest 'sha256-<reviewed-removal-digest>'
 ```
 
 Phase 1B observes and records; it does **not** create or switch branches or worktrees, stage files, commit, stash, configure remotes, or push. Source Git workflow management begins in a later phase.
@@ -214,7 +219,7 @@ Use these invariants when reading or extending a DevMap project:
 2. Treat Requirement Trace as human intent, not as an Agent Decision.
 3. Read `state/current.json`, its manifest, and only the relevant canonical objects before loading broader context.
 4. Verify content IDs and hashes before trusting an object.
-5. Treat Capture Grade as observed coverage: A is a verified exact native install, C is the explicit Generic MCP fallback, and D means required bindings are missing or drifted.
+5. Treat Capture Grade as capability-derived coverage. Phase 1B native hooks and Generic MCP are Grade D even when configured exactly; configuration, activation, and capability grade are separate facts. A higher grade requires runtime-verifiable mutation, evidence, and commit-mapping capabilities.
 6. Do not overwrite canonical objects. Future changes must use explicit supersession.
 
 ## Roadmap

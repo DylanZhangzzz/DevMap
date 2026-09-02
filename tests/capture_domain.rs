@@ -242,11 +242,33 @@ fn test_kernel() -> (tempfile::TempDir, CaptureKernel) {
     let store = JournalStore::open(&workspace, "kernel-session").unwrap();
     let kernel = CaptureKernel::new(
         store,
-        CaptureGrade::A,
+        CaptureCapabilities {
+            lifecycle_events: vec![
+                EventType::SessionStarted,
+                EventType::SessionStopped,
+                EventType::MutationObserved,
+                EventType::EvidenceRecorded,
+            ],
+            pre_mutation_blocking: true,
+            subagent_lifecycle: true,
+            workspace_rebind: true,
+            tool_results: true,
+            commit_mapping: true,
+            raw_transcript: false,
+        },
         HostIdentity::new("codex", "1.0.0").unwrap(),
         ActorIdentity::new("agent-1", None).unwrap(),
-        valid_context().unwrap(),
-    );
+        SessionContext::new(
+            "kernel-session",
+            Some("route-1".into()),
+            workspace.root.to_string_lossy(),
+            Some(workspace.root.to_string_lossy().into_owned()),
+            workspace.branch,
+            Some(workspace.head),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     (repository, kernel)
 }
 
