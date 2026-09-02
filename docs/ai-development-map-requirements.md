@@ -1334,7 +1334,8 @@ Agent SHOULD 不直接手工生成 object ID 或修改 canonical object。
 - post-commit：在本地 pending journal 准备 commit mapping，不自动 push；
 - pre-push：准备待上传 Context Bundle，但不把 push 尝试当作成功；
 - pre-compaction：写 checkpoint；
-- stop：finalize session。
+- stop：finalize 当前 turn，不得冒充 session 结束；
+- session end：finalize session。
 
 Hook SHOULD 保持轻量、具有明确 timeout，并调用共享 DevMap CLI/library 完成归一化，不在各 adapter 内重复实现 Decision 判断。宿主报告 hook 非零退出、timeout、协议不兼容或能力缺失时，wrapper SHOULD 写入 `capture_gap`；如果本地无法写入，则远程 diff coverage MUST 将缺失升级为 `context_gap`。
 
@@ -1930,8 +1931,8 @@ DevMap MUST 使用真实 Agent session 而不是单轮 prompt 评估捕获效果
 - Activity、Commit、Evidence；
 - Context Manifest；
 - Canonical Capture Kernel 与 Adapter Contract；
-- Codex Grade A reference adapter；
-- Generic CLI/MCP Grade C fallback；
+- Codex reference adapter（Phase 1B 当前实现的有效等级为 D；缺少可观测 mutation、Evidence 关联和 commit mapping 时不得声称 Grade A）；
+- Generic CLI/MCP fallback（Phase 1B 当前实现的有效等级为 D；配置成功与有效激活必须分开报告）；
 - adapter capability handshake 和 Capture Grade；
 - SessionStart/SubagentStart context propagation；
 - `devmap status` / capture 状态显示；

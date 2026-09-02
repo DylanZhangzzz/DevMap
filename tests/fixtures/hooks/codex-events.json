@@ -1,0 +1,108 @@
+{
+  "SessionStart": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "source": "startup"
+  },
+  "UserPromptSubmit": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "UserPromptSubmit",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "prompt": "CANARY_PROMPT_SECRET"
+  },
+  "PreToolUse": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "tool_name": "Bash",
+    "tool_use_id": "tool-001",
+    "tool_input": {"command": "CANARY_COMMAND_SECRET"}
+  },
+  "PostToolUse": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "tool_name": "Bash",
+    "tool_use_id": "tool-001",
+    "tool_input": {"command": "CANARY_COMMAND_SECRET"},
+    "tool_response": {"output": "CANARY_OUTPUT_SECRET"}
+  },
+  "PreCompact": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "PreCompact",
+    "model": "gpt-5.6-sol",
+    "turn_id": "turn-001",
+    "trigger": "manual"
+  },
+  "PostCompact": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "PostCompact",
+    "model": "gpt-5.6-sol",
+    "turn_id": "turn-001",
+    "trigger": "manual"
+  },
+  "SubagentStart": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "SubagentStart",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "agent_id": "agent-child",
+    "agent_type": "explorer"
+  },
+  "SubagentStop": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "SubagentStop",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "agent_id": "agent-child",
+    "agent_type": "explorer",
+    "agent_transcript_path": "CANARY_SUBAGENT_TRANSCRIPT_SECRET",
+    "stop_hook_active": false,
+    "last_assistant_message": "CANARY_ASSISTANT_SECRET"
+  },
+  "Stop": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "Stop",
+    "model": "gpt-5.6-sol",
+    "permission_mode": "default",
+    "turn_id": "turn-001",
+    "stop_hook_active": false,
+    "last_assistant_message": "CANARY_ASSISTANT_SECRET"
+  },
+  "SessionEnd": {
+    "session_id": "phase-1b-session",
+    "transcript_path": "CANARY_CODEX_TRANSCRIPT_SECRET",
+    "cwd": "CANARY_CODEX_CWD_SECRET",
+    "hook_event_name": "SessionEnd",
+    "model": "gpt-5.6-sol",
+    "reason": "other"
+  }
+}

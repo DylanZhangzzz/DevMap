@@ -10,6 +10,60 @@ pub enum DevMapError {
     #[error("command is not implemented yet: {0}")]
     UnsupportedCommand(&'static str),
 
+    #[error("malformed adapter configuration: {0}")]
+    MalformedAdapterConfig(String),
+
+    #[error("adapter host is not available in this phase: {0}")]
+    UnsupportedAdapterHost(String),
+
+    #[error("unsupported host event: {0}")]
+    UnsupportedHostEvent(String),
+
+    #[error("invalid event envelope: {0}")]
+    InvalidEventEnvelope(String),
+
+    #[error("raw transcript capture is disabled in Phase 1B")]
+    RawTranscriptDisabled,
+
+    #[error("invalid evidence target: {0}")]
+    InvalidEvidenceTarget(String),
+
+    #[error("capture journal is corrupt: {0}")]
+    JournalCorruption(String),
+
+    #[error("resource limit exceeded for {resource}: maximum {limit}")]
+    ResourceLimit {
+        resource: &'static str,
+        limit: usize,
+    },
+
+    #[error("capture session mismatch: journal {journal_session}, event {event_session}")]
+    SessionMismatch {
+        journal_session: String,
+        event_session: String,
+    },
+
+    #[error("duplicate journal sequence: {0}")]
+    DuplicateSequence(u64),
+
+    #[error("unsafe installer overwrite refused: {0}")]
+    UnsafeInstallerOverwrite(PathBuf),
+
+    #[error("adapter approval token does not match the reviewed plan")]
+    AdapterApprovalMismatch,
+
+    #[error("adapter plan is stale: {0}")]
+    AdapterPlanStale(String),
+
+    #[error(
+        "adapter config transaction failed for {path}: {operation_error}; temporary cleanup: {cleanup}"
+    )]
+    AdapterConfigTransaction {
+        path: PathBuf,
+        operation_error: String,
+        cleanup: String,
+    },
+
     #[error("floating point values are not allowed in canonical evidence")]
     FloatingPointNotCanonical,
 

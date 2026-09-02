@@ -20,3 +20,16 @@ fn help_exposes_phase_1a_commands() {
         "missing status command: {stdout}"
     );
 }
+
+#[test]
+fn help_exposes_phase_1b_commands() {
+    let output = Command::new(env!("CARGO_BIN_EXE_devmap"))
+        .args(["adapter", "--help"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("plan"));
+    assert!(stdout.contains("install"));
+    assert!(stdout.contains("verify"));
+    assert!(stdout.contains("uninstall"));
+}
