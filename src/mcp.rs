@@ -395,8 +395,10 @@ fn validate_capabilities(value: &Map<String, Value>) -> Result<(), String> {
             return Err(format!("clientCapabilities.{name} must be an object"));
         };
         match name.as_str() {
+            "roots" => validate_boolean_members(capability, &["listChanged"], name)?,
             "sampling" => validate_object_members(capability, &["context", "tools"], name)?,
             "elicitation" => validate_object_members(capability, &["form", "url"], name)?,
+            "tasks" => validate_task_capability(capability)?,
             "experimental" | "extensions" => {
                 if capability.values().any(|nested| !nested.is_object()) {
                     return Err(format!("clientCapabilities.{name} entries must be objects"));
@@ -409,10 +411,27 @@ fn validate_capabilities(value: &Map<String, Value>) -> Result<(), String> {
                     return Err("clientCapabilities.extensions keys require a valid prefix".into());
                 }
             }
-            // `roots` is an object and the capability model is intentionally open to future
-            // object-valued extensions.
+            // The capability model is intentionally open to future object-valued extensions.
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn validate_task_capability(value: &Map<String, Value>) -> Result<(), String> {
+    validate_object_members(value, &["list", "cancel", "requests"], "tasks")?;
+    let Some(requests) = value.get("requests") else {
+        return Ok(());
+    };
+    let requests = requests
+        .as_object()
+        .expect("validate_object_members checked tasks.requests");
+    validate_object_members(requests, &["sampling", "elicitation"], "tasks.requests")?;
+    if let Some(sampling) = requests.get("sampling").and_then(Value::as_object) {
+        validate_object_members(sampling, &["createMessage"], "tasks.requests.sampling")?;
+    }
+    if let Some(elicitation) = requests.get("elicitation").and_then(Value::as_object) {
+        validate_object_members(elicitation, &["create"], "tasks.requests.elicitation")?;
     }
     Ok(())
 }
@@ -441,6 +460,22 @@ fn validate_object_members(
     {
         return Err(format!(
             "clientCapabilities.{capability}.{name} must be an object"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_boolean_members(
+    value: &Map<String, Value>,
+    known: &[&str],
+    capability: &str,
+) -> Result<(), String> {
+    if let Some((name, _)) = value
+        .iter()
+        .find(|(name, nested)| known.contains(&name.as_str()) && !nested.is_boolean())
+    {
+        return Err(format!(
+            "clientCapabilities.{capability}.{name} must be a boolean"
         ));
     }
     Ok(())

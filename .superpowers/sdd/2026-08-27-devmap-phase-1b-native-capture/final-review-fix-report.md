@@ -317,6 +317,40 @@ to cover the report-only edit.
   earlier-record rewrite is detected by public replay, not by every append; the
   existing Context Repository status checks are unchanged.
 
+## Scoped re-review closure
+
+The scoped whole-branch re-review found one remaining Important issue after
+`b5ee4d3`: known nested MCP capability fields were not all type checked. The final
+patch now validates `roots.listChanged` as a boolean and recursively validates the
+legacy `tasks.list`, `tasks.cancel`, `tasks.requests.sampling.createMessage`, and
+`tasks.requests.elicitation.create` object shapes. Unknown object-valued
+capabilities remain accepted as required by MCP's extensible capability model.
+
+The regression coverage first failed against the reviewed commit and then passed
+after the patch:
+
+- modern per-request metadata rejects a non-boolean `roots.listChanged`;
+- legacy initialize rejects malformed known `roots` and `tasks` members;
+- a complete valid legacy `roots` plus `tasks` capability tree is accepted.
+
+The final exact gate was rerun after this scoped closure and supersedes the earlier
+131-test count recorded above:
+
+```text
+cargo fmt --all -- --check                                  PASS
+cargo clippy --all-targets --all-features -- -D warnings   PASS
+cargo test --all-targets --all-features                    PASS (132 passed, 0 failed)
+cargo build --release --all-features                       PASS
+target/release/devmap adapter --help                       PASS
+target/release/devmap hook --help                          PASS
+target/release/devmap mcp --help                           PASS
+git diff --check                                           PASS
+
+release performance: 1065 records, preload 30444 ms,
+64-append sample 2174 ms, steady-state p95 50 ms,
+native hook 523 ms                                        PASS
+```
+
 ## Changed files
 
 Runtime and interfaces:

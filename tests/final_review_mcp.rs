@@ -114,6 +114,9 @@ fn modern_metadata_validates_client_identity_and_nested_capability_shapes() {
     let mut bad_sampling = modern_request(json!(4), "tools/list", json!({}));
     bad_sampling["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] =
         json!({"sampling": {"tools": true}});
+    let mut bad_roots = modern_request(json!(7), "tools/list", json!({}));
+    bad_roots["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] =
+        json!({"roots": {"listChanged": "yes"}});
     let mut bad_extensions = modern_request(json!(5), "tools/list", json!({}));
     bad_extensions["params"]["_meta"]["io.modelcontextprotocol/clientCapabilities"] =
         json!({"extensions": {"io.modelcontextprotocol/example": "yes"}});
@@ -127,6 +130,7 @@ fn modern_metadata_validates_client_identity_and_nested_capability_shapes() {
             bad_identity,
             bad_icon,
             bad_sampling,
+            bad_roots,
             bad_extensions,
             unprefixed_extension,
         ],
@@ -138,6 +142,56 @@ fn modern_metadata_validates_client_identity_and_nested_capability_shapes() {
             .iter()
             .all(|response| response["error"]["code"] == -32602)
     );
+}
+
+#[test]
+fn legacy_initialize_validates_known_nested_capability_shapes() {
+    let repository = committed_repo();
+    let initialize = |id: &str, capabilities: Value| {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": LEGACY,
+                "capabilities": capabilities,
+                "clientInfo": {"name": "legacy-client", "version": "1.2.3"}
+            }
+        })
+    };
+    let responses = run(
+        repository.path(),
+        &[
+            initialize("bad-roots", json!({"roots": {"listChanged": "yes"}})),
+            initialize("bad-task-list", json!({"tasks": {"list": "yes"}})),
+            initialize(
+                "bad-task-requests",
+                json!({"tasks": {"requests": {"sampling": {"createMessage": true}}}}),
+            ),
+            initialize(
+                "valid",
+                json!({
+                    "roots": {"listChanged": true},
+                    "tasks": {
+                        "list": {},
+                        "cancel": {},
+                        "requests": {
+                            "sampling": {"createMessage": {}},
+                            "elicitation": {"create": {}}
+                        }
+                    }
+                }),
+            ),
+        ],
+    );
+
+    assert_eq!(responses.len(), 4);
+    assert!(
+        responses[..3]
+            .iter()
+            .all(|response| response["error"]["code"] == -32602)
+    );
+    assert_eq!(responses[3]["result"]["protocolVersion"], LEGACY);
 }
 
 #[test]
