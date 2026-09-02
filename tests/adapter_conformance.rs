@@ -13,8 +13,10 @@ use devmap::mcp::serve_mcp;
 use serde_json::{Map, Value, json};
 use support::{
     RAW_HOST_PROMPT, SCENARIO_CHILD_AGENT, SCENARIO_MAIN_AGENT, SCENARIO_ROUTE, SCENARIO_SESSION,
-    assert_only_source_paths_changed, assert_scenario, canonical_semantic_bytes, committed_repo,
-    generic_scenario_expectations, native_scenario_expectations, source_snapshot,
+    assert_generic_semantic_payloads, assert_native_host_representation,
+    assert_native_semantic_payloads, assert_only_source_paths_changed, assert_scenario,
+    canonical_semantic_bytes, committed_repo, generic_scenario_expectations,
+    native_scenario_expectations, shared_semantic_projection, source_snapshot,
 };
 
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -31,6 +33,8 @@ fn official_native_hosts_produce_identical_canonical_semantics() {
 
     let codex = run_native_scenario(repository.path(), &workspace, AdapterHost::Codex);
     assert_scenario(&codex, &native_scenario_expectations());
+    assert_native_host_representation(&codex, AdapterHost::Codex);
+    assert_native_semantic_payloads(&codex, AdapterHost::Codex, &workspace.head);
     let gaps = codex
         .iter()
         .filter(|record| record.event.event_type() == &devmap::events::EventType::CaptureGap)
@@ -72,6 +76,8 @@ fn official_native_hosts_produce_identical_canonical_semantics() {
     .unwrap();
     let claude = run_native_scenario(repository.path(), &workspace, AdapterHost::Claude);
     assert_scenario(&claude, &native_scenario_expectations());
+    assert_native_host_representation(&claude, AdapterHost::Claude);
+    assert_native_semantic_payloads(&claude, AdapterHost::Claude, &workspace.head);
     let claude_bytes = claude
         .iter()
         .map(|record| canonical_semantic_bytes(&record.event))
@@ -94,13 +100,31 @@ fn official_native_hosts_produce_identical_canonical_semantics() {
 }
 
 #[test]
-fn legacy_and_current_generic_mcp_produce_the_shared_semantic_sequence() {
+fn both_generic_mcp_eras_match_codex_and_claude_semantic_projections() {
     let repository = committed_repo();
     let workspace = SourceGitInspector::open(repository.path())
         .unwrap()
         .workspace()
         .unwrap();
     let source_before = source_snapshot(repository.path());
+
+    let mut native_projections = Vec::new();
+    for host in [AdapterHost::Codex, AdapterHost::Claude] {
+        let native = run_native_scenario(repository.path(), &workspace, host);
+        assert_scenario(&native, &native_scenario_expectations());
+        assert_native_host_representation(&native, host);
+        assert_native_semantic_payloads(&native, host, &workspace.head);
+        native_projections.push(shared_semantic_projection(&native));
+        fs::remove_dir_all(
+            workspace
+                .git_dir
+                .join("devmap/sessions")
+                .join(SCENARIO_SESSION),
+        )
+        .unwrap();
+    }
+    assert_eq!(native_projections[0], native_projections[1]);
+
     let mut era_bytes = Vec::new();
     for era in [McpEra::Legacy, McpEra::Modern] {
         let responses = run_generic_scenario(repository.path(), &workspace.head, era);
@@ -114,6 +138,10 @@ fn legacy_and_current_generic_mcp_produce_the_shared_semantic_sequence() {
             .replay()
             .unwrap();
         assert_scenario(&records, &generic_scenario_expectations());
+        assert_generic_semantic_payloads(&records, &workspace.head);
+        let generic_projection = shared_semantic_projection(&records);
+        assert_eq!(generic_projection, native_projections[0]);
+        assert_eq!(generic_projection, native_projections[1]);
         era_bytes.push(
             records
                 .iter()
@@ -358,8 +386,8 @@ fn run_generic_scenario(source: &std::path::Path, head: &str, era: McpEra) -> Ve
                 "session_id": SCENARIO_SESSION,
                 "agent_id": SCENARIO_MAIN_AGENT,
                 "route_id": SCENARIO_ROUTE,
-                "event_id": "generic-01",
-                "occurred_at": "2026-08-27T12:00:01Z",
+                "event_id": "evt-02",
+                "occurred_at": "2026-08-27T12:00:02Z",
                 "source_kind": "human_instruction",
                 "source_locator": "turn:1",
                 "quoted_text": "Approved requirement quotation"
@@ -374,8 +402,8 @@ fn run_generic_scenario(source: &std::path::Path, head: &str, era: McpEra) -> Ve
                 "agent_id": SCENARIO_CHILD_AGENT,
                 "parent_agent_id": SCENARIO_MAIN_AGENT,
                 "route_id": SCENARIO_ROUTE,
-                "event_id": "generic-02",
-                "occurred_at": "2026-08-27T12:00:02Z",
+                "event_id": "evt-04",
+                "occurred_at": "2026-08-27T12:00:03Z",
                 "decision": "Use a compatibility adapter",
                 "basis": ["Both supported hosts expose lifecycle hooks"],
                 "alternatives": ["Duplicate host-specific capture logic"],
@@ -394,8 +422,8 @@ fn run_generic_scenario(source: &std::path::Path, head: &str, era: McpEra) -> Ve
                 "agent_id": SCENARIO_CHILD_AGENT,
                 "parent_agent_id": SCENARIO_MAIN_AGENT,
                 "route_id": SCENARIO_ROUTE,
-                "event_id": "generic-03",
-                "occurred_at": "2026-08-27T12:00:03Z",
+                "event_id": "evt-08",
+                "occurred_at": "2026-08-27T12:00:05Z",
                 "kind": "test",
                 "target": format!("commit:{head}"),
                 "command": "cargo test --all-targets --all-features",

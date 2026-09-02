@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use devmap::canonical::canonical_json;
+use devmap::cli::AdapterHost;
 use devmap::events::{CaptureGrade, EventEnvelope, EventType};
 use devmap::journal::JournalRecord;
 use serde_json::Value;
@@ -168,6 +169,202 @@ pub fn assert_scenario(records: &[JournalRecord], expected: &[ExpectedScenarioEv
             expected.grade
         );
     }
+}
+
+pub fn assert_native_semantic_payloads(records: &[JournalRecord], host: AdapterHost, head: &str) {
+    let (locator, prompt_metadata) = match host {
+        AdapterHost::Codex => (
+            "codex:session:phase-1b-session:event:evt-02",
+            serde_json::json!({"cwd": "/workspace/devmap"}),
+        ),
+        AdapterHost::Claude => (
+            "claude:session:phase-1b-session:event:evt-02",
+            serde_json::json!({}),
+        ),
+        AdapterHost::GenericMcp => panic!("native payload assertion requires a native host"),
+    };
+    assert_eq!(
+        scenario_event(records, &EventType::InstructionObserved).payload(),
+        &serde_json::json!({
+            "capture_grade": "A",
+            "host_metadata": prompt_metadata,
+            "requirement_trace": {
+                "source": {"kind": "host_prompt_reference", "locator": locator},
+                "content_digest": "sha256-276b20dc9323c27dbdb3fe16e1f80beb63ccf80b8bc9156dbabe3b052d7a9805",
+                "content_stored": false
+            }
+        })
+    );
+    assert_eq!(
+        scenario_event(records, &EventType::DecisionRecorded).payload(),
+        &serde_json::json!({
+            "capture_grade": "A",
+            "agent_decision": {
+                "decision": "Use a compatibility adapter",
+                "basis": ["Both supported hosts expose lifecycle hooks"],
+                "alternatives": ["Duplicate host-specific capture logic"],
+                "rationale": "A shared kernel preserves equivalent semantics",
+                "scope": "Phase 1B native capture",
+                "authority": "approved Phase 1B plan",
+                "revisit_trigger": "A host cannot express the canonical contract"
+            }
+        })
+    );
+    assert_eq!(
+        scenario_event(records, &EventType::EvidenceRecorded).payload(),
+        &serde_json::json!({
+            "capture_grade": "A",
+            "evidence": {
+                "kind": "test",
+                "target": format!("commit:{head}"),
+                "command": "cargo test --all-targets --all-features",
+                "outcome": "passed"
+            },
+            "provisional": false
+        })
+    );
+}
+
+pub fn assert_generic_semantic_payloads(records: &[JournalRecord], head: &str) {
+    assert_eq!(
+        scenario_event(records, &EventType::InstructionObserved).payload(),
+        &serde_json::json!({
+            "capture_grade": "C",
+            "requirement_trace": {
+                "source": {"kind": "human_instruction", "locator": "turn:1"},
+                "approved_quotation": "Approved requirement quotation"
+            }
+        })
+    );
+    assert_eq!(
+        scenario_event(records, &EventType::DecisionRecorded).payload(),
+        &serde_json::json!({
+            "capture_grade": "C",
+            "agent_decision": {
+                "decision": "Use a compatibility adapter",
+                "basis": ["Both supported hosts expose lifecycle hooks"],
+                "alternatives": ["Duplicate host-specific capture logic"],
+                "rationale": "A shared kernel preserves equivalent semantics",
+                "scope": "Phase 1B native capture",
+                "authority": "approved Phase 1B plan",
+                "revisit_trigger": "A host cannot express the canonical contract"
+            }
+        })
+    );
+    assert_eq!(
+        scenario_event(records, &EventType::EvidenceRecorded).payload(),
+        &serde_json::json!({
+            "capture_grade": "C",
+            "evidence": {
+                "kind": "test",
+                "target": format!("commit:{head}"),
+                "command": "cargo test --all-targets --all-features",
+                "outcome": "passed"
+            },
+            "provisional": false
+        })
+    );
+}
+
+pub fn assert_native_host_representation(records: &[JournalRecord], host: AdapterHost) {
+    let (host_name, locator, ordinary_metadata, write_metadata) = match host {
+        AdapterHost::Codex => (
+            "codex",
+            "codex:session:phase-1b-session:event:evt-02",
+            serde_json::json!({"cwd": "/workspace/devmap"}),
+            serde_json::json!({"cwd": "/workspace/devmap", "tool_input": {"path": "src/lib.rs"}}),
+        ),
+        AdapterHost::Claude => (
+            "claude",
+            "claude:session:phase-1b-session:event:evt-02",
+            serde_json::json!({}),
+            serde_json::json!({"tool_input": {"path": "src/lib.rs"}}),
+        ),
+        AdapterHost::GenericMcp => panic!("native representation requires a native host"),
+    };
+    for record in records {
+        let event = &record.event;
+        assert_eq!(event.host().name(), host_name);
+        assert_eq!(event.host().adapter_version(), "devmap-hook/1");
+        if matches!(
+            event.event_type(),
+            EventType::DecisionRecorded | EventType::EvidenceRecorded
+        ) {
+            assert!(
+                event.payload().get("host_metadata").is_none(),
+                "explicit semantic records must not gain host metadata"
+            );
+            continue;
+        }
+        let expected = if matches!(
+            event.event_type(),
+            EventType::ToolCompleted | EventType::MutationObserved | EventType::CaptureGap
+        ) {
+            &write_metadata
+        } else {
+            &ordinary_metadata
+        };
+        assert_eq!(
+            event.payload().get("host_metadata"),
+            Some(expected),
+            "unexpected host metadata shape"
+        );
+    }
+    assert_eq!(
+        scenario_event(records, &EventType::InstructionObserved).payload()["requirement_trace"]["source"]
+            ["locator"],
+        locator,
+        "native prompt locator must retain the exact allowed host prefix"
+    );
+}
+
+pub fn shared_semantic_projection(records: &[JournalRecord]) -> Vec<Vec<u8>> {
+    records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.event.event_type(),
+                EventType::InstructionObserved
+                    | EventType::DecisionRecorded
+                    | EventType::EvidenceRecorded
+            )
+        })
+        .map(|record| {
+            let mut value = serde_json::to_value(&record.event).expect("serialize event");
+            let object = value.as_object_mut().expect("event envelope is an object");
+            // Native hooks have lifecycle events before and between these records, while Generic
+            // MCP sequences only its explicit semantic calls. Both sequence contracts are checked
+            // literally before this projection. Host identity and Grade A/C are likewise asserted
+            // before removing those documented capability differences here.
+            object.remove("host");
+            object.remove("sequence");
+            let payload = object["payload"]
+                .as_object_mut()
+                .expect("event payload is an object");
+            payload.remove("capture_grade");
+            payload.remove("host_metadata");
+            if record.event.event_type() == &EventType::InstructionObserved {
+                // Native hooks retain a digest/reference and Generic MCP retains only the explicit
+                // approved quotation. Their exact, intentionally non-equivalent representations
+                // are checked above; the common semantic role is the comparable evidence here.
+                *payload =
+                    serde_json::json!({"requirement_trace": {"semantic_role": "human_request"}})
+                        .as_object()
+                        .unwrap()
+                        .clone();
+            }
+            canonical_json(&value).expect("canonicalize shared semantic projection")
+        })
+        .collect()
+}
+
+fn scenario_event<'a>(records: &'a [JournalRecord], event_type: &EventType) -> &'a EventEnvelope {
+    let matching = records
+        .iter()
+        .filter(|record| record.event.event_type() == event_type)
+        .collect::<Vec<_>>();
+    assert_eq!(matching.len(), 1, "semantic event must occur exactly once");
+    &matching[0].event
 }
 
 pub fn canonical_semantic_bytes(event: &EventEnvelope) -> Vec<u8> {
