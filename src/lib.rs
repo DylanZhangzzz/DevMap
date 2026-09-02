@@ -5,6 +5,7 @@ pub mod cli;
 pub mod commands;
 pub mod context;
 pub mod dock;
+pub mod dock_asset;
 pub mod domain;
 pub mod error;
 pub mod events;

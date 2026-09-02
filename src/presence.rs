@@ -520,6 +520,13 @@ fn validate_record(
             return Err(invalid(format!("{name} is blank or too long")));
         }
     }
+    if record
+        .route_id
+        .as_deref()
+        .is_some_and(|value| !is_safe_route_id(value))
+    {
+        return Err(invalid("route_id contains unsafe characters"));
+    }
     check_prefixed_hex(&record.repository_id, "sha256-", 64, "repository_id")?;
     check_prefixed_hex(&record.worktree_id, "wt-", 64, "worktree_id")?;
     check_lower_hex(&record.head, &[40, 64], "head")?;
@@ -579,11 +586,21 @@ fn check_session_component(value: &str) -> Result<(), DevMapError> {
         || value == "."
         || value == ".."
         || value.len() > 512
-        || value.contains(['/', '\\', '\0'])
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
     {
         return Err(invalid("session_id must be one bounded path component"));
     }
     Ok(())
+}
+
+fn is_safe_route_id(value: &str) -> bool {
+    value.len() <= 512
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric()
+                || (index > 0 && matches!(byte, b'-' | b'_' | b'.' | b':' | b'/'))
+        })
 }
 
 fn check_prefixed_hex(
