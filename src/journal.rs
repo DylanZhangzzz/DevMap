@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Component, Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +25,11 @@ pub struct JournalRecord {
 pub struct JournalStore {
     root: PathBuf,
     session_id: String,
+}
+
+struct JournalAppendLock {
+    path: PathBuf,
+    file: Option<File>,
 }
 
 #[derive(Serialize)]
@@ -50,38 +57,18 @@ impl JournalStore {
     }
 
     pub fn append(&self, event: EventEnvelope) -> Result<JournalRecord, DevMapError> {
-        let records = self.replay()?;
-        let expected_sequence = records.len() as u64 + 1;
-        if event.sequence() != expected_sequence {
-            if event.sequence() < expected_sequence {
-                return Err(DevMapError::DuplicateSequence(event.sequence()));
-            }
-            return Err(corruption(format!(
-                "expected sequence {expected_sequence}, found {}",
-                event.sequence()
-            )));
-        }
-        if records
-            .iter()
-            .any(|record| record.event.event_id() == event.event_id())
-        {
-            return Err(corruption(format!(
-                "duplicate event ID {}",
-                event.event_id()
-            )));
-        }
+        let mut records = self.append_batch_with(|_| Ok(vec![event]))?;
+        Ok(records.remove(0))
+    }
 
-        let previous_sha256 = records.last().map(|record| record.sha256.clone());
-        let record = JournalRecord::new(event, previous_sha256)?;
-        let bytes = canonical_json(&record)?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.events_path())?;
-        file.write_all(&bytes)?;
-        file.write_all(b"\n")?;
-        file.sync_data()?;
-        Ok(record)
+    pub fn append_batch_with<F>(&self, build: F) -> Result<Vec<JournalRecord>, DevMapError>
+    where
+        F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
+    {
+        let _lock = self.acquire_append_lock()?;
+        let existing = self.replay()?;
+        let events = build(existing.len() as u64 + 1)?;
+        self.append_locked(existing, events)
     }
 
     pub fn replay(&self) -> Result<Vec<JournalRecord>, DevMapError> {
@@ -160,6 +147,81 @@ impl JournalStore {
 
     fn events_path(&self) -> PathBuf {
         self.root.join(&self.session_id).join("events.ndjson")
+    }
+
+    fn lock_path(&self) -> PathBuf {
+        self.root.join(&self.session_id).join("events.lock")
+    }
+
+    fn acquire_append_lock(&self) -> Result<JournalAppendLock, DevMapError> {
+        let path = self.lock_path();
+        for _ in 0..200 {
+            match OpenOptions::new().create_new(true).write(true).open(&path) {
+                Ok(file) => {
+                    return Ok(JournalAppendLock {
+                        path,
+                        file: Some(file),
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(DevMapError::JournalLockTimeout(path))
+    }
+
+    fn append_locked(
+        &self,
+        mut records: Vec<JournalRecord>,
+        events: Vec<EventEnvelope>,
+    ) -> Result<Vec<JournalRecord>, DevMapError> {
+        let mut appended = Vec::with_capacity(events.len());
+        let mut known_ids: HashSet<String> = records
+            .iter()
+            .map(|record| record.event.event_id().to_owned())
+            .collect();
+        for event in events {
+            let expected_sequence = records.len() as u64 + 1;
+            if event.sequence() != expected_sequence {
+                if event.sequence() < expected_sequence {
+                    return Err(DevMapError::DuplicateSequence(event.sequence()));
+                }
+                return Err(corruption(format!(
+                    "expected sequence {expected_sequence}, found {}",
+                    event.sequence()
+                )));
+            }
+            if !known_ids.insert(event.event_id().to_owned()) {
+                return Err(corruption(format!(
+                    "duplicate event ID {}",
+                    event.event_id()
+                )));
+            }
+            let previous_sha256 = records.last().map(|record| record.sha256.clone());
+            let record = JournalRecord::new(event, previous_sha256)?;
+            records.push(record.clone());
+            appended.push(record);
+        }
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.events_path())?;
+        for record in &appended {
+            file.write_all(&canonical_json(record)?)?;
+            file.write_all(b"\n")?;
+        }
+        file.sync_data()?;
+        Ok(appended)
+    }
+}
+
+impl Drop for JournalAppendLock {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        let _ = fs::remove_file(&self.path);
     }
 }
 
