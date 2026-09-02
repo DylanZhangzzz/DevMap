@@ -7,6 +7,7 @@ pub mod domain;
 pub mod error;
 pub mod events;
 pub mod git;
+pub mod hook;
 pub mod journal;
 
 use std::ffi::OsString;
@@ -52,8 +53,10 @@ fn dispatch_adapter(command: AdapterCommand) -> Result<CommandOutput, DevMapErro
 }
 
 fn dispatch_hook(command: HookCommand) -> Result<CommandOutput, DevMapError> {
-    let name = match command {
-        HookCommand::Handle(_) => "hook handle",
-    };
-    Err(DevMapError::UnsupportedCommand(name))
+    match command {
+        HookCommand::Handle(args) => {
+            let mut stdin = std::io::stdin();
+            hook::handle_hook(args, &mut stdin)
+        }
+    }
 }

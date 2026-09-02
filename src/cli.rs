@@ -92,7 +92,7 @@ pub struct AdapterUninstallArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum HookCommand {
-    /// Handle one host lifecycle event from the native hook protocol.
+    /// Read and persist one normalized native host lifecycle event from standard input.
     Handle(HookHandleArgs),
 }
 
