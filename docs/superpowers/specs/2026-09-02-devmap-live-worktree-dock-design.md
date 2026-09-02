@@ -1,8 +1,11 @@
 # DevMap Live Worktree Dock Design
 
-**Date:** 2026-09-02  
-**Status:** Review draft  
-**Related requirements:** `docs/ai-development-map-requirements.md` sections 16.8, 16.9, and 21.4  
+**Date:** 2026-09-02
+
+**Status:** Approved
+
+**Related requirements:** `docs/ai-development-map-requirements.md` sections 16.8, 16.9, and 21.4
+
 **Dependencies:** Phase 1B capture journals; Phase 1C route registry is an optional enrichment, not an MVP prerequisite
 
 ## 1. Goal
