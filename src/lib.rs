@@ -10,6 +10,7 @@ pub mod events;
 pub mod git;
 pub mod hook;
 pub mod journal;
+pub mod mcp;
 
 use std::ffi::OsString;
 
@@ -39,12 +40,32 @@ where
         Command::Status(args) => commands::status(args),
         Command::Adapter { command } => dispatch_adapter(command),
         Command::Hook { command } => dispatch_hook(command),
-        Command::Mcp(_) => Err(DevMapError::UnsupportedCommand("mcp")),
+        Command::Mcp(args) => {
+            let stdin = std::io::stdin();
+            let stdout = std::io::stdout();
+            mcp::serve_mcp(&args.source, stdin.lock(), stdout.lock())?;
+            Ok(CommandOutput {
+                stdout: String::new(),
+                exit_code: 0,
+            })
+        }
     }
 }
 
 fn dispatch_adapter(command: AdapterCommand) -> Result<CommandOutput, DevMapError> {
     match command {
+        AdapterCommand::Plan(args) if args.host == cli::AdapterHost::GenericMcp => {
+            mcp::plan_generic_adapter(&args.source)
+        }
+        AdapterCommand::Install(args) if args.host == cli::AdapterHost::GenericMcp => {
+            mcp::install_generic_adapter(&args.source)
+        }
+        AdapterCommand::Verify(args) if args.host == Some(cli::AdapterHost::GenericMcp) => {
+            mcp::verify_generic_adapter(&args.source)
+        }
+        AdapterCommand::Uninstall(args) if args.host == cli::AdapterHost::GenericMcp => {
+            mcp::uninstall_generic_adapter(&args.source)
+        }
         AdapterCommand::Plan(args) => commands::adapter_plan(args),
         AdapterCommand::Install(args) => commands::adapter_install(args),
         AdapterCommand::Verify(args) => commands::adapter_verify(args),

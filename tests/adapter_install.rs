@@ -69,6 +69,213 @@ fn plan_is_read_only_and_emits_executable_official_host_bindings() {
 }
 
 #[test]
+fn generic_mcp_plan_is_read_only_and_names_only_the_stdio_descriptor() {
+    let root = committed_repo();
+    let before = repository_snapshot(root.path());
+    let config_path = devmap::git::SourceGitInspector::open(root.path())
+        .unwrap()
+        .root()
+        .join(".devmap/mcp.json");
+
+    let output = devmap::run([
+        "devmap",
+        "adapter",
+        "plan",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+
+    assert_eq!(output.exit_code, 0);
+    assert!(
+        output
+            .stdout
+            .contains(&format!("config_path={}", config_path.display()))
+    );
+    assert!(
+        output.stdout.contains(
+            r#"descriptor={"command":["devmap","mcp","--source","."],"transport":"stdio"}"#
+        )
+    );
+    assert!(!config_path.exists());
+    assert_eq!(repository_snapshot(root.path()), before);
+}
+
+#[test]
+fn generic_mcp_install_verify_and_uninstall_are_safe_and_idempotent() {
+    let root = committed_repo();
+    let config_path = root.path().join(".devmap/mcp.json");
+    let relative_config = Path::new(".devmap/mcp.json");
+    let before_git = git_metadata_snapshot(root.path());
+
+    let install = devmap::run([
+        "devmap",
+        "adapter",
+        "install",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+    assert!(install.stdout.contains("changed=true"));
+    let installed = fs::read(&config_path).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&installed).unwrap(),
+        json!({
+            "command": ["devmap", "mcp", "--source", "."],
+            "transport": "stdio"
+        })
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&installed)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(&git_metadata_snapshot(root.path()), &before_git);
+    assert_eq!(
+        git(
+            root.path(),
+            ["status", "--porcelain=v1", "--untracked-files=all"]
+        ),
+        format!(
+            "?? {}",
+            relative_config.to_string_lossy().replace('\\', "/")
+        )
+    );
+    assert!(git(root.path(), ["diff", "--cached", "--name-only"]).is_empty());
+
+    let second = devmap::run([
+        "devmap",
+        "adapter",
+        "install",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+    assert!(second.stdout.contains("changed=false"));
+    assert_eq!(fs::read(&config_path).unwrap(), installed);
+
+    let verify = devmap::run([
+        "devmap",
+        "adapter",
+        "verify",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+    assert_eq!(verify.exit_code, 0);
+    assert!(verify.stdout.contains("present=descriptor"));
+    assert!(verify.stdout.contains("capture_grade=C"));
+
+    let uninstall = devmap::run([
+        "devmap",
+        "adapter",
+        "uninstall",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+    assert!(uninstall.stdout.contains("changed=true"));
+    assert!(!config_path.exists());
+    let second_uninstall = devmap::run([
+        "devmap",
+        "adapter",
+        "uninstall",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .unwrap();
+    assert!(second_uninstall.stdout.contains("changed=false"));
+}
+
+#[test]
+fn generic_mcp_never_overwrites_unrecognized_or_stale_config() {
+    for bytes in [b"{not json".as_slice(), br#"{"transport":"http"}"#] {
+        let root = committed_repo();
+        let config_path = root.path().join(".devmap/mcp.json");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(&config_path, bytes).unwrap();
+
+        let error = devmap::run([
+            "devmap",
+            "adapter",
+            "install",
+            "--source",
+            root.path().to_str().unwrap(),
+            "--host",
+            "generic-mcp",
+        ])
+        .expect_err("unrecognized Generic MCP config must be preserved");
+
+        assert!(matches!(error, DevMapError::MalformedAdapterConfig(_)));
+        assert_eq!(fs::read(&config_path).unwrap(), bytes);
+    }
+
+    let root = committed_repo();
+    let stale = root.path().join(".devmap/mcp.json.devmap-tmp");
+    fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    fs::write(&stale, b"stale").unwrap();
+    let error = devmap::run([
+        "devmap",
+        "adapter",
+        "install",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .expect_err("a stale transaction artifact must stop installation");
+    assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+    assert_eq!(fs::read(stale).unwrap(), b"stale");
+}
+
+#[test]
+fn generic_mcp_install_refuses_an_existing_symlink_even_when_content_matches() {
+    let root = committed_repo();
+    let config_path = root.path().join(".devmap/mcp.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let external_config = external.path().join("mcp.json");
+    let descriptor = serde_json::to_vec_pretty(&json!({
+        "command": ["devmap", "mcp", "--source", "."],
+        "transport": "stdio"
+    }))
+    .unwrap();
+    fs::write(&external_config, &descriptor).unwrap();
+    if !create_file_symlink(&external_config, &config_path) {
+        return;
+    }
+
+    let error = devmap::run([
+        "devmap",
+        "adapter",
+        "install",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .expect_err("an existing descriptor symlink must not be trusted");
+
+    assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+    assert_eq!(fs::read(&external_config).unwrap(), descriptor);
+}
+
+#[test]
 fn install_merges_realistic_configs_idempotently_without_touching_git_state() {
     for host in [AdapterHost::Codex, AdapterHost::Claude] {
         let fixture = adapter_fixture(host);
