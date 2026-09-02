@@ -4,6 +4,8 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 use devmap::git::SourceGitInspector;
 use devmap::journal::JournalStore;
@@ -12,7 +14,8 @@ use serde_json::{Value, json};
 
 use support::{committed_repo, git};
 
-const PROTOCOL_VERSION: &str = "2025-11-25";
+const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
+const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 
 fn request(id: Value, method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
@@ -20,6 +23,27 @@ fn request(id: Value, method: &str, params: Value) -> Value {
 
 fn call(id: Value, name: &str, arguments: Value) -> Value {
     request(
+        id,
+        "tools/call",
+        json!({"name": name, "arguments": arguments}),
+    )
+}
+
+fn modern_request(id: Value, method: &str, params: Value) -> Value {
+    let mut params = params.as_object().unwrap().clone();
+    params.insert(
+        "_meta".into(),
+        json!({
+            "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientInfo": {"name": "devmap-modern-test", "version": "1.0.0"},
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }),
+    );
+    request(id, method, Value::Object(params))
+}
+
+fn modern_call(id: Value, name: &str, arguments: Value) -> Value {
+    modern_request(
         id,
         "tools/call",
         json!({"name": name, "arguments": arguments}),
@@ -52,7 +76,7 @@ fn initialize(id: Value) -> Value {
         id,
         "initialize",
         json!({
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": LEGACY_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "devmap-test", "version": "1.0.0"}
         }),
@@ -123,7 +147,10 @@ fn stdio_handles_initialize_list_all_tools_and_multiple_messages() {
         "the notification must not receive a response"
     );
     assert_eq!(responses[0]["id"], 1);
-    assert_eq!(responses[0]["result"]["protocolVersion"], PROTOCOL_VERSION);
+    assert_eq!(
+        responses[0]["result"]["protocolVersion"],
+        LEGACY_PROTOCOL_VERSION
+    );
     assert_eq!(responses[0]["result"]["capabilities"], json!({"tools": {}}));
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "devmap");
 
@@ -211,7 +238,7 @@ fn stdio_preserves_ids_and_returns_json_rpc_errors_without_answering_notificatio
     assert_eq!(responses[0]["error"]["code"], -32602);
     assert_eq!(
         responses[0]["error"]["data"]["supported"],
-        json!([PROTOCOL_VERSION])
+        json!([LEGACY_PROTOCOL_VERSION])
     );
     assert_eq!(responses[0]["error"]["data"]["requested"], "1900-01-01");
     assert_eq!(responses[1]["id"], 7);
@@ -221,6 +248,300 @@ fn stdio_preserves_ids_and_returns_json_rpc_errors_without_answering_notificatio
     assert_eq!(responses[3]["error"]["code"], -32602);
     assert_eq!(responses[4]["id"], 8);
     assert_eq!(responses[4]["error"]["code"], -32601);
+}
+
+#[test]
+fn dual_era_stdio_serves_modern_discovery_and_stateless_tools_alongside_legacy() {
+    let repository = committed_repo();
+    let responses = run_stream(
+        repository.path(),
+        &[
+            modern_request(json!("discover"), "server/discover", json!({})),
+            modern_request(json!("modern-list"), "tools/list", json!({})),
+            modern_call(json!("modern-call"), "devmap_context", json!({})),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+                        "io.modelcontextprotocol/clientCapabilities": {}
+                    },
+                    "requestId": "not-running"
+                }
+            }),
+            initialize(json!("legacy-init")),
+            request(json!("legacy-list"), "tools/list", json!({})),
+        ],
+    );
+
+    assert_eq!(
+        responses.len(),
+        5,
+        "modern notifications remain response-free"
+    );
+    let discovery = &responses[0]["result"];
+    assert_eq!(discovery["resultType"], "complete");
+    assert_eq!(
+        discovery["supportedVersions"],
+        json!([MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION])
+    );
+    assert_eq!(discovery["capabilities"], json!({"tools": {}}));
+    assert_eq!(
+        discovery["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "devmap"
+    );
+
+    for response in &responses[1..=2] {
+        assert_eq!(response["result"]["resultType"], "complete");
+        assert_eq!(
+            response["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+    assert_eq!(responses[1]["id"], "modern-list");
+    assert_eq!(responses[2]["id"], "modern-call");
+    assert_eq!(
+        responses[3]["result"]["protocolVersion"],
+        LEGACY_PROTOCOL_VERSION
+    );
+    assert!(responses[3]["result"].get("resultType").is_none());
+    assert_eq!(responses[4]["id"], "legacy-list");
+    assert!(responses[4]["result"].get("resultType").is_none());
+}
+
+#[test]
+fn dual_era_rejects_unsupported_missing_and_mixed_version_metadata() {
+    let repository = committed_repo();
+    let unsupported_modern = |id: &str, version: &str| {
+        request(
+            json!(id),
+            "tools/list",
+            json!({
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": version,
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }),
+        )
+    };
+    let responses = run_stream(
+        repository.path(),
+        &[
+            modern_request(json!("discover"), "server/discover", json!({})),
+            unsupported_modern("unknown-modern", "1900-01-01"),
+            unsupported_modern("legacy-in-modern", LEGACY_PROTOCOL_VERSION),
+            request(
+                json!("missing-capabilities"),
+                "tools/list",
+                json!({
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION
+                    }
+                }),
+            ),
+            request(json!("legacy-before-init"), "tools/list", json!({})),
+            request(
+                json!("modern-as-legacy-init"),
+                "initialize",
+                json!({
+                    "protocolVersion": MODERN_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "mixed-client", "version": "1"}
+                }),
+            ),
+            request(json!("discover-without-meta"), "server/discover", json!({})),
+        ],
+    );
+
+    assert_eq!(responses.len(), 7);
+    for response in &responses[1..=2] {
+        assert_eq!(response["error"]["code"], -32022);
+        assert_eq!(
+            response["error"]["data"]["supported"],
+            json!([MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION])
+        );
+    }
+    assert_eq!(responses[3]["error"]["code"], -32602);
+    assert_eq!(responses[4]["error"]["code"], -32602);
+    assert_eq!(responses[5]["error"]["code"], -32602);
+    assert_eq!(
+        responses[5]["error"]["data"]["supported"],
+        json!([LEGACY_PROTOCOL_VERSION])
+    );
+    assert_eq!(responses[6]["error"]["code"], -32602);
+}
+
+#[test]
+fn occurred_at_schema_and_runtime_validation_require_rfc3339() {
+    let repository = committed_repo();
+    let responses = run_stream(
+        repository.path(),
+        &[
+            initialize(json!(1)),
+            request(json!(2), "tools/list", json!({})),
+            call(
+                json!(3),
+                "devmap_record_requirement",
+                json!({
+                    "session_id": "invalid-time-session",
+                    "agent_id": "agent-1",
+                    "event_id": "invalid-time",
+                    "occurred_at": "not-a-timestamp",
+                    "source_kind": "human_instruction",
+                    "quoted_text": "Timestamp validation is required."
+                }),
+            ),
+            call(
+                json!(4),
+                "devmap_record_decision",
+                json!({
+                    "session_id": "invalid-decision-time-session",
+                    "agent_id": "agent-1",
+                    "occurred_at": "2026-02-30T00:00:00Z",
+                    "decision": "Reject an invalid timestamp.",
+                    "basis": ["RFC 3339 validation is required."],
+                    "alternatives": ["Persist invalid data."],
+                    "rationale": "The timestamp cannot identify a real instant.",
+                    "scope": "MCP capture",
+                    "authority": "Task 7",
+                    "revisit_trigger": "The protocol adopts another timestamp format."
+                }),
+            ),
+            call(
+                json!(5),
+                "devmap_record_evidence",
+                json!({
+                    "session_id": "invalid-evidence-time-session",
+                    "agent_id": "agent-1",
+                    "occurred_at": "yesterday",
+                    "kind": "test",
+                    "target": format!("commit:{}", git(repository.path(), ["rev-parse", "HEAD"])),
+                    "outcome": "passed"
+                }),
+            ),
+        ],
+    );
+
+    for tool in responses[1]["result"]["tools"].as_array().unwrap() {
+        if let Some(occurred_at) = tool["inputSchema"]["properties"].get("occurred_at") {
+            assert_eq!(occurred_at["format"], "date-time");
+        }
+    }
+    for response in &responses[2..] {
+        assert_eq!(response["result"]["isError"], true);
+    }
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    for session_id in [
+        "invalid-time-session",
+        "invalid-decision-time-session",
+        "invalid-evidence-time-session",
+    ] {
+        assert!(
+            JournalStore::open(&workspace, session_id)
+                .unwrap()
+                .replay()
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn concurrent_mcp_processes_persist_every_default_id_call_in_locked_sequence() {
+    const CALLS: usize = 12;
+    let repository = committed_repo();
+    let barrier = Arc::new(Barrier::new(CALLS));
+    let mut workers = Vec::new();
+    for call_index in 0..CALLS {
+        let barrier = Arc::clone(&barrier);
+        let source = repository.path().to_path_buf();
+        workers.push(thread::spawn(move || {
+            barrier.wait();
+            let input = [
+                initialize(json!(1)),
+                call(
+                    json!(2),
+                    "devmap_record_requirement",
+                    json!({
+                        "session_id": "concurrent-mcp-session",
+                        "agent_id": format!("agent-{call_index}"),
+                        "occurred_at": "2026-09-02T12:00:00Z",
+                        "source_kind": "human_instruction",
+                        "source_locator": format!("call:{call_index}"),
+                        "quoted_text": format!("Approved concurrent quotation {call_index}.")
+                    }),
+                ),
+            ]
+            .into_iter()
+            .map(|message| message.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+            let mut child = Command::new(env!("CARGO_BIN_EXE_devmap"))
+                .args(["mcp", "--source", source.to_str().unwrap()])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            {
+                use std::io::Write;
+                writeln!(child.stdin.as_mut().unwrap(), "{input}").unwrap();
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success());
+            assert!(output.stderr.is_empty());
+            let responses = String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(responses.len(), 2);
+            assert!(responses[1]["result"].get("isError").is_none());
+        }));
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let records = JournalStore::open(&workspace, "concurrent-mcp-session")
+        .unwrap()
+        .replay()
+        .unwrap();
+    assert_eq!(records.len(), CALLS);
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.sequence)
+            .collect::<Vec<_>>(),
+        (1..=CALLS as u64).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.event.event_id())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        CALLS
+    );
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.event.event_id().to_owned())
+            .collect::<std::collections::BTreeSet<_>>(),
+        (1..=CALLS)
+            .map(|sequence| format!(
+                "mcp-devmap_record_requirement-concurrent-mcp-session-{sequence}"
+            ))
+            .collect()
+    );
 }
 
 #[test]
@@ -360,6 +681,12 @@ fn executable_writes_no_diagnostics_or_banners_to_stdout() {
     {
         use std::io::Write;
         let stdin = child.stdin.as_mut().unwrap();
+        writeln!(
+            stdin,
+            "{}",
+            modern_request(json!("discover"), "server/discover", json!({}))
+        )
+        .unwrap();
         writeln!(stdin, "{}", initialize(json!(1))).unwrap();
         writeln!(stdin, "{{not JSON").unwrap();
     }
@@ -372,9 +699,10 @@ fn executable_writes_no_diagnostics_or_banners_to_stdout() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[1]["error"]["code"], -32700);
-    assert_eq!(messages[1]["id"], Value::Null);
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0]["result"]["resultType"], "complete");
+    assert_eq!(messages[2]["error"]["code"], -32700);
+    assert_eq!(messages[2]["id"], Value::Null);
 }
 
 fn git_state(root: &Path) -> (String, String, String, String, String) {

@@ -10,7 +10,7 @@ use crate::CommandOutput;
 use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
 use crate::error::DevMapError;
 use crate::events::{ActorIdentity, CaptureGrade, HostIdentity, SessionContext};
-use crate::git::{SourceGitInspector, SourceWorkspace};
+use crate::git::SourceGitInspector;
 use crate::journal::JournalStore;
 
 pub const MCP_TOOLS: [&str; 4] = [
@@ -20,7 +20,8 @@ pub const MCP_TOOLS: [&str; 4] = [
     "devmap_record_evidence",
 ];
 
-const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
+const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 const MCP_ADAPTER_VERSION: &str = "devmap-mcp/1";
 const GENERIC_DESCRIPTOR_PATH: &str = ".devmap/mcp.json";
 
@@ -29,10 +30,11 @@ pub fn serve_mcp(
     reader: impl BufRead,
     mut writer: impl Write,
 ) -> Result<(), DevMapError> {
+    let mut legacy_initialized = false;
     for line in reader.lines() {
         let line = line?;
         let response = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle_message(source, &message),
+            Ok(message) => handle_message(source, &message, &mut legacy_initialized),
             Err(error) => Some(json_rpc_error(
                 Value::Null,
                 -32700,
@@ -49,7 +51,7 @@ pub fn serve_mcp(
     Ok(())
 }
 
-fn handle_message(source: &Path, message: &Value) -> Option<Value> {
+fn handle_message(source: &Path, message: &Value, legacy_initialized: &mut bool) -> Option<Value> {
     let Some(object) = message.as_object() else {
         return Some(json_rpc_error(Value::Null, -32600, "Invalid Request", None));
     };
@@ -74,12 +76,106 @@ fn handle_message(source: &Path, message: &Value) -> Option<Value> {
     let id = id.expect("requests have an ID");
     let method = object["method"].as_str().expect("method was validated");
     let params = object.get("params");
-    Some(match method {
-        "initialize" => initialize_response(id, params),
+    if method == "initialize" {
+        let response = initialize_response(id, params);
+        if response.get("result").is_some() {
+            *legacy_initialized = true;
+        }
+        return Some(response);
+    }
+
+    let era = match request_era(method, params, *legacy_initialized) {
+        Ok(era) => era,
+        Err(error) => return Some(error.with_id(id)),
+    };
+    let response = match method {
+        "server/discover" if era == RequestEra::Modern => json_rpc_result(id, discovery_result()),
+        "server/discover" => invalid_params(id, "server/discover requires modern request metadata"),
         "tools/list" => list_tools_response(id, params),
         "tools/call" => call_tool_response(source, id, params),
         _ => json_rpc_error(id, -32601, "Method not found", None),
+    };
+    Some(if era == RequestEra::Modern {
+        add_modern_result_fields(response)
+    } else {
+        response
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestEra {
+    Legacy,
+    Modern,
+}
+
+struct PendingError {
+    code: i64,
+    message: String,
+    data: Option<Value>,
+}
+
+impl PendingError {
+    fn with_id(self, id: Value) -> Value {
+        json_rpc_error(id, self.code, self.message, self.data)
+    }
+}
+
+fn request_era(
+    method: &str,
+    params: Option<&Value>,
+    legacy_initialized: bool,
+) -> Result<RequestEra, PendingError> {
+    let metadata = params
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("_meta"));
+    let Some(metadata) = metadata else {
+        if legacy_initialized && method != "server/discover" {
+            return Ok(RequestEra::Legacy);
+        }
+        return Err(PendingError {
+            code: -32602,
+            message: "modern request metadata is required before legacy initialization".into(),
+            data: None,
+        });
+    };
+    let Some(metadata) = metadata.as_object() else {
+        return Err(PendingError {
+            code: -32602,
+            message: "_meta must be an object".into(),
+            data: None,
+        });
+    };
+    let Some(requested) = metadata
+        .get("io.modelcontextprotocol/protocolVersion")
+        .and_then(Value::as_str)
+    else {
+        return Err(PendingError {
+            code: -32602,
+            message: "modern protocolVersion metadata is required".into(),
+            data: None,
+        });
+    };
+    if requested != MODERN_PROTOCOL_VERSION {
+        return Err(PendingError {
+            code: -32022,
+            message: "Unsupported protocol version".into(),
+            data: Some(json!({
+                "supported": [MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION],
+                "requested": requested,
+            })),
+        });
+    }
+    if !metadata
+        .get("io.modelcontextprotocol/clientCapabilities")
+        .is_some_and(Value::is_object)
+    {
+        return Err(PendingError {
+            code: -32602,
+            message: "modern clientCapabilities metadata must be an object".into(),
+            data: None,
+        });
+    }
+    Ok(RequestEra::Modern)
 }
 
 fn valid_request_id(id: &Value) -> bool {
@@ -93,13 +189,13 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
     let Some(requested) = params.get("protocolVersion").and_then(Value::as_str) else {
         return invalid_params(id, "protocolVersion must be a string");
     };
-    if requested != MCP_PROTOCOL_VERSION {
+    if requested != LEGACY_PROTOCOL_VERSION {
         return json_rpc_error(
             id,
             -32602,
             "Unsupported protocol version",
             Some(json!({
-                "supported": [MCP_PROTOCOL_VERSION],
+                "supported": [LEGACY_PROTOCOL_VERSION],
                 "requested": requested,
             })),
         );
@@ -112,7 +208,7 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
     json_rpc_result(
         id,
         json!({
-            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "protocolVersion": LEGACY_PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
             "serverInfo": {
                 "name": "devmap",
@@ -120,6 +216,28 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
             }
         }),
     )
+}
+
+fn discovery_result() -> Value {
+    json!({
+        "supportedVersions": [MODERN_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION],
+        "capabilities": {"tools": {}}
+    })
+}
+
+fn add_modern_result_fields(mut response: Value) -> Value {
+    if let Some(result) = response.get_mut("result").and_then(Value::as_object_mut) {
+        result.insert("resultType".into(), Value::String("complete".into()));
+        result.insert(
+            "_meta".into(),
+            json!({"io.modelcontextprotocol/serverInfo": server_info()}),
+        );
+    }
+    response
+}
+
+fn server_info() -> Value {
+    json!({"name": "devmap", "version": env!("CARGO_PKG_VERSION")})
 }
 
 fn list_tools_response(id: Value, params: Option<&Value>) -> Value {
@@ -175,7 +293,7 @@ fn call_tool(
         }));
     }
 
-    let common = CommonCaptureArgs::parse(arguments, name, &workspace)?;
+    let common = CommonCaptureArgs::parse(arguments, name)?;
     let journal = JournalStore::open(&workspace, &common.session_id)?;
     let kernel = CaptureKernel::new(
         journal,
@@ -193,8 +311,8 @@ fn call_tool(
     );
 
     let record = match name {
-        "devmap_record_requirement" => kernel.record_requirement(
-            &common.event_id,
+        "devmap_record_requirement" => kernel.record_requirement_with_id(
+            common.event_id.as_deref(),
             &common.occurred_at,
             RequirementTraceInput {
                 source_kind: required_string(arguments, "source_kind")?,
@@ -203,8 +321,8 @@ fn call_tool(
             },
             optional_bool(arguments, "raw_transcript_opt_in")?.unwrap_or(false),
         )?,
-        "devmap_record_decision" => kernel.record_decision(
-            &common.event_id,
+        "devmap_record_decision" => kernel.record_decision_with_id(
+            common.event_id.as_deref(),
             &common.occurred_at,
             AgentDecisionInput {
                 decision: required_string(arguments, "decision")?,
@@ -216,8 +334,8 @@ fn call_tool(
                 revisit_trigger: required_string(arguments, "revisit_trigger")?,
             },
         )?,
-        "devmap_record_evidence" => kernel.record_evidence(
-            &common.event_id,
+        "devmap_record_evidence" => kernel.record_evidence_with_id(
+            common.event_id.as_deref(),
             &common.occurred_at,
             EvidenceInput {
                 kind: required_string(arguments, "kind")?,
@@ -236,27 +354,23 @@ struct CommonCaptureArgs {
     agent_id: String,
     parent_agent_id: Option<String>,
     route_id: Option<String>,
-    event_id: String,
+    event_id: Option<String>,
     occurred_at: String,
 }
 
 impl CommonCaptureArgs {
-    fn parse(
-        arguments: &Map<String, Value>,
-        tool: &str,
-        workspace: &SourceWorkspace,
-    ) -> Result<Self, DevMapError> {
+    fn parse(arguments: &Map<String, Value>, tool: &str) -> Result<Self, DevMapError> {
         ensure_fields(arguments, allowed_fields(tool))?;
         let session_id = required_string(arguments, "session_id")?;
         let agent_id = required_string(arguments, "agent_id")?;
         let parent_agent_id = optional_string(arguments, "parent_agent_id")?;
         let route_id = optional_string(arguments, "route_id")?;
-        let sequence = JournalStore::open(workspace, &session_id)?.replay()?.len() as u64 + 1;
-        let event_id = optional_string(arguments, "event_id")?
-            .unwrap_or_else(|| format!("mcp-{tool}-{session_id}-{sequence}"));
+        let event_id = optional_string(arguments, "event_id")?;
         let occurred_at = optional_string(arguments, "occurred_at")?
             .map(Ok)
             .unwrap_or_else(|| OffsetDateTime::now_utc().format(&Rfc3339))?;
+        OffsetDateTime::parse(&occurred_at, &Rfc3339)
+            .map_err(|_| DevMapError::InvalidDomain("occurred_at"))?;
         Ok(Self {
             session_id,
             agent_id,
@@ -395,7 +509,7 @@ fn tool_descriptors() -> Vec<Value> {
                 "parent_agent_id": string_schema("Optional parent agent identifier."),
                 "route_id": string_schema("Optional route identifier."),
                 "event_id": string_schema("Optional stable event identifier."),
-                "occurred_at": string_schema("Optional RFC 3339 event timestamp."),
+                "occurred_at": date_time_schema(),
                 "source_kind": string_schema("Kind of requirement source."),
                 "source_locator": string_schema("Optional source locator."),
                 "quoted_text": string_schema("Explicitly supplied approved quotation."),
@@ -422,7 +536,7 @@ fn tool_descriptors() -> Vec<Value> {
                 "parent_agent_id": string_schema("Optional parent agent identifier."),
                 "route_id": string_schema("Optional route identifier."),
                 "event_id": string_schema("Optional stable event identifier."),
-                "occurred_at": string_schema("Optional RFC 3339 event timestamp."),
+                "occurred_at": date_time_schema(),
                 "decision": string_schema("Decision made."),
                 "basis": string_array_schema(),
                 "alternatives": string_array_schema(),
@@ -442,7 +556,7 @@ fn tool_descriptors() -> Vec<Value> {
                 "parent_agent_id": string_schema("Optional parent agent identifier."),
                 "route_id": string_schema("Optional route identifier."),
                 "event_id": string_schema("Optional stable event identifier."),
-                "occurred_at": string_schema("Optional RFC 3339 event timestamp."),
+                "occurred_at": date_time_schema(),
                 "kind": string_schema("Evidence kind."),
                 "target": string_schema("commit:, artifact:, or workspace: digest target."),
                 "command": string_schema("Optional command that produced the evidence."),
@@ -467,6 +581,15 @@ fn tool_descriptor(name: &str, description: &str, required: &[&str], properties:
 
 fn string_schema(description: &str) -> Value {
     json!({"type": "string", "minLength": 1, "description": description})
+}
+
+fn date_time_schema() -> Value {
+    json!({
+        "type": "string",
+        "minLength": 1,
+        "format": "date-time",
+        "description": "Optional RFC 3339 event timestamp."
+    })
 }
 
 fn string_array_schema() -> Value {
@@ -543,6 +666,7 @@ pub fn verify_generic_adapter(source: &Path) -> Result<CommandOutput, DevMapErro
     let path = generic_config_path(source)?;
     let present = match read_generic_config(&path)? {
         Some(document) => {
+            ensure_named_local_target(&path, false)?;
             validate_generic_descriptor(&path, &document)?;
             true
         }
@@ -617,6 +741,13 @@ fn validate_generic_descriptor(path: &Path, document: &Value) -> Result<(), DevM
 }
 
 fn write_new_generic_config(path: &Path) -> Result<(), DevMapError> {
+    write_new_generic_config_with(path, || Ok(()))
+}
+
+fn write_new_generic_config_with(
+    path: &Path,
+    before_commit: impl FnOnce() -> std::io::Result<()>,
+) -> Result<(), DevMapError> {
     ensure_named_local_target(path, true)?;
     let temporary = path.with_file_name("mcp.json.devmap-tmp");
     let backup = path.with_file_name("mcp.json.devmap-backup");
@@ -633,36 +764,46 @@ fn write_new_generic_config(path: &Path) -> Result<(), DevMapError> {
         .open(&temporary)?;
     if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
         drop(file);
-        let cleanup = match fs::remove_file(&temporary) {
-            Ok(()) => "succeeded".to_owned(),
-            Err(cleanup) => format!("failed: {cleanup}"),
-        };
-        return Err(DevMapError::AdapterConfigTransaction {
-            path: path.to_path_buf(),
-            operation_error: error.to_string(),
-            cleanup,
-        });
+        return Err(generic_transaction_error(path, error, &temporary));
     }
     drop(file);
-    if let Err(error) = fs::rename(&temporary, path) {
-        let cleanup = match fs::remove_file(&temporary) {
-            Ok(()) => "succeeded".to_owned(),
-            Err(cleanup) => format!("failed: {cleanup}"),
-        };
-        return Err(DevMapError::AdapterConfigTransaction {
-            path: path.to_path_buf(),
-            operation_error: error.to_string(),
-            cleanup,
-        });
+    if let Err(error) = before_commit().and_then(|()| fs::hard_link(&temporary, path)) {
+        return Err(generic_transaction_error(path, error, &temporary));
     }
-    if fs::read(path)? != bytes {
-        return Err(DevMapError::AdapterConfigTransaction {
-            path: path.to_path_buf(),
-            operation_error: "named adapter config did not match serialized bytes".into(),
-            cleanup: "not attempted after named write".into(),
-        });
+    match fs::read(path) {
+        Ok(actual) if actual == bytes => {}
+        Ok(_) => {
+            return Err(generic_transaction_error(
+                path,
+                std::io::Error::other("named adapter config did not match serialized bytes"),
+                &temporary,
+            ));
+        }
+        Err(error) => return Err(generic_transaction_error(path, error, &temporary)),
     }
+    fs::remove_file(&temporary).map_err(|error| DevMapError::AdapterConfigTransaction {
+        path: path.to_path_buf(),
+        operation_error: "descriptor committed but temporary link cleanup failed".into(),
+        cleanup: format!("failed: {error}"),
+    })?;
     Ok(())
+}
+
+fn generic_transaction_error(
+    path: &Path,
+    operation_error: std::io::Error,
+    temporary: &Path,
+) -> DevMapError {
+    let cleanup = match fs::remove_file(temporary) {
+        Ok(()) => "succeeded".to_owned(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "succeeded".to_owned(),
+        Err(error) => format!("failed: {error}"),
+    };
+    DevMapError::AdapterConfigTransaction {
+        path: path.to_path_buf(),
+        operation_error: operation_error.to_string(),
+        cleanup,
+    }
 }
 
 fn ensure_named_local_target(path: &Path, create_parent: bool) -> Result<(), DevMapError> {
@@ -693,4 +834,26 @@ fn ensure_named_local_target(path: &Path, create_parent: bool) -> Result<(), Dev
         return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generic_commit_never_replaces_a_destination_that_appears_after_temp_sync() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".devmap/mcp.json");
+        let user_bytes = b"user-owned descriptor";
+
+        let error = write_new_generic_config_with(&path, || fs::write(&path, user_bytes))
+            .expect_err("an appearing destination must win the no-replace race");
+
+        assert!(matches!(
+            error,
+            DevMapError::AdapterConfigTransaction { .. }
+        ));
+        assert_eq!(fs::read(&path).unwrap(), user_bytes);
+        assert!(!path.with_file_name("mcp.json.devmap-tmp").exists());
+    }
 }

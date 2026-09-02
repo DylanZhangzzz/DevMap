@@ -276,6 +276,38 @@ fn generic_mcp_install_refuses_an_existing_symlink_even_when_content_matches() {
 }
 
 #[test]
+fn generic_mcp_verify_rejects_a_symlink_even_when_content_matches() {
+    let root = committed_repo();
+    let config_path = root.path().join(".devmap/mcp.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let external_config = external.path().join("mcp.json");
+    let descriptor = serde_json::to_vec_pretty(&json!({
+        "command": ["devmap", "mcp", "--source", "."],
+        "transport": "stdio"
+    }))
+    .unwrap();
+    fs::write(&external_config, &descriptor).unwrap();
+    if !create_file_symlink(&external_config, &config_path) {
+        return;
+    }
+
+    let error = devmap::run([
+        "devmap",
+        "adapter",
+        "verify",
+        "--source",
+        root.path().to_str().unwrap(),
+        "--host",
+        "generic-mcp",
+    ])
+    .expect_err("verify must not trust a descriptor symlink");
+
+    assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+    assert_eq!(fs::read(&external_config).unwrap(), descriptor);
+}
+
+#[test]
 fn install_merges_realistic_configs_idempotently_without_touching_git_state() {
     for host in [AdapterHost::Codex, AdapterHost::Claude] {
         let fixture = adapter_fixture(host);

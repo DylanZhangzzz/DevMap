@@ -66,6 +66,16 @@ impl CaptureKernel {
         input: RequirementTraceInput,
         raw_transcript_opt_in: bool,
     ) -> Result<JournalRecord, DevMapError> {
+        self.record_requirement_with_id(Some(event_id), occurred_at, input, raw_transcript_opt_in)
+    }
+
+    pub fn record_requirement_with_id(
+        &self,
+        event_id: Option<&str>,
+        occurred_at: &str,
+        input: RequirementTraceInput,
+        raw_transcript_opt_in: bool,
+    ) -> Result<JournalRecord, DevMapError> {
         if raw_transcript_opt_in {
             return Err(DevMapError::RawTranscriptDisabled);
         }
@@ -75,6 +85,7 @@ impl CaptureKernel {
         let quoted_text = required("requirement_trace.quoted_text", input.quoted_text)?;
         self.record(
             event_id,
+            "devmap_record_requirement",
             EventType::InstructionObserved,
             occurred_at,
             json!({
@@ -93,6 +104,15 @@ impl CaptureKernel {
         occurred_at: &str,
         input: AgentDecisionInput,
     ) -> Result<JournalRecord, DevMapError> {
+        self.record_decision_with_id(Some(event_id), occurred_at, input)
+    }
+
+    pub fn record_decision_with_id(
+        &self,
+        event_id: Option<&str>,
+        occurred_at: &str,
+        input: AgentDecisionInput,
+    ) -> Result<JournalRecord, DevMapError> {
         let decision = required("agent_decision.decision", input.decision)?;
         let basis = required_list("agent_decision.basis", input.basis)?;
         let alternatives = required_list("agent_decision.alternatives", input.alternatives)?;
@@ -102,6 +122,7 @@ impl CaptureKernel {
         let revisit_trigger = required("agent_decision.revisit_trigger", input.revisit_trigger)?;
         self.record(
             event_id,
+            "devmap_record_decision",
             EventType::DecisionRecorded,
             occurred_at,
             json!({
@@ -125,6 +146,15 @@ impl CaptureKernel {
         occurred_at: &str,
         input: EvidenceInput,
     ) -> Result<JournalRecord, DevMapError> {
+        self.record_evidence_with_id(Some(event_id), occurred_at, input)
+    }
+
+    pub fn record_evidence_with_id(
+        &self,
+        event_id: Option<&str>,
+        occurred_at: &str,
+        input: EvidenceInput,
+    ) -> Result<JournalRecord, DevMapError> {
         let kind = required("evidence.kind", input.kind)?;
         let target = validate_evidence_target(input.target)?;
         let command = optional("evidence.command", input.command)?;
@@ -132,6 +162,7 @@ impl CaptureKernel {
         let provisional = target.starts_with("workspace:");
         self.record(
             event_id,
+            "devmap_record_evidence",
             EventType::EvidenceRecorded,
             occurred_at,
             json!({
@@ -152,7 +183,8 @@ impl CaptureKernel {
         let reason = required("capture_gap.reason", reason.to_owned())?;
         let mutation_target = validate_evidence_target(mutation_target.to_owned())?;
         self.record(
-            event_id,
+            Some(event_id),
+            "gap",
             EventType::CaptureGap,
             occurred_at,
             json!({
@@ -165,24 +197,32 @@ impl CaptureKernel {
 
     fn record(
         &self,
-        event_id: &str,
+        event_id: Option<&str>,
+        default_event_kind: &str,
         event_type: EventType,
         occurred_at: &str,
         payload: serde_json::Value,
     ) -> Result<JournalRecord, DevMapError> {
-        let sequence = self.journal.replay()?.len() as u64 + 1;
-        let event = EventEnvelope::new(
-            EVENT_SCHEMA_VERSION,
-            event_id,
-            event_type,
-            sequence,
-            occurred_at,
-            self.host.clone(),
-            self.actor.clone(),
-            self.context.clone(),
-            payload,
-        )?;
-        self.journal.append(event)
+        let mut records = self.journal.append_batch_with(|sequence| {
+            let event_id = event_id.map(str::to_owned).unwrap_or_else(|| {
+                format!(
+                    "mcp-{default_event_kind}-{}-{sequence}",
+                    self.context.session_id()
+                )
+            });
+            Ok(vec![EventEnvelope::new(
+                EVENT_SCHEMA_VERSION,
+                event_id,
+                event_type,
+                sequence,
+                occurred_at,
+                self.host.clone(),
+                self.actor.clone(),
+                self.context.clone(),
+                payload,
+            )?])
+        })?;
+        Ok(records.remove(0))
     }
 }
 
