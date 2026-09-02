@@ -1,0 +1,19 @@
+{
+  "name": "devmap",
+  "version": "0.1.0",
+  "description": "Evidence-backed development maps and live local worktree presence.",
+  "author": {
+    "name": "Dylan Zhang"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DevMap",
+    "shortDescription": "Inspect local worktrees and Agent presence.",
+    "longDescription": "DevMap adds a read-only live worktree Dock and evidence capture tools over host-managed STDIO.",
+    "developerName": "Dylan Zhang",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read"],
+    "defaultPrompt": "Show the DevMap Worktree Dock."
+  },
+  "mcpServers": "./.mcp.json"
+}

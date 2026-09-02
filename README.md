@@ -21,7 +21,7 @@
 </p>
 
 > [!IMPORTANT]
-> DevMap is under active development. Phase 1A provides the Common Ground and integrity foundation; Phase 1B adds local Codex and Claude hooks plus a Generic MCP capture endpoint. Source Git workflow automation, PR evidence chains, and the interactive topology Viewer shown above are not yet implemented.
+> DevMap is under active development. Phase 1A provides the Common Ground and integrity foundation; Phase 1B adds local Codex and Claude hooks plus a Generic MCP capture endpoint. The Live Worktree Dock MVP adds a read-only local view of worktrees and instrumented Agents. Source Git workflow automation, PR evidence chains, and the full interactive topology Viewer shown above are not yet implemented.
 
 ## The problem
 
@@ -79,6 +79,8 @@ Phase 1B now captures structured lifecycle and semantic events in an append-only
 | Historical decision backfill | Intentionally excluded | |
 | Native Agent and subagent lifecycle capture | ✓ | |
 | Explicit structured Agent Decisions and alternatives | ✓ | |
+| Live local worktree and Agent Dock | ✓ | |
+| Zero-manual-start Codex MCP App package | ✓ | |
 | Branch routes, PR Context Capsules, and merge gates | | ✓ |
 | Signed test, build, and release attestations | | ✓ |
 | Interactive force-directed topology Viewer | | ✓ |
@@ -178,6 +180,20 @@ They are append-only local evidence and are not staged in the source repository.
 ```
 
 Phase 1B observes and records; it does **not** create or switch branches or worktrees, stage files, commit, stash, configure remotes, or push. Source Git workflow management begins in a later phase.
+
+### 6. Open the Live Worktree Dock in Codex
+
+One-time setup installs the executable and enables the repository plugin package at `plugins/devmap`:
+
+```bash
+cargo install --path .
+```
+
+After the plugin is installed and enabled, ask Codex to “Show the DevMap Worktree Dock.” Codex launches `devmap mcp` as a host-managed STDIO process and opens the MCP App in its side pane. Normal use does not require a local HTTP server or a separate `devmap view --live` process.
+
+The Dock is deliberately local: it shows worktrees sharing the current repository's Git common directory and Presence emitted by enabled adapters. Installation is one-time, while runtime startup and shutdown follow the Codex task. Project trust settings or managed MCP policy can disable the plugin; DevMap must report that limitation rather than claim the Dock is active.
+
+For environments without MCP Apps, `devmap view --live --source PATH` is an optional, temporary Browser fallback. It binds only to loopback and stops with the command; it is not required by the Codex plugin path.
 
 ## Core semantics
 

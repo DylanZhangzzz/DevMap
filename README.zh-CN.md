@@ -21,7 +21,7 @@
 </p>
 
 > [!IMPORTANT]
-> DevMap 正在积极开发中。Phase 1A 提供 Common Ground 与完整性基础；Phase 1B 新增本地 Codex、Claude Hooks 和 Generic MCP 捕获端点。源码 Git 工作流自动化、PR 证据链和上图中的交互式拓扑 Viewer 尚未实现。
+> DevMap 正在积极开发中。Phase 1A 提供 Common Ground 与完整性基础；Phase 1B 新增本地 Codex、Claude Hooks 和 Generic MCP 捕获端点。Live Worktree Dock MVP 新增本地 worktree 与已接入 Agent 的只读视图。源码 Git 工作流自动化、PR 证据链和上图中的完整交互式拓扑 Viewer 尚未实现。
 
 ## 问题背景
 
@@ -79,6 +79,8 @@ Phase 1B 现在会把结构化生命周期事件和语义事件写入每个 work
 | 历史决策回填 | 明确排除 | |
 | 原生 Agent 与 Subagent 生命周期捕获 | ✓ | |
 | 显式结构化 Agent Decision 与备选方案 | ✓ | |
+| 本地 Worktree 与 Agent 实时 Dock | ✓ | |
+| 无需手动启动的 Codex MCP App 包 | ✓ | |
 | 分支路线、PR Context Capsule 和 Merge Gate | | ✓ |
 | 测试、构建和发布签名证明 | | ✓ |
 | 交互式力导向拓扑 Viewer | | ✓ |
@@ -178,6 +180,20 @@ Capture journal 按 worktree 保存在：
 ```
 
 Phase 1B 只观察和记录；它**不会**创建或切换 branch/worktree，不会 stage、commit、stash、配置 remote 或 push。源码 Git 工作流管理将在后续阶段实现。
+
+### 6. 在 Codex 中打开 Live Worktree Dock
+
+一次性准备包括安装可执行文件，并在 Codex 中启用仓库内的 `plugins/devmap` 插件包：
+
+```bash
+cargo install --path .
+```
+
+插件安装并启用后，对 Codex 说“打开 DevMap Worktree Dock”即可。Codex 会以宿主管理的 STDIO 进程启动 `devmap mcp`，并在侧边面板打开 MCP App。正常使用不需要手动启动本地 HTTP server，也不需要另开 `devmap view --live` 进程。
+
+Dock 的范围有意限制在本机：它显示与当前仓库共用 Git common directory 的 worktree，以及已启用 adapter 产生的 Presence。安装只需一次；运行时的启动和退出跟随 Codex task。项目 trust 设置或受管 MCP policy 可能禁用插件，此时 DevMap 必须如实说明，而不能声称 Dock 已激活。
+
+对于不支持 MCP Apps 的环境，`devmap view --live --source PATH` 是可选、临时的 Browser fallback。它只绑定 loopback，并随命令退出；Codex 插件路径不依赖它。
 
 ## 核心语义
 
