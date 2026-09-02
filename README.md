@@ -195,6 +195,19 @@ The Dock is deliberately local: it shows worktrees sharing the current repositor
 
 For environments without MCP Apps, `devmap view --live --source PATH` is an optional, temporary Browser fallback. It binds only to loopback and stops with the command; it is not required by the Codex plugin path.
 
+The same bounded read model is also available without a UI:
+
+```bash
+devmap agents --source /work/payment-service --json
+devmap view --live --source /work/payment-service
+```
+
+The second command prints one authenticated loopback URL. Keep that URL private: its 256-bit token exists only for that process lifetime. The fallback accepts only `GET`, stores no token, and exposes no mutation endpoint.
+
+Ephemeral Presence is shared by linked worktrees under `<git rev-parse --git-common-dir>/devmap/presence/v1/`; capture journals remain isolated under each worktree's Git directory. `starting`, `working`, `waiting`, and `idle` are live states; `completed` requires an observed `SessionEnd`; `stale` means a lease expired; and `unknown` means Git knows the worktree but no valid Presence record describes an Agent. `CAPTURE INCOMPLETE`, `PRESENCE INCOMPLETE`, and partial-view banners are integrity signals, not proof that work failed.
+
+This MVP is a local operational Dock, not yet the canonical development topology. It does not reconstruct routes, synchronize across machines, write the Context Repository, or replace the planned PR/Release evidence graph.
+
 ## Core semantics
 
 | Concept | Meaning |

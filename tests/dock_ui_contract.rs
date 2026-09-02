@@ -26,10 +26,14 @@ fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
     assert!(html.contains("Current"));
     assert!(html.contains("Active"));
     assert!(html.contains("Stale or uninstrumented"));
+    assert!(html.contains("<details class=\"group\""));
+    assert!(!html.contains("<details class=\"group\" open"));
+    assert!(html.contains(".group-current .row"));
     assert!(html.contains("Status"));
     assert!(html.contains("Confidence"));
     assert!(html.contains("CAPTURE INCOMPLETE"));
     assert!(html.contains("OFFLINE · last update"));
+    assert!(html.contains("Date.now() - lastValidAt > 6000"));
     assert!(html.contains("@container"));
     assert!(html.contains("prefers-reduced-motion"));
     assert!(html.contains(":focus-visible"));
@@ -43,6 +47,7 @@ fn dock_asset_validates_untrusted_models_and_never_uses_html_injection() {
     assert!(html.contains("Number.isSafeInteger"));
     assert!(html.contains("safeRouteId"));
     assert!(html.contains("renderedRevision"));
+    assert!(html.contains("value.revision === renderedRevision"));
     assert!(html.contains("2048"));
     assert!(html.contains("textContent"));
     assert!(html.contains("replaceChildren"));

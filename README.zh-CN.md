@@ -195,6 +195,19 @@ Dock 的范围有意限制在本机：它显示与当前仓库共用 Git common 
 
 对于不支持 MCP Apps 的环境，`devmap view --live --source PATH` 是可选、临时的 Browser fallback。它只绑定 loopback，并随命令退出；Codex 插件路径不依赖它。
 
+不打开 UI 也可以读取同一个有界模型：
+
+```bash
+devmap agents --source /work/payment-service --json
+devmap view --live --source /work/payment-service
+```
+
+第二条命令只打印一次带认证信息的 loopback URL。请把该 URL 视为私密信息：其中的 256-bit token 只存在于当前进程生命周期内。fallback 仅接受 `GET`，不会持久化 token，也没有任何 mutation endpoint。
+
+临时 Presence 由所有 linked worktree 共享，位置为 `<git rev-parse --git-common-dir>/devmap/presence/v1/`；capture journal 仍隔离在每个 worktree 自己的 Git 目录下。`starting`、`working`、`waiting` 和 `idle` 是实时状态；只有观测到 `SessionEnd` 才会出现 `completed`；`stale` 表示 lease 已过期；`unknown` 表示 Git 知道该 worktree，但没有有效 Presence 能描述其中的 Agent。`CAPTURE INCOMPLETE`、`PRESENCE INCOMPLETE` 与 partial-view banner 是完整性信号，不代表工作本身失败。
+
+这个 MVP 是本机运行态 Dock，还不是 Canonical 开发拓扑。它不会重建 Route，不会跨机器同步，不会写 Context Repository，也不替代后续 PR/Release 证据图。
+
 ## 核心语义
 
 | 概念 | 含义 |

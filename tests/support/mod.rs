@@ -152,6 +152,23 @@ pub fn linked_worktree(repo: &Path, branch: &str) -> TempDir {
     directory
 }
 
+pub struct LiveDockFixture {
+    pub repo: TempDir,
+    pub agent_a: TempDir,
+    pub agent_b: TempDir,
+}
+
+pub fn live_dock_fixture() -> LiveDockFixture {
+    let repo = committed_repo();
+    let agent_a = linked_worktree(repo.path(), "codex/agent-a");
+    let agent_b = linked_worktree(repo.path(), "codex/agent-b");
+    LiveDockFixture {
+        repo,
+        agent_a,
+        agent_b,
+    }
+}
+
 pub fn presence_record(status: PresenceStatus) -> PresenceRecord {
     let (status_source, confidence, lease_expires_at) = match status {
         PresenceStatus::Unknown => (StatusSource::GitOnly, Confidence::Unknown, None),

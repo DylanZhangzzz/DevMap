@@ -50,7 +50,11 @@
     .connection { min-height: 1.5rem; margin: 0 0 var(--space-3); color: var(--muted); font-variant-numeric: tabular-nums; }
     .connection.offline { color: var(--warning); font-weight: 650; }
     .group { margin: 0 0 var(--space-4); }
-    .group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+    .group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 48px; gap: var(--space-2); margin-bottom: var(--space-2); }
+    summary.group-heading { cursor: pointer; list-style: none; }
+    summary.group-heading::-webkit-details-marker { display: none; }
+    summary.group-heading::before { content: "▸"; color: var(--muted); }
+    details[open] > summary.group-heading::before { content: "▾"; }
     h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
     .count { color: var(--muted); font-variant-numeric: tabular-nums; }
     .rows { display: grid; gap: var(--space-2); }
@@ -58,6 +62,7 @@
     .row { width: 100%; min-height: 52px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; transition: background-color 180ms ease, border-color 180ms ease; }
     .row:hover { background: var(--surface-strong); }
     .row[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+    .group-current .row { border-left-color: var(--accent); }
     .row-top, .row-meta { display: flex; align-items: center; min-width: 0; gap: var(--space-2); }
     .row-top { justify-content: space-between; }
     .identity { min-width: 0; overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -128,7 +133,7 @@
 
     <main id="dock-main" tabindex="-1">
       <div id="groups">
-        <section class="group" aria-labelledby="current-heading">
+        <section class="group group-current" aria-labelledby="current-heading">
           <div class="group-heading"><h2 id="current-heading">Current</h2><span class="count" id="current-count">0</span></div>
           <div class="rows" id="current-rows"></div>
         </section>
@@ -136,10 +141,10 @@
           <div class="group-heading"><h2 id="active-heading">Active</h2><span class="count" id="active-count">0</span></div>
           <div class="rows" id="active-rows"></div>
         </section>
-        <section class="group" aria-labelledby="stale-heading">
-          <div class="group-heading"><h2 id="stale-heading">Stale or uninstrumented</h2><span class="count" id="stale-count">0</span></div>
+        <details class="group" aria-labelledby="stale-heading">
+          <summary class="group-heading"><h2 id="stale-heading">Stale or uninstrumented</h2><span class="count" id="stale-count">0</span></summary>
           <div class="rows" id="stale-rows"></div>
-        </section>
+        </details>
       </div>
       <p class="warnings" id="warnings" role="status" hidden></p>
     </main>
@@ -231,6 +236,11 @@
         if (!Array.isArray(value.warnings) || value.warnings.length > MAX_ROWS
             || value.warnings.some((warning) => !warning || !boundedText(warning.code)
               || !optionalText(warning.subject_id))) return false;
+        if (value.revision === renderedRevision) {
+          lastValidAt = Date.now();
+          setOnline();
+          return true;
+        }
         renderedRevision = value.revision;
         lastValidAt = Date.now();
         renderSnapshot(value);
@@ -383,7 +393,9 @@
             setOffline();
           }
         });
-        eventStream.addEventListener("error", setOffline);
+        eventStream.addEventListener("error", () => {
+          if (!lastValidAt || Date.now() - lastValidAt > 6000) setOffline();
+        });
       }
 
       window.addEventListener("message", (event) => {
