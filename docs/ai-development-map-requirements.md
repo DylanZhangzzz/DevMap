@@ -1562,7 +1562,7 @@ devmap view                     只读查询
 首版明确不包含：
 
 - PM 写入和审批；
-- Agent 实时推送；
+- Agent 跨机器实时网络推送；本机从 Hook、Journal 和 lease 派生的 Presence 覆盖层不在此限制内；
 - 多用户同步；
 - 跨仓库服务端查询；
 - Hosted Service；
@@ -1578,6 +1578,41 @@ Shared Viewer Frontend
 ```
 
 静态 HTML 是不可写的“地图快照”；`devmap view` 是可探索、按需加载但首版只读的本地地图。
+
+### 16.9 Live Worktree Dock
+
+`devmap view --live` SHOULD 在当前聊天的宿主右侧面板显示一个可折叠的 Live Worktree Dock。它不是成员专属地图，而是统一 Project Graph 之上的本机临时 Presence 覆盖层：
+
+```text
+Codex window
+├── project sidebar
+├── current chat
+└── right pane: DevMap Live Worktree Dock
+    ├── Current Worktree
+    ├── Active Local Worktrees
+    └── Stale / Uninstrumented Worktrees
+```
+
+Dock MUST：
+
+- 显著标识启动 Viewer 的当前 worktree；
+- 列出同一 `git-common-dir` 下的其他 worktree；
+- 将已接入 DevMap 的 Agent/Session 与 worktree、branch、HEAD 和 route 关联；
+- 显示有来源和置信度的状态，不得把缺少心跳推断为已经完成；
+- 显示 Capture Grade、gap、最近活动和 blocker 摘要，但不显示 raw prompt、command、patch 或 transcript；
+- 点击 Agent 时在同一 Viewer 中聚焦对应 route、worktree 和证据邻域；
+- 在宿主支持时呈现为聊天内右侧 MCP App 或 Browser panel，在宿主不支持时退化为 localhost Browser；
+- 不依赖 Codex DOM 注入、私有 UI API 或特定宿主的内部 Agent Registry。
+
+本机 Presence SHOULD 保存到：
+
+```text
+<git-common-dir>/devmap/presence/v1/<session-id>.json
+```
+
+Presence 是可丢弃、不可作为证据引用的运行状态。心跳、面板选择、滚动位置和临时筛选不得 commit 到 source repo 或 Context Repo。`SessionEnd` 才能把 Session 标记为 completed；lease 超时只能标记为 stale。未安装适配器的 worktree 必须标记为 uninstrumented/unknown，不能假装没有 Agent。
+
+Codex、Claude 和 Generic MCP SHOULD 共用同一 Presence Schema。宿主专属能力只能作为可选增强，例如打开对应聊天；缺少该能力时，Dock 仍然必须能够展示和聚焦 DevMap route。
 
 ---
 
@@ -1836,6 +1871,15 @@ DevMap MUST 使用真实 Agent session 而不是单轮 prompt 评估捕获效果
 - **FR-UI-017**：个人 zoom、camera、hover、selection 和临时 filter MUST 仅存在当前浏览器 session。
 - **FR-UI-018**：CLI 或宿主 UI SHOULD 显示 active route、Kernel version、Capture Grade、pending 数量、最近 checkpoint 和 gap 状态。
 - **FR-UI-019**：Capture Grade 不足或 hook 失败时 MUST 显示 `CAPTURE INCOMPLETE`，不能只写入 debug log。
+- **FR-UI-020**：系统 SHOULD 在当前聊天的宿主右侧面板提供 Live Worktree Dock，并在宿主不支持时退化到 localhost Browser。
+- **FR-UI-021**：Dock MUST 区分当前 worktree、其他本机 worktree、已接入 Agent 和未接入 worktree。
+- **FR-UI-022**：Agent Presence MUST 是可丢弃的本机覆盖层，不得进入 Canonical Project Graph 或 Context Repo。
+- **FR-UI-023**：Agent 状态 MUST 携带来源和置信度；lease 过期只能产生 `stale`，只有明确 SessionEnd 才能产生 `completed`。
+- **FR-UI-024**：心跳和 Dock 临时 View State MUST NOT 触发 Git commit 或 Context publication。
+- **FR-UI-025**：Dock MUST NOT 依赖 DOM 注入或宿主私有 UI API；宿主导航属于可选 capability。
+- **FR-UI-026**：Dock MUST 默认隐藏 raw prompt、command、patch、tool input/output 和 transcript。
+- **FR-UI-027**：`devmap view --live` MUST 复用本地只读服务器、loopback 限制、随机端口、临时 token 和 CLI 生命周期约束。
+- **FR-UI-028**：点击 Dock 中的 Agent MUST 在统一 Viewer 内聚焦对应 route、worktree 和证据邻域，而不是创建成员专属地图。
 
 ### 21.5 Security
 
@@ -1901,7 +1945,7 @@ DevMap MUST 使用真实 Agent session 而不是单轮 prompt 评估捕获效果
 - 节点详情和上下游证据路径；
 - 可重建本地 SQLite cache（数据量需要时）。
 
-不包含：接入前历史回溯、完整企业权限、PM 写入审批、Agent 实时推送、多用户同步、自动社区聚类、大规模托管 UI、Graph DB 集群。
+不包含：接入前历史回溯、完整企业权限、PM 写入审批、Agent 跨机器实时网络推送、多用户同步、自动社区聚类、大规模托管 UI、Graph DB 集群。本机 Live Worktree Dock 仅消费本地 Hook、Journal、route 和 lease 状态。
 
 Phase 1 的本地 Capture 只准备 pending Context Bundle，不自动 commit 或 push；本地图不宣称未上传代码已经进入团队 Project Graph。
 
