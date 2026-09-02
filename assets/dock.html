@@ -151,6 +151,7 @@
       const MAX_ROWS = 2048;
       const MAX_TEXT = 16384;
       const transport = window.parent === window ? "browser" : "mcp";
+      const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map();
       let nextRequestId = 1;
       let renderedRevision = -1;
@@ -365,7 +366,7 @@
 
       async function fetchSnapshot() {
         try {
-          const response = await fetch("/api/v1/dock/snapshot", { cache: "no-store" });
+          const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" });
           if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot");
         } catch (_) {
           setOffline();
@@ -374,7 +375,7 @@
 
       function connectEvents() {
         if (eventStream) eventStream.close();
-        eventStream = new EventSource("/api/v1/dock/events");
+        eventStream = new EventSource(`/api/v1/dock/events${browserQuery}`);
         eventStream.addEventListener("dock", (event) => {
           try {
             if (!acceptSnapshot(JSON.parse(event.data))) setOffline();

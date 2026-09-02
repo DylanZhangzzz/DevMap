@@ -15,6 +15,7 @@ pub mod hook;
 pub mod journal;
 pub mod mcp;
 pub mod presence;
+pub mod viewer;
 pub mod worktrees;
 
 use std::ffi::OsString;
@@ -44,6 +45,10 @@ where
         } => commands::approve(args),
         Command::Status(args) => commands::status(args),
         Command::Agents(args) => dock::agents(args),
+        Command::View(args) => match args.live {
+            true => viewer::run_live(&args.source),
+            false => Err(DevMapError::UnsupportedCommand("canonical topology viewer")),
+        },
         Command::Adapter { command } => dispatch_adapter(command),
         Command::Hook { command } => dispatch_hook(command),
         Command::Mcp(args) => {

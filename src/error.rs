@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(Debug, Error)]
@@ -93,6 +94,15 @@ pub enum DevMapError {
 
     #[error("Dock revision overflow")]
     DockRevisionOverflow,
+
+    #[error("live Viewer may bind only to a loopback address, not {0}")]
+    NonLoopbackViewerBind(SocketAddr),
+
+    #[error("live Viewer failed: {0}")]
+    Viewer(String),
+
+    #[error("live Viewer worker terminated unexpectedly")]
+    ViewerWorker,
 
     #[error("I/O operation failed: {0}")]
     Io(#[from] std::io::Error),

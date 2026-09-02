@@ -29,6 +29,8 @@ pub enum Command {
     Status(StatusArgs),
     /// Show local worktrees and instrumented Agents.
     Agents(AgentsArgs),
+    /// Open a Viewer explicitly.
+    View(ViewArgs),
     /// Plan, install, verify, or remove a project-local host adapter.
     Adapter {
         #[command(subcommand)]
@@ -138,6 +140,15 @@ pub struct AgentsArgs {
     pub source: PathBuf,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ViewArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+    /// Serve the temporary local Worktree Dock Browser fallback.
+    #[arg(long)]
+    pub live: bool,
 }
 
 #[derive(Debug, Args)]
