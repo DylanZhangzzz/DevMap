@@ -1,8 +1,10 @@
 mod support;
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
+use devmap::canonical::canonical_json;
 use devmap::events::{
     ActorIdentity, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity, SessionContext,
 };
@@ -42,6 +44,182 @@ fn journal_path(git_dir: &Path, session_id: &str) -> std::path::PathBuf {
         .join("sessions")
         .join(session_id)
         .join("events.ndjson")
+}
+
+fn intent_path(git_dir: &Path, session_id: &str) -> std::path::PathBuf {
+    git_dir
+        .join("devmap")
+        .join("sessions")
+        .join(session_id)
+        .join("events.intent")
+}
+
+fn lock_path(git_dir: &Path, session_id: &str) -> std::path::PathBuf {
+    git_dir
+        .join("devmap")
+        .join("sessions")
+        .join(session_id)
+        .join("events.lock")
+}
+
+fn write_intent(git_dir: &Path, session_id: &str, events: &[EventEnvelope]) {
+    let bytes = canonical_json(&json!({"events": events})).unwrap();
+    fs::write(intent_path(git_dir, session_id), bytes).unwrap();
+}
+
+fn assert_recovered_batch(store: &JournalStore, expected_ids: &[&str]) {
+    let records = store.replay().unwrap();
+    assert_eq!(records.len(), expected_ids.len());
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.event.event_id())
+            .collect::<Vec<_>>(),
+        expected_ids
+    );
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.sequence)
+            .collect::<Vec<_>>(),
+        (1..=expected_ids.len() as u64).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn abandoned_sentinel_file_does_not_block_a_later_append() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    fs::write(
+        lock_path(&workspace.git_dir, "session-1"),
+        b"abandoned process",
+    )
+    .unwrap();
+
+    store.append(event(1, "evt-1")).unwrap();
+
+    assert_recovered_batch(&store, &["evt-1"]);
+}
+
+#[test]
+fn durable_intent_without_records_is_completed_before_the_next_append() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    write_intent(
+        &workspace.git_dir,
+        "session-1",
+        &[event(1, "evt-1"), event(2, "evt-2")],
+    );
+
+    store.append(event(3, "evt-3")).unwrap();
+
+    assert_recovered_batch(&store, &["evt-1", "evt-2", "evt-3"]);
+    assert!(!intent_path(&workspace.git_dir, "session-1").exists());
+}
+
+#[test]
+fn durable_intent_with_a_valid_prefix_is_completed_without_duplicates() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    store.append(event(1, "evt-1")).unwrap();
+    write_intent(
+        &workspace.git_dir,
+        "session-1",
+        &[event(1, "evt-1"), event(2, "evt-2")],
+    );
+
+    store.append(event(3, "evt-3")).unwrap();
+
+    assert_recovered_batch(&store, &["evt-1", "evt-2", "evt-3"]);
+}
+
+#[test]
+fn durable_intent_truncates_only_its_torn_final_record_then_completes() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    store.append(event(1, "evt-1")).unwrap();
+    write_intent(
+        &workspace.git_dir,
+        "session-1",
+        &[event(1, "evt-1"), event(2, "evt-2")],
+    );
+
+    let reference_repo = committed_repo();
+    let reference_workspace = SourceGitInspector::open(reference_repo.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let reference = JournalStore::open(&reference_workspace, "session-1").unwrap();
+    reference.append(event(1, "evt-1")).unwrap();
+    reference.append(event(2, "evt-2")).unwrap();
+    let second_line = fs::read(journal_path(&reference_workspace.git_dir, "session-1"))
+        .unwrap()
+        .split(|byte| *byte == b'\n')
+        .nth(1)
+        .unwrap()
+        .to_vec();
+    let path = journal_path(&workspace.git_dir, "session-1");
+    fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(&second_line[..second_line.len() / 2])
+        .unwrap();
+
+    store.append(event(3, "evt-3")).unwrap();
+
+    assert_recovered_batch(&store, &["evt-1", "evt-2", "evt-3"]);
+}
+
+#[test]
+fn durable_intent_for_an_already_complete_batch_is_only_cleaned_up() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    store.append(event(1, "evt-1")).unwrap();
+    store.append(event(2, "evt-2")).unwrap();
+    write_intent(
+        &workspace.git_dir,
+        "session-1",
+        &[event(1, "evt-1"), event(2, "evt-2")],
+    );
+
+    store.append(event(3, "evt-3")).unwrap();
+
+    assert_recovered_batch(&store, &["evt-1", "evt-2", "evt-3"]);
+    assert!(!intent_path(&workspace.git_dir, "session-1").exists());
+}
+
+#[test]
+fn append_batch_refuses_an_empty_durable_intent() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+
+    assert!(store.append_batch_with(|_| Ok(Vec::new())).is_err());
+    assert!(!intent_path(&workspace.git_dir, "session-1").exists());
 }
 
 #[test]
@@ -234,5 +412,20 @@ fn replay_requires_newline_delimited_canonical_records_without_unknown_fields() 
         original.trim_end().trim_end_matches('}')
     );
     fs::write(&path, unknown).unwrap();
+    assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
+}
+
+#[test]
+fn replay_rejects_empty_complete_records() {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "session-1").unwrap();
+    store.append(event(1, "evt-1")).unwrap();
+    let path = journal_path(&workspace.git_dir, "session-1");
+    fs::write(path, b"\n").unwrap();
+
     assert!(store.replay().unwrap_err().to_string().contains("corrupt"));
 }

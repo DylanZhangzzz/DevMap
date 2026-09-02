@@ -31,9 +31,6 @@ pub enum DevMapError {
     #[error("duplicate journal sequence: {0}")]
     DuplicateSequence(u64),
 
-    #[error("timed out waiting for the journal append lock: {0}")]
-    JournalLockTimeout(PathBuf),
-
     #[error("unsafe installer overwrite refused: {0}")]
     UnsafeInstallerOverwrite(PathBuf),
 

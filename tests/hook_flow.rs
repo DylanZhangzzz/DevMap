@@ -259,6 +259,22 @@ fn supplied_subagent_identity_and_parent_are_preserved() {
 }
 
 #[test]
+fn codex_thread_id_only_derives_a_main_actor_from_the_session() {
+    let (_repo, workspace) = workspace();
+    let event = normalize_hook_input(
+        AdapterHost::Codex,
+        "SessionStart",
+        json!({"thread_id": "thread-7"}),
+        &workspace,
+    )
+    .unwrap()
+    .remove(0);
+
+    assert_eq!(event.context().session_id(), "thread-7");
+    assert_eq!(event.actor().agent_id(), "codex:thread-7");
+}
+
+#[test]
 fn shell_tools_are_treated_as_write_capable_after_execution() {
     let (_repo, workspace) = workspace();
     for tool_name in ["Bash", "PowerShell", "shell", "exec"] {

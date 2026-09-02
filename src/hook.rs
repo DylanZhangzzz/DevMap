@@ -430,7 +430,7 @@ fn session_id_fields(host: AdapterHost) -> &'static [&'static str] {
 
 fn agent_id_fields(host: AdapterHost) -> &'static [&'static str] {
     match host {
-        AdapterHost::Codex => &["agent_id", "subagent_id", "thread_id"],
+        AdapterHost::Codex => &["agent_id", "subagent_id"],
         AdapterHost::Claude => &["agent_id", "agentId", "subagent_id"],
         AdapterHost::GenericMcp => &["agent_id"],
     }

@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::thread;
-use std::time::Duration;
 
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::canonical::{canonical_json, sha256_hex};
@@ -28,8 +27,13 @@ pub struct JournalStore {
 }
 
 struct JournalAppendLock {
-    path: PathBuf,
-    file: Option<File>,
+    file: File,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalIntent {
+    events: Vec<EventEnvelope>,
 }
 
 #[derive(Serialize)]
@@ -66,9 +70,17 @@ impl JournalStore {
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
         let _lock = self.acquire_append_lock()?;
+        self.recover_intent_locked()?;
         let existing = self.replay()?;
         let events = build(existing.len() as u64 + 1)?;
-        self.append_locked(existing, events)
+        if events.is_empty() {
+            return Err(corruption("journal batch must contain at least one event"));
+        }
+        let appended = prepare_records(existing, events.clone())?;
+        self.persist_intent(&events)?;
+        self.append_records(&appended)?;
+        self.remove_intent()?;
+        Ok(appended)
     }
 
     pub fn replay(&self) -> Result<Vec<JournalRecord>, DevMapError> {
@@ -76,153 +88,258 @@ impl JournalStore {
         if !path.exists() {
             return Ok(Vec::new());
         }
+        let bytes = fs::read(path)?;
+        let (records, complete_len) = parse_complete_records(&bytes)?;
+        if complete_len != bytes.len() {
+            return Err(corruption(format!(
+                "record at line {} is missing its terminating newline",
+                records.len() + 1
+            )));
+        }
+        Ok(records)
+    }
 
-        let mut reader = BufReader::new(File::open(path)?);
-        let mut records = Vec::new();
-        let mut event_ids = HashSet::new();
-        let mut previous_sha256 = None;
+    fn acquire_append_lock(&self) -> Result<JournalAppendLock, DevMapError> {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(self.lock_path())?;
+        file.lock_exclusive()?;
+        Ok(JournalAppendLock { file })
+    }
 
-        let mut line = Vec::new();
-        let mut line_number = 0;
-        loop {
-            line.clear();
-            if reader.read_until(b'\n', &mut line)? == 0 {
-                break;
-            }
-            line_number += 1;
-            if line.last() != Some(&b'\n') {
-                return Err(corruption(format!(
-                    "record at line {line_number} is missing its terminating newline"
-                )));
-            }
-            let raw_record = &line[..line.len() - 1];
-            if raw_record.is_empty() {
-                return Err(corruption(format!("empty record at line {line_number}")));
-            }
-            let record: JournalRecord = serde_json::from_slice(raw_record).map_err(|error| {
-                corruption(format!("malformed JSON at line {line_number}: {error}"))
-            })?;
-            if raw_record != canonical_json(&record)?.as_slice() {
-                return Err(corruption(format!(
-                    "record at line {line_number} is not canonical JSON"
-                )));
-            }
-            let expected_sequence = records.len() as u64 + 1;
-            if record.sequence < expected_sequence {
-                return Err(DevMapError::DuplicateSequence(record.sequence));
-            }
-            if record.sequence != expected_sequence {
-                return Err(corruption(format!(
-                    "expected sequence {expected_sequence}, found {} at line {line_number}",
-                    record.sequence
-                )));
-            }
-            if record.event.sequence() != record.sequence {
-                return Err(corruption(format!(
-                    "event sequence does not match record sequence at line {line_number}"
-                )));
-            }
-            if !event_ids.insert(record.event.event_id().to_owned()) {
-                return Err(corruption(format!(
-                    "duplicate event ID {}",
-                    record.event.event_id()
-                )));
-            }
-            if record.previous_sha256 != previous_sha256 {
-                return Err(corruption(format!(
-                    "previous SHA-256 link mismatch at line {line_number}"
-                )));
-            }
-            if record.sha256 != record.expected_sha256()? {
-                return Err(corruption(format!(
-                    "SHA-256 mismatch at line {line_number}"
-                )));
-            }
-            previous_sha256 = Some(record.sha256.clone());
-            records.push(record);
+    fn recover_intent_locked(&self) -> Result<(), DevMapError> {
+        let intent_path = self.intent_path();
+        if !intent_path.exists() {
+            return Ok(());
+        }
+        let raw_intent = fs::read(&intent_path)?;
+        let intent: JournalIntent = serde_json::from_slice(&raw_intent)
+            .map_err(|error| corruption(format!("malformed journal intent: {error}")))?;
+        if raw_intent != canonical_json(&intent)?.as_slice() {
+            return Err(corruption("journal intent is not canonical JSON"));
+        }
+        if intent.events.is_empty() {
+            return Err(corruption("journal intent must contain at least one event"));
         }
 
-        Ok(records)
+        let journal_path = self.events_path();
+        let bytes = if journal_path.exists() {
+            fs::read(&journal_path)?
+        } else {
+            Vec::new()
+        };
+        let (records, complete_len) = parse_complete_records(&bytes)?;
+        let first_sequence = intent.events[0].sequence();
+        if first_sequence == 0 {
+            return Err(corruption("journal intent starts with sequence zero"));
+        }
+        for (index, event) in intent.events.iter().enumerate() {
+            let expected_sequence = first_sequence + index as u64;
+            if event.sequence() != expected_sequence {
+                return Err(corruption(
+                    "journal intent has non-contiguous event sequences",
+                ));
+            }
+        }
+
+        let base_len = (first_sequence - 1) as usize;
+        if records.len() < base_len || records.len() > base_len + intent.events.len() {
+            return Err(corruption(
+                "journal records do not match the durable intent boundary",
+            ));
+        }
+        let expected = prepare_records(records[..base_len].to_vec(), intent.events.clone())?;
+        let completed_intent_records = records.len() - base_len;
+        for (actual, intended) in records[base_len..].iter().zip(expected.iter()) {
+            if actual != intended {
+                return Err(corruption(
+                    "journal records do not match the durable intent",
+                ));
+            }
+        }
+
+        if complete_len != bytes.len() {
+            let expected_tail = expected
+                .get(completed_intent_records)
+                .ok_or_else(|| corruption("torn data follows a complete durable intent"))?;
+            let expected_bytes = canonical_json(expected_tail)?;
+            let tail = &bytes[complete_len..];
+            if tail.is_empty() || !expected_bytes.starts_with(tail) {
+                return Err(corruption(
+                    "torn journal tail does not match the durable intent",
+                ));
+            }
+            let file = OpenOptions::new().write(true).open(&journal_path)?;
+            file.set_len(complete_len as u64)?;
+            file.sync_data()?;
+        }
+
+        self.append_records(&expected[completed_intent_records..])?;
+        self.remove_intent()
+    }
+
+    fn persist_intent(&self, events: &[EventEnvelope]) -> Result<(), DevMapError> {
+        let bytes = canonical_json(&JournalIntent {
+            events: events.to_vec(),
+        })?;
+        let temporary = self.intent_temporary_path();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, self.intent_path())?;
+        Ok(())
+    }
+
+    fn append_records(&self, records: &[JournalRecord]) -> Result<(), DevMapError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.events_path())?;
+        for record in records {
+            file.write_all(&canonical_json(record)?)?;
+            file.write_all(b"\n")?;
+            file.sync_data()?;
+        }
+        Ok(())
+    }
+
+    fn remove_intent(&self) -> Result<(), DevMapError> {
+        let path = self.intent_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
     fn events_path(&self) -> PathBuf {
         self.root.join(&self.session_id).join("events.ndjson")
     }
 
+    fn intent_path(&self) -> PathBuf {
+        self.root.join(&self.session_id).join("events.intent")
+    }
+
+    fn intent_temporary_path(&self) -> PathBuf {
+        self.root.join(&self.session_id).join("events.intent.tmp")
+    }
+
     fn lock_path(&self) -> PathBuf {
         self.root.join(&self.session_id).join("events.lock")
-    }
-
-    fn acquire_append_lock(&self) -> Result<JournalAppendLock, DevMapError> {
-        let path = self.lock_path();
-        for _ in 0..200 {
-            match OpenOptions::new().create_new(true).write(true).open(&path) {
-                Ok(file) => {
-                    return Ok(JournalAppendLock {
-                        path,
-                        file: Some(file),
-                    });
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(DevMapError::JournalLockTimeout(path))
-    }
-
-    fn append_locked(
-        &self,
-        mut records: Vec<JournalRecord>,
-        events: Vec<EventEnvelope>,
-    ) -> Result<Vec<JournalRecord>, DevMapError> {
-        let mut appended = Vec::with_capacity(events.len());
-        let mut known_ids: HashSet<String> = records
-            .iter()
-            .map(|record| record.event.event_id().to_owned())
-            .collect();
-        for event in events {
-            let expected_sequence = records.len() as u64 + 1;
-            if event.sequence() != expected_sequence {
-                if event.sequence() < expected_sequence {
-                    return Err(DevMapError::DuplicateSequence(event.sequence()));
-                }
-                return Err(corruption(format!(
-                    "expected sequence {expected_sequence}, found {}",
-                    event.sequence()
-                )));
-            }
-            if !known_ids.insert(event.event_id().to_owned()) {
-                return Err(corruption(format!(
-                    "duplicate event ID {}",
-                    event.event_id()
-                )));
-            }
-            let previous_sha256 = records.last().map(|record| record.sha256.clone());
-            let record = JournalRecord::new(event, previous_sha256)?;
-            records.push(record.clone());
-            appended.push(record);
-        }
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.events_path())?;
-        for record in &appended {
-            file.write_all(&canonical_json(record)?)?;
-            file.write_all(b"\n")?;
-        }
-        file.sync_data()?;
-        Ok(appended)
     }
 }
 
 impl Drop for JournalAppendLock {
     fn drop(&mut self) {
-        drop(self.file.take());
-        let _ = fs::remove_file(&self.path);
+        let _ = FileExt::unlock(&self.file);
     }
+}
+
+fn prepare_records(
+    mut records: Vec<JournalRecord>,
+    events: Vec<EventEnvelope>,
+) -> Result<Vec<JournalRecord>, DevMapError> {
+    let mut appended = Vec::with_capacity(events.len());
+    let mut known_ids: HashSet<String> = records
+        .iter()
+        .map(|record| record.event.event_id().to_owned())
+        .collect();
+    for event in events {
+        let expected_sequence = records.len() as u64 + 1;
+        if event.sequence() != expected_sequence {
+            if event.sequence() < expected_sequence {
+                return Err(DevMapError::DuplicateSequence(event.sequence()));
+            }
+            return Err(corruption(format!(
+                "expected sequence {expected_sequence}, found {}",
+                event.sequence()
+            )));
+        }
+        if !known_ids.insert(event.event_id().to_owned()) {
+            return Err(corruption(format!(
+                "duplicate event ID {}",
+                event.event_id()
+            )));
+        }
+        let previous_sha256 = records.last().map(|record| record.sha256.clone());
+        let record = JournalRecord::new(event, previous_sha256)?;
+        records.push(record.clone());
+        appended.push(record);
+    }
+    Ok(appended)
+}
+
+fn parse_complete_records(bytes: &[u8]) -> Result<(Vec<JournalRecord>, usize), DevMapError> {
+    let complete_len = bytes
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let mut records = Vec::new();
+    let mut event_ids = HashSet::new();
+    let mut previous_sha256 = None;
+    let lines: Vec<_> = bytes[..complete_len].split(|byte| *byte == b'\n').collect();
+    for (line_index, line) in lines.iter().enumerate() {
+        if line_index + 1 == lines.len() {
+            break;
+        }
+        let line_number = line_index + 1;
+        if line.is_empty() {
+            return Err(corruption(format!("empty record at line {line_number}")));
+        }
+        let record: JournalRecord = serde_json::from_slice(line).map_err(|error| {
+            corruption(format!("malformed JSON at line {line_number}: {error}"))
+        })?;
+        if *line != canonical_json(&record)? {
+            return Err(corruption(format!(
+                "record at line {line_number} is not canonical JSON"
+            )));
+        }
+        let expected_sequence = records.len() as u64 + 1;
+        if record.sequence < expected_sequence {
+            return Err(DevMapError::DuplicateSequence(record.sequence));
+        }
+        if record.sequence != expected_sequence {
+            return Err(corruption(format!(
+                "expected sequence {expected_sequence}, found {} at line {line_number}",
+                record.sequence
+            )));
+        }
+        if record.event.sequence() != record.sequence {
+            return Err(corruption(format!(
+                "event sequence does not match record sequence at line {line_number}"
+            )));
+        }
+        if !event_ids.insert(record.event.event_id().to_owned()) {
+            return Err(corruption(format!(
+                "duplicate event ID {}",
+                record.event.event_id()
+            )));
+        }
+        if record.previous_sha256 != previous_sha256 {
+            return Err(corruption(format!(
+                "previous SHA-256 link mismatch at line {line_number}"
+            )));
+        }
+        if record.sha256 != record.expected_sha256()? {
+            return Err(corruption(format!(
+                "SHA-256 mismatch at line {line_number}"
+            )));
+        }
+        previous_sha256 = Some(record.sha256.clone());
+        records.push(record);
+    }
+    Ok((records, complete_len))
 }
 
 fn is_normal_session_component(session_id: &str) -> bool {
