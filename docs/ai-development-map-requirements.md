@@ -1581,7 +1581,7 @@ Shared Viewer Frontend
 
 ### 16.9 Live Worktree Dock
 
-`devmap view --live` SHOULD 在当前聊天的宿主右侧面板显示一个可折叠的 Live Worktree Dock。它不是成员专属地图，而是统一 Project Graph 之上的本机临时 Presence 覆盖层：
+安装并启用 DevMap plugin 后，系统 SHOULD 在当前聊天的宿主右侧面板显示一个可折叠的 Live Worktree Dock。Codex 默认通过 plugin 配置自动启动 `devmap mcp` STDIO 进程，用户不需要手动启动 `devmap view --live`、localhost HTTP server 或常驻 daemon。Dock 不是成员专属地图，而是统一 Project Graph 之上的本机临时 Presence 覆盖层：
 
 ```text
 Codex window
@@ -1601,7 +1601,8 @@ Dock MUST：
 - 显示有来源和置信度的状态，不得把缺少心跳推断为已经完成；
 - 显示 Capture Grade、gap、最近活动和 blocker 摘要，但不显示 raw prompt、command、patch 或 transcript；
 - 点击 Agent 时在同一 Viewer 中聚焦对应 route、worktree 和证据邻域；
-- 在宿主支持时呈现为聊天内右侧 MCP App 或 Browser panel，在宿主不支持时退化为 localhost Browser；
+- 在宿主支持时呈现为聊天内右侧 MCP App，该默认路径仅使用宿主管理的 STDIO 且不监听 TCP 端口；
+- 在宿主不支持 MCP App 或启动失败时，按需自动启动 `devmap view --live` 的 Browser panel/localhost 回退，并保留显式 CLI 启动方式；
 - 不依赖 Codex DOM 注入、私有 UI API 或特定宿主的内部 Agent Registry。
 
 本机 Presence SHOULD 保存到：
@@ -1871,15 +1872,16 @@ DevMap MUST 使用真实 Agent session 而不是单轮 prompt 评估捕获效果
 - **FR-UI-017**：个人 zoom、camera、hover、selection 和临时 filter MUST 仅存在当前浏览器 session。
 - **FR-UI-018**：CLI 或宿主 UI SHOULD 显示 active route、Kernel version、Capture Grade、pending 数量、最近 checkpoint 和 gap 状态。
 - **FR-UI-019**：Capture Grade 不足或 hook 失败时 MUST 显示 `CAPTURE INCOMPLETE`，不能只写入 debug log。
-- **FR-UI-020**：系统 SHOULD 在当前聊天的宿主右侧面板提供 Live Worktree Dock，并在宿主不支持时退化到 localhost Browser。
+- **FR-UI-020**：系统 SHOULD 在当前聊天的宿主右侧面板提供 Live Worktree Dock；安装并启用 plugin 后，Codex 默认路径 MUST 不要求用户手动启动服务器。
 - **FR-UI-021**：Dock MUST 区分当前 worktree、其他本机 worktree、已接入 Agent 和未接入 worktree。
 - **FR-UI-022**：Agent Presence MUST 是可丢弃的本机覆盖层，不得进入 Canonical Project Graph 或 Context Repo。
 - **FR-UI-023**：Agent 状态 MUST 携带来源和置信度；lease 过期只能产生 `stale`，只有明确 SessionEnd 才能产生 `completed`。
 - **FR-UI-024**：心跳和 Dock 临时 View State MUST NOT 触发 Git commit 或 Context publication。
 - **FR-UI-025**：Dock MUST NOT 依赖 DOM 注入或宿主私有 UI API；宿主导航属于可选 capability。
 - **FR-UI-026**：Dock MUST 默认隐藏 raw prompt、command、patch、tool input/output 和 transcript。
-- **FR-UI-027**：`devmap view --live` MUST 复用本地只读服务器、loopback 限制、随机端口、临时 token 和 CLI 生命周期约束。
+- **FR-UI-027**：仅在选择 Browser 回退或用户显式运行 `devmap view --live` 时，系统才 MUST 启动本地只读 HTTP 服务器，并复用 loopback 限制、随机端口、临时 token 和所属进程生命周期约束。
 - **FR-UI-028**：点击 Dock 中的 Agent MUST 在统一 Viewer 内聚焦对应 route、worktree 和证据邻域，而不是创建成员专属地图。
+- **FR-UI-029**：Codex MCP App MUST 通过 plugin 登记的 `devmap mcp` STDIO 进程消费共享 `DockReadModel`，默认不得启动 TCP listener 或常驻 DevMap daemon；增量更新不可用时 MUST 退化为仅在面板可见时的有界 snapshot refresh。
 
 ### 21.5 Security
 

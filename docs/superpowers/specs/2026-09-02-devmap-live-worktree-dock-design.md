@@ -33,23 +33,24 @@ This is a collapsible right pane inside the same Codex window. It must not cover
 
 Presentation order:
 
-1. MCP App in the chat's right pane when the host supports it.
-2. The same bundled frontend in Codex's integrated Browser panel.
-3. The same localhost URL in an external browser.
+1. MCP App in the chat's right pane when the host supports it. After the DevMap plugin is installed and enabled, Codex starts the plugin's `devmap mcp` STDIO process; the user does not start a local HTTP server.
+2. The same bundled frontend in Codex's integrated Browser panel. Selecting this fallback starts `devmap view --live` on demand when the host can launch it.
+3. The same authenticated localhost URL in an external browser, started on demand or explicitly with `devmap view --live`.
 
-The official OpenAI documentation supports opening localhost applications in the integrated Browser, while the Codex changelog records MCP Apps in the right pane. DevMap must use documented host surfaces and must not inject into the Codex DOM or call private UI APIs.
+The official OpenAI documentation defines a configured `command` as the launcher for a local STDIO MCP server, supports optional UI returned by MCP servers, and supports opening localhost applications in the integrated Browser. The Codex changelog also records MCP Apps in the right pane. DevMap must use documented host surfaces and must not inject into the Codex DOM or call private UI APIs.
 
 ## 3. Considered approaches
 
 ### 3.1 Host-native MCP App plus shared web fallback — selected
 
-Expose a small MCP App resource for hosts that support embedded UI and reuse the same frontend through `devmap view --live` elsewhere.
+Expose a small MCP App resource for hosts that support embedded UI. Its registered plugin configuration starts `devmap mcp` over STDIO and uses the shared Dock read model directly. Reuse the same frontend through an on-demand `devmap view --live` process elsewhere.
 
 Advantages:
 
 - matches the requested chat-right placement;
+- requires no manual server command in the normal Codex path;
 - keeps DevMap host-neutral;
-- shares one frontend and one data contract;
+- shares one frontend and one read-model contract without forcing both surfaces through HTTP;
 - degrades without losing core functionality.
 
 Cost: the host capability handshake and browser fallback both require conformance tests.
@@ -77,26 +78,30 @@ Git worktree scanner   Presence lease store
               └──────┬───────┘
                      ▼
             Local Presence Reducer
-                     │ snapshot + deltas
-                     ▼
-      `devmap view --live` read-only API
                      │
-             SSE over loopback
                      ▼
-     Shared Dock UI / topology Viewer UI
+       revisioned `DockReadModel`
               │              │
-         MCP App pane   Browser fallback
+              │              └── `devmap view --live` (on demand)
+              │                         │ loopback HTTP + SSE
+              ▼                         ▼
+ `devmap mcp` STDIO bridge        Browser fallback
+  (Codex-managed lifecycle)
+              │
+              ▼
+       MCP App right pane
 ```
 
-The architecture has five isolated components:
+The architecture has six isolated components:
 
 1. **Worktree scanner:** enumerates `git worktree list --porcelain` and resolves a stable worktree identity from the Git directory, never from a renameable display path alone.
 2. **Presence writer:** updates one bounded atomic record for an instrumented session when an accepted Hook or MCP lifecycle event occurs.
-3. **Presence reducer:** joins worktrees, local presence, Phase 1B journals, and available Phase 1C route records into a read model.
-4. **Live API:** serves an initial snapshot and monotonic in-process deltas over SSE; it has no mutation endpoint.
-5. **Dock frontend:** renders the read model and asks the shared Viewer to focus a selected worktree or route.
+3. **Presence reducer:** joins worktrees, local presence, Phase 1B journals, and available Phase 1C route records into a revisioned `DockReadModel`.
+4. **MCP bridge:** exposes the read model and bundled UI through `devmap mcp` over STDIO. Codex owns process startup and shutdown through the installed plugin configuration. This path opens no TCP listener.
+5. **Browser bridge:** when requested, `devmap view --live` serves an initial snapshot and monotonic in-process deltas over loopback SSE; it has no mutation endpoint.
+6. **Dock frontend:** renders the same read-model contract in either presentation and asks the shared Viewer to focus a selected worktree or route.
 
-These components share schema types but not implementation internals. The Browser and MCP App presentations consume the same Dock API model.
+These components share schema types but not implementation internals. The Browser and MCP App presentations consume the same `DockReadModel`, but each uses its host-appropriate transport. HTTP is not an internal dependency of the MCP path.
 
 ## 5. Storage and authority
 
@@ -171,7 +176,23 @@ Allowed UI states are:
 
 `status_source` is one of `host_explicit`, `capture_event`, `lease`, or `git_only`. `confidence` is one of `observed`, `leased`, `inferred`, or `unknown`. The UI shows uncertainty directly.
 
-## 8. Local live API
+## 8. Presentation transports and lifecycle
+
+### 8.1 Default Codex MCP path
+
+The DevMap plugin registers `devmap mcp` as a local STDIO MCP server. After the plugin is installed and enabled, Codex launches the configured command and manages its lifecycle. The user must not need to run `devmap view`, `devmap view --live`, or a separate daemon to open or refresh the right-pane Dock.
+
+The MCP server returns the bundled Dock UI and a read-only, revisioned snapshot projection. Incremental refresh is capability-gated: use documented MCP resource/update notifications when the host advertises them; otherwise refresh the snapshot at a bounded interval while the Dock is visible. The fallback must preserve revision ordering, response limits, and stale-state semantics. It must not invent undocumented host push behavior.
+
+The default MCP path:
+
+- communicates over the STDIO channel launched by Codex;
+- opens no localhost port;
+- owns no background daemon beyond the host-managed MCP process;
+- exposes no Dock mutation tool in this phase;
+- remains functional when HTTP listeners are prohibited by local policy.
+
+### 8.2 Browser fallback
 
 `devmap view --live` extends the already specified temporary localhost Viewer:
 
@@ -192,7 +213,7 @@ The service:
 - periodically reconciles Git worktrees and local records so missed filesystem notifications self-heal;
 - limits itself to 256 worktrees, 2,048 presence records, and 64 KiB per record, reporting truncation visibly rather than allocating without bound.
 
-SSE is selected instead of WebSocket because the data flow is one-way and read-only. Reconnection uses the last delivered in-process revision; after process restart the client requests a fresh snapshot.
+SSE is selected instead of WebSocket because the data flow is one-way and read-only. Reconnection uses the last delivered in-process revision; after process restart the client requests a fresh snapshot. This HTTP server starts only when the Browser fallback is selected or the user explicitly runs `devmap view --live`.
 
 ## 9. Dock interaction
 
@@ -219,7 +240,7 @@ host_navigation
 panel_persistence
 ```
 
-Only observed capabilities may be reported. The presentation selector chooses the first supported surface from the ordered fallback list. A Browser URL is always available when the Viewer starts successfully.
+Only observed capabilities may be reported. The presentation selector chooses the first supported surface from the ordered fallback list. A Browser URL is available only after the on-demand Viewer starts successfully; it is not prestarted by the MCP App path.
 
 Claude and Generic MCP reuse the same Presence Schema and Viewer. Their default presentation may be a browser panel or external browser. Host-specific metadata may select an icon or label but cannot change status semantics.
 
@@ -230,14 +251,16 @@ DevMap does not depend on Codex's private internal Agent registry. It shows sess
 - Invalid or oversized Presence records are ignored, counted, and surfaced as `PRESENCE INCOMPLETE`; they do not crash the Viewer.
 - A corrupt Phase 1B journal marks that session `capture_incomplete`; Presence cannot repair or overwrite it.
 - A disappeared worktree becomes stale until Git reconciliation confirms removal; evidence is never deleted by the Viewer.
+- If the host-managed MCP process fails to start, Codex surfaces the integration failure and DevMap offers the Browser fallback; it must not silently claim that the Dock is live.
+- If documented MCP updates are unavailable or interrupted, the MCP App falls back to bounded visible-only snapshot refresh and displays the age of the last accepted revision.
 - A disconnected SSE client shows an offline banner and the age of its frozen snapshot.
-- If the Codex pane cannot open, the CLI prints the authenticated localhost URL and continues serving.
+- If the Codex pane cannot open and the Browser fallback is selected, DevMap starts the temporary Viewer on demand and presents its authenticated localhost URL.
 - If route data is absent, the Dock still lists the worktree and Agent without inventing a route.
 - Absolute paths and local session identifiers are never sent off-machine by this feature.
 
 ## 12. Security and privacy
 
-The existing Viewer security contract applies: loopback only, random port, ephemeral token, embedded assets, strict content security policy, no arbitrary file reads, and no raw transcript by default.
+The MCP App path uses the host-managed STDIO channel and opens no network listener. The Browser fallback inherits the existing Viewer security contract: loopback only, random port, ephemeral token, embedded assets, strict content security policy, no arbitrary file reads, and no raw transcript by default.
 
 The Dock adds these rules:
 
@@ -250,7 +273,7 @@ The Dock adds these rules:
 
 ## 13. Performance and lifecycle
 
-The Viewer remains one temporary process, not a daemon. The target is an initial Dock snapshot within one second for 100 worktrees and 1,000 bounded Presence records on a normal local SSD, followed by visible updates within two seconds of an accepted local event.
+Neither transport creates a persistent DevMap daemon. Codex owns the lifetime of the STDIO MCP process; the Browser Viewer remains a temporary child or foreground process and exits with its owning command or host launch. The target is an initial Dock snapshot within one second for 100 worktrees and 1,000 bounded Presence records on a normal local SSD, followed by visible updates within two seconds of an accepted local event.
 
 The reducer caches stable repository and worktree identity, reads changed bounded records incrementally, and performs a slower full reconciliation periodically. Expired or old records may be excluded from the read model but are not destructively deleted by the Viewer.
 
@@ -265,6 +288,9 @@ Required automated coverage includes:
 - missing adapters shown as `unknown`, not absent;
 - corrupt, oversized, replaced, and concurrently updated Presence records;
 - no prompt, command, patch, tool input/output, or transcript canaries crossing into Presence or API output;
+- plugin-configured Codex launch of `devmap mcp` without a manual command;
+- no TCP listener in the default MCP App path;
+- capability-gated MCP updates and bounded visible-only refresh fallback;
 - localhost/token/read-only HTTP boundaries and SSE reconnect behavior;
 - identical graph revision and global layout with or without the Presence overlay;
 - Codex MCP App, integrated Browser, and external Browser fallback selection from declared capabilities;
@@ -279,16 +305,19 @@ The feature is delivered without blocking on the full topology implementation:
 
 1. Presence Schema, bounded atomic store, and reducer.
 2. `devmap agents --json` diagnostic projection for host-neutral verification.
-3. `devmap view --live` snapshot/SSE API and compact Dock frontend.
-4. Codex MCP App/right-pane presentation and Browser fallback conformance.
-5. Route enrichment when Phase 1C records exist.
-6. Topology focus integration when the shared graph Viewer is available.
+3. Revisioned `DockReadModel` and transport-neutral compact Dock frontend.
+4. `devmap mcp` STDIO bridge, plugin registration, and Codex MCP App/right-pane conformance.
+5. On-demand `devmap view --live` snapshot/SSE Browser fallback.
+6. Route enrichment when Phase 1C records exist.
+7. Topology focus integration when the shared graph Viewer is available.
 
-Steps 1–4 provide immediate current/other-worktree visibility. Steps 5–6 enrich navigation without changing Presence authority.
+Steps 1–5 provide immediate current/other-worktree visibility without requiring manual server startup in Codex. Steps 6–7 enrich navigation without changing Presence authority.
 
 Cross-machine team Presence, hosted synchronization, PM mutation, always-on-top native windows, and automatic opening of unrelated host chats are explicitly deferred.
 
 ## 16. References
 
 - OpenAI, Codex/ChatGPT integrated Browser and localhost application preview: <https://learn.chatgpt.com/docs/browser>
+- OpenAI, Codex MCP configuration and local STDIO server command lifecycle: <https://learn.chatgpt.com/docs/extend/mcp>
+- OpenAI, plugins containing MCP servers and optional UI: <https://learn.chatgpt.com/docs/build-plugins>
 - OpenAI, ChatGPT and Codex changelog entries for conversation side-pane tabs and MCP Apps in the right pane: <https://learn.chatgpt.com/docs/changelog>
