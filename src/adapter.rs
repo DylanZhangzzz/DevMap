@@ -97,7 +97,7 @@ pub fn plan_adapter(source: &Path, host: AdapterHost) -> Result<AdapterPlan, Dev
 pub fn install_adapter(plan: AdapterPlan) -> Result<InstallReport, DevMapError> {
     ensure_plan_target(&plan)?;
     let mut document = read_config(&plan.config_path)?.unwrap_or_else(|| json!({}));
-    validate_document(&document, &plan.config_path)?;
+    validate_document(&document, &plan.config_path, plan.host)?;
     let existing = binding_occurrences(&document)?
         .into_iter()
         .map(|occurrence| occurrence.binding_id.to_owned())
@@ -131,7 +131,7 @@ pub fn install_adapter(plan: AdapterPlan) -> Result<InstallReport, DevMapError> 
 pub fn verify_adapter(source: &Path, host: AdapterHost) -> Result<VerifyReport, DevMapError> {
     let plan = plan_adapter(source, host)?;
     let document = read_config(&plan.config_path)?.unwrap_or_else(|| json!({}));
-    validate_document(&document, &plan.config_path)?;
+    validate_document(&document, &plan.config_path, plan.host)?;
     let occurrences = binding_occurrences(&document)?;
     let mut present = Vec::new();
     let mut missing = Vec::new();
@@ -190,8 +190,8 @@ pub fn uninstall_adapter(source: &Path, host: AdapterHost) -> Result<InstallRepo
             changed: false,
         });
     };
-    validate_document(&document, &plan.config_path)?;
-    let removed = remove_owned_bindings(&mut document)?;
+    validate_document(&document, &plan.config_path, plan.host)?;
+    let removed = remove_owned_bindings(&mut document, &plan.bindings)?;
     let changed = !removed.is_empty();
     if changed {
         write_config(&plan.config_path, &document)?;
@@ -270,7 +270,7 @@ fn read_config(path: &Path) -> Result<Option<Value>, DevMapError> {
     }
 }
 
-fn validate_document(document: &Value, path: &Path) -> Result<(), DevMapError> {
+fn validate_document(document: &Value, path: &Path, host: AdapterHost) -> Result<(), DevMapError> {
     let root = document
         .as_object()
         .ok_or_else(|| malformed(path, "top level must be an object"))?;
@@ -281,6 +281,7 @@ fn validate_document(document: &Value, path: &Path) -> Result<(), DevMapError> {
         .as_object()
         .ok_or_else(|| malformed(path, "hooks must be an object"))?;
     for (event, groups) in hooks {
+        validate_event(path, host, event)?;
         let groups = groups
             .as_array()
             .ok_or_else(|| malformed(path, format!("hooks.{event} must be an array")))?;
@@ -310,7 +311,7 @@ fn validate_document(document: &Value, path: &Path) -> Result<(), DevMapError> {
                     )
                 })?;
             for (handler_index, handler) in handlers.iter().enumerate() {
-                validate_handler(path, event, group_index, handler_index, handler)?;
+                validate_handler(path, host, event, group_index, handler_index, handler)?;
             }
         }
     }
@@ -319,6 +320,7 @@ fn validate_document(document: &Value, path: &Path) -> Result<(), DevMapError> {
 
 fn validate_handler(
     path: &Path,
+    host: AdapterHost,
     event: &str,
     group_index: usize,
     handler_index: usize,
@@ -332,17 +334,18 @@ fn validate_handler(
         .get("type")
         .and_then(Value::as_str)
         .ok_or_else(|| malformed(path, format!("{location}.type must be a string")))?;
+    if !handler_type_supported(host, event, handler_type) {
+        return Err(malformed(
+            path,
+            format!("{location}.type is not supported for {host:?} {event}: {handler_type}"),
+        ));
+    }
     let required_strings: &[&str] = match handler_type {
         "command" => &["command"],
         "http" => &["url"],
         "mcp_tool" => &["server", "tool"],
         "prompt" | "agent" => &["prompt"],
-        _ => {
-            return Err(malformed(
-                path,
-                format!("{location}.type is not recognized: {handler_type}"),
-            ));
-        }
+        _ => unreachable!("unsupported handler types are rejected above"),
     };
     for field in required_strings {
         if !handler.get(*field).is_some_and(Value::is_string) {
@@ -352,7 +355,270 @@ fn validate_handler(
             ));
         }
     }
-    Ok(())
+    validate_optional_string(path, handler, &location, "statusMessage")?;
+    validate_optional_number(path, handler, &location, "timeout")?;
+    match host {
+        AdapterHost::Codex => validate_codex_handler(path, handler, &location, handler_type),
+        AdapterHost::Claude => validate_claude_handler(path, handler, &location, handler_type),
+        AdapterHost::GenericMcp => unreachable!("generic MCP has no native adapter config"),
+    }
+}
+
+fn validate_event(path: &Path, host: AdapterHost, event: &str) -> Result<(), DevMapError> {
+    let supported = match host {
+        AdapterHost::Codex => matches!(
+            event,
+            "SessionStart"
+                | "UserPromptSubmit"
+                | "PreToolUse"
+                | "PermissionRequest"
+                | "PostToolUse"
+                | "PreCompact"
+                | "PostCompact"
+                | "SubagentStart"
+                | "SubagentStop"
+                | "Stop"
+                | "SessionEnd"
+        ),
+        AdapterHost::Claude => matches!(
+            event,
+            "Setup"
+                | "SessionStart"
+                | "UserPromptSubmit"
+                | "UserPromptExpansion"
+                | "PreToolUse"
+                | "PermissionRequest"
+                | "PermissionDenied"
+                | "PostToolUse"
+                | "PostToolUseFailure"
+                | "PostToolBatch"
+                | "SubagentStart"
+                | "SubagentStop"
+                | "TaskCreated"
+                | "TaskCompleted"
+                | "Stop"
+                | "StopFailure"
+                | "TeammateIdle"
+                | "PreCompact"
+                | "PostCompact"
+                | "SessionEnd"
+                | "Elicitation"
+                | "ElicitationResult"
+                | "WorktreeCreate"
+                | "WorktreeRemove"
+                | "Notification"
+                | "ConfigChange"
+                | "InstructionsLoaded"
+                | "CwdChanged"
+                | "FileChanged"
+                | "DirectoryAdded"
+                | "PreModelSwitch"
+                | "PostModelSwitch"
+                | "MessageDisplay"
+        ),
+        AdapterHost::GenericMcp => false,
+    };
+    if supported {
+        Ok(())
+    } else {
+        Err(malformed(
+            path,
+            format!("hooks.{event} is not supported for {host:?}"),
+        ))
+    }
+}
+
+fn handler_type_supported(host: AdapterHost, event: &str, handler_type: &str) -> bool {
+    match host {
+        AdapterHost::Codex => {
+            handler_type == "command" || (handler_type == "mcp_tool" && event != "SessionEnd")
+        }
+        AdapterHost::Claude => match event {
+            "SessionStart" | "Setup" => matches!(handler_type, "command" | "mcp_tool"),
+            "PermissionDenied"
+            | "PermissionRequest"
+            | "PostToolBatch"
+            | "PostToolUse"
+            | "PostToolUseFailure"
+            | "PreToolUse"
+            | "Stop"
+            | "SubagentStop"
+            | "TaskCompleted"
+            | "TaskCreated"
+            | "TeammateIdle"
+            | "UserPromptExpansion"
+            | "UserPromptSubmit" => matches!(
+                handler_type,
+                "command" | "http" | "mcp_tool" | "prompt" | "agent"
+            ),
+            "WorktreeCreate" => handler_type == "command",
+            _ => matches!(handler_type, "command" | "http" | "mcp_tool"),
+        },
+        AdapterHost::GenericMcp => false,
+    }
+}
+
+fn validate_codex_handler(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    handler_type: &str,
+) -> Result<(), DevMapError> {
+    validate_optional_string(path, handler, location, "commandWindows")?;
+    validate_optional_bool(path, handler, location, "async")?;
+    validate_optional_unsigned_integer(path, handler, location, "additionalContextLimit")?;
+    validate_optional_object(path, handler, location, "input")?;
+    match handler_type {
+        "command" | "mcp_tool" => Ok(()),
+        _ => unreachable!("Codex handler type was validated"),
+    }
+}
+
+fn validate_claude_handler(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    handler_type: &str,
+) -> Result<(), DevMapError> {
+    validate_optional_string(path, handler, location, "if")?;
+    validate_optional_bool(path, handler, location, "once")?;
+    validate_optional_string_array(path, handler, location, "args")?;
+    validate_optional_bool(path, handler, location, "async")?;
+    validate_optional_bool(path, handler, location, "asyncRewake")?;
+    validate_optional_string(path, handler, location, "shell")?;
+    validate_optional_string_map(path, handler, location, "headers")?;
+    validate_optional_string_array(path, handler, location, "allowedEnvVars")?;
+    validate_optional_object(path, handler, location, "input")?;
+    validate_optional_string(path, handler, location, "model")?;
+    validate_optional_bool(path, handler, location, "continueOnBlock")?;
+    match handler_type {
+        "command" | "http" | "mcp_tool" | "prompt" | "agent" => Ok(()),
+        _ => unreachable!("Claude handler type was validated"),
+    }
+}
+
+fn validate_optional(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+    expected: &str,
+    predicate: impl FnOnce(&Value) -> bool,
+) -> Result<(), DevMapError> {
+    if handler.get(field).is_none_or(predicate) {
+        Ok(())
+    } else {
+        Err(malformed(
+            path,
+            format!("{location}.{field} must be {expected}"),
+        ))
+    }
+}
+
+fn validate_optional_string(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(path, handler, location, field, "a string", Value::is_string)
+}
+
+fn validate_optional_number(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(path, handler, location, field, "a number", Value::is_number)
+}
+
+fn validate_optional_bool(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        field,
+        "a boolean",
+        Value::is_boolean,
+    )
+}
+
+fn validate_optional_object(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        field,
+        "an object",
+        Value::is_object,
+    )
+}
+
+fn validate_optional_unsigned_integer(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        field,
+        "a non-negative integer",
+        |value| value.as_u64().is_some(),
+    )
+}
+
+fn validate_optional_string_array(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        field,
+        "an array of strings",
+        |value| {
+            value
+                .as_array()
+                .is_some_and(|values| values.iter().all(Value::is_string))
+        },
+    )
+}
+
+fn validate_optional_string_map(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    field: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        field,
+        "an object of strings",
+        |value| {
+            value
+                .as_object()
+                .is_some_and(|entries| entries.values().all(Value::is_string))
+        },
+    )
 }
 
 fn malformed(path: &Path, reason: impl AsRef<str>) -> DevMapError {
@@ -375,6 +641,11 @@ fn append_binding(document: &mut Value, binding: &HookBinding) -> Result<(), Dev
     let groups = hooks[&binding.event]
         .as_array_mut()
         .expect("validated hook event is an array");
+    groups.push(expected_group(binding));
+    Ok(())
+}
+
+fn expected_group(binding: &HookBinding) -> Value {
     let mut group = Map::new();
     if let Some(matcher) = &binding.matcher {
         group.insert("matcher".into(), Value::String(matcher.clone()));
@@ -383,8 +654,7 @@ fn append_binding(document: &mut Value, binding: &HookBinding) -> Result<(), Dev
         "hooks".into(),
         Value::Array(vec![expected_handler(binding)]),
     );
-    groups.push(Value::Object(group));
-    Ok(())
+    Value::Object(group)
 }
 
 fn expected_handler(binding: &HookBinding) -> Value {
@@ -437,6 +707,9 @@ fn occurrence_matches(occurrence: &BindingOccurrence<'_>, binding: &HookBinding)
 
 fn handler_binding_id(handler: &Value) -> Option<&str> {
     let mut words = handler.get("command")?.as_str()?.split_ascii_whitespace();
+    if words.next()? != "devmap" || words.next()? != "hook" || words.next()? != "handle" {
+        return None;
+    }
     while let Some(word) = words.next() {
         if word == "--binding-id" {
             return words.next();
@@ -448,7 +721,10 @@ fn handler_binding_id(handler: &Value) -> Option<&str> {
     None
 }
 
-fn remove_owned_bindings(document: &mut Value) -> Result<Vec<String>, DevMapError> {
+fn remove_owned_bindings(
+    document: &mut Value,
+    bindings: &[HookBinding],
+) -> Result<Vec<String>, DevMapError> {
     let Some(hooks) = document.get_mut("hooks").and_then(Value::as_object_mut) else {
         return Ok(Vec::new());
     };
@@ -460,6 +736,10 @@ fn remove_owned_bindings(document: &mut Value) -> Result<Vec<String>, DevMapErro
             .expect("validated hook event is an array");
         let mut removed_from_event = false;
         groups.retain_mut(|group| {
+            let devmap_generated = bindings
+                .iter()
+                .filter(|binding| binding.event == event)
+                .any(|binding| group == &expected_group(binding));
             let handlers = group["hooks"]
                 .as_array_mut()
                 .expect("validated handler list is an array");
@@ -476,7 +756,7 @@ fn remove_owned_bindings(document: &mut Value) -> Result<Vec<String>, DevMapErro
                 removed_from_event = true;
                 false
             });
-            !(removed_from_group && handlers.is_empty())
+            !(devmap_generated && removed_from_group && handlers.is_empty())
         });
         if removed_from_event && groups.is_empty() {
             hooks.remove(&event);
@@ -492,14 +772,15 @@ fn write_config(path: &Path, document: &Value) -> Result<(), DevMapError> {
     bytes.push(b'\n');
     let temporary = suffixed_path(path, ".devmap-tmp")?;
     let backup = suffixed_path(path, ".devmap-backup")?;
-    if temporary.exists() || backup.exists() {
-        return Err(DevMapError::UnsafeInstallerOverwrite(
-            if temporary.exists() {
-                temporary
-            } else {
-                backup
-            },
-        ));
+    let stale_artifact = if path_entry_exists(&temporary)? {
+        Some(temporary.clone())
+    } else if path_entry_exists(&backup)? {
+        Some(backup.clone())
+    } else {
+        None
+    };
+    if let Some(stale_artifact) = stale_artifact {
+        return Err(DevMapError::UnsafeInstallerOverwrite(stale_artifact));
     }
 
     let mut file = OpenOptions::new()
@@ -508,16 +789,19 @@ fn write_config(path: &Path, document: &Value) -> Result<(), DevMapError> {
         .open(&temporary)?;
     if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
         drop(file);
-        let _ = fs::remove_file(&temporary);
-        return Err(error.into());
+        return Err(transaction_error(path, error, &temporary));
     }
     drop(file);
 
-    replace_config(path, &temporary, &backup, &bytes)?;
-    if fs::read(path)? != bytes {
-        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
+    replace_config(path, &temporary, &backup)
+}
+
+fn path_entry_exists(path: &Path) -> std::io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
-    Ok(())
 }
 
 fn ensure_local_target(path: &Path) -> Result<(), DevMapError> {
@@ -548,41 +832,227 @@ fn suffixed_path(path: &Path, suffix: &str) -> Result<PathBuf, DevMapError> {
 }
 
 #[cfg(not(windows))]
-fn replace_config(
-    path: &Path,
-    temporary: &Path,
-    _backup: &Path,
-    _expected: &[u8],
-) -> Result<(), DevMapError> {
-    fs::rename(temporary, path)?;
-    Ok(())
+fn replace_config(path: &Path, temporary: &Path, _backup: &Path) -> Result<(), DevMapError> {
+    commit_temporary_with(path, temporary, fs::rename)
 }
 
 #[cfg(windows)]
-fn replace_config(
+fn replace_config(path: &Path, temporary: &Path, backup: &Path) -> Result<(), DevMapError> {
+    commit_temporary_with(path, temporary, |temporary, path| {
+        windows_atomic_replace(temporary, path, backup)
+    })
+}
+
+fn commit_temporary_with(
     path: &Path,
     temporary: &Path,
-    backup: &Path,
-    expected: &[u8],
+    replace: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<(), DevMapError> {
-    let backup_created = path.exists();
-    if backup_created {
-        fs::rename(path, backup)?;
-    }
-    if let Err(error) = fs::rename(temporary, path) {
-        if backup_created {
-            let _ = fs::rename(backup, path);
-        }
-        return Err(error.into());
-    }
-    if backup_created {
-        let verified = matches!(fs::read(path), Ok(bytes) if bytes == expected);
-        if !verified {
-            let _ = fs::remove_file(path);
-            let _ = fs::rename(backup, path);
-            return Err(DevMapError::UnsafeInstallerOverwrite(path.to_path_buf()));
-        }
-        fs::remove_file(backup)?;
+    if let Err(replace_error) = replace(temporary, path) {
+        return Err(transaction_error(path, replace_error, temporary));
     }
     Ok(())
+}
+
+fn transaction_error(
+    path: &Path,
+    operation_error: std::io::Error,
+    temporary: &Path,
+) -> DevMapError {
+    let cleanup = match remove_temporary_file(temporary) {
+        Ok(()) => "succeeded".to_owned(),
+        Err(cleanup_error) => format!("failed: {cleanup_error}"),
+    };
+    DevMapError::AdapterConfigTransaction {
+        path: path.to_path_buf(),
+        operation_error: operation_error.to_string(),
+        cleanup,
+    }
+}
+
+fn remove_temporary_file(temporary: &Path) -> std::io::Result<()> {
+    if !temporary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".devmap-tmp"))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "refusing to clean a non-DevMap temporary path",
+        ));
+    }
+    match fs::symlink_metadata(temporary) {
+        Ok(metadata) if metadata.file_type().is_file() || metadata.file_type().is_symlink() => {
+            fs::remove_file(temporary)
+        }
+        Ok(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "DevMap temporary path is not a file",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(windows)]
+fn windows_atomic_replace(temporary: &Path, path: &Path, backup: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn ReplaceFileW(
+            replaced_file_name: *const u16,
+            replacement_file_name: *const u16,
+            backup_file_name: *const u16,
+            replace_flags: u32,
+            exclude: *mut core::ffi::c_void,
+            reserved: *mut core::ffi::c_void,
+        ) -> i32;
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    fn move_file(source: &Path, destination: &Path, replace: bool) -> std::io::Result<()> {
+        let source = wide(source);
+        let destination = wide(destination);
+        let flags = MOVEFILE_WRITE_THROUGH
+            | if replace {
+                MOVEFILE_REPLACE_EXISTING
+            } else {
+                0
+            };
+        // SAFETY: both path pointers refer to owned NUL-terminated buffers.
+        let moved = unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) };
+        if moved == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    if !path.try_exists()? {
+        return move_file(temporary, path, false);
+    }
+
+    let temporary_wide = wide(temporary);
+    let path_wide = wide(path);
+    let backup_wide = wide(backup);
+    // SAFETY: both paths are owned, NUL-terminated UTF-16 buffers that remain
+    // alive for the call; the remaining optional pointers are documented null values.
+    let replaced = unsafe {
+        ReplaceFileW(
+            path_wide.as_ptr(),
+            temporary_wide.as_ptr(),
+            backup_wide.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if replaced == 0 {
+        let replace_error = std::io::Error::last_os_error();
+        if backup.try_exists()?
+            && let Err(restore_error) = move_file(backup, path, true)
+        {
+            return Err(std::io::Error::other(format!(
+                "{replace_error}; restoring the original from {} failed: {restore_error}",
+                backup.display()
+            )));
+        }
+        return Err(replace_error);
+    }
+
+    if let Err(cleanup_error) = fs::remove_file(backup) {
+        return match move_file(backup, path, true) {
+            Ok(()) => Err(std::io::Error::other(format!(
+                "cleaning replacement backup failed and the replacement was rolled back: {cleanup_error}"
+            ))),
+            Err(restore_error) => Err(std::io::Error::other(format!(
+                "cleaning replacement backup failed: {cleanup_error}; restoring the original from {} failed: {restore_error}",
+                backup.display()
+            ))),
+        };
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replacement_failure_preserves_original_and_cleans_temporary_file() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        let temporary = root.path().join("hooks.json.devmap-tmp");
+        fs::write(&path, b"original").unwrap();
+        fs::write(&temporary, b"replacement").unwrap();
+
+        let error = commit_temporary_with(&path, &temporary, |_, _| {
+            Err(std::io::Error::other("injected replacement failure"))
+        })
+        .expect_err("the injected replacement failure must propagate");
+
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(!temporary.exists());
+        assert!(error.to_string().contains("injected replacement failure"));
+    }
+
+    #[test]
+    fn replacement_failure_reports_a_temporary_cleanup_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        let temporary = root.path().join("hooks.json.devmap-tmp");
+        fs::write(&path, b"original").unwrap();
+        fs::write(&temporary, b"replacement").unwrap();
+
+        let error = commit_temporary_with(&path, &temporary, |temporary, _| {
+            fs::remove_file(temporary).unwrap();
+            fs::create_dir(temporary).unwrap();
+            Err(std::io::Error::other("injected replacement failure"))
+        })
+        .expect_err("both replacement and cleanup failures must propagate");
+
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        let rendered = error.to_string();
+        assert!(rendered.contains("injected replacement failure"));
+        assert!(rendered.contains("cleanup"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_replacement_failure_keeps_the_named_original() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        fs::write(&path, b"original").unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+
+        let error = write_config(&path, &json!({"hooks": {}}))
+            .expect_err("an exclusive Windows handle must prevent replacement");
+        drop(lock);
+
+        assert!(matches!(
+            error,
+            DevMapError::AdapterConfigTransaction { .. }
+        ));
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(!root.path().join("hooks.json.devmap-tmp").exists());
+        assert!(!root.path().join("hooks.json.devmap-backup").exists());
+    }
 }

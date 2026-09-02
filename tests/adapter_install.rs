@@ -88,6 +88,7 @@ fn install_merges_realistic_configs_idempotently_without_touching_git_state() {
         assert_eq!(owned_binding_ids(&installed).len(), EVENTS.len());
         assert_eq!(devmap_handler_count(&installed), EVENTS.len());
         assert!(all_devmap_handlers_use_official_shape(&installed));
+        assert_eq!(devmap_minimal_group_count(&installed), EVENTS.len());
         assert_git_unchanged_except_config(
             fixture.root.path(),
             &fixture.relative_config,
@@ -135,6 +136,100 @@ fn malformed_or_unrecognized_hook_structures_are_never_overwritten() {
 }
 
 #[test]
+fn validation_is_host_aware_and_checks_documented_optional_field_types() {
+    let codex = adapter_fixture(AdapterHost::Codex);
+    let codex_http = json!({
+        "hooks": {"PreToolUse": [{"hooks": [{
+            "type": "http",
+            "url": "https://hooks.example.invalid/pre-tool"
+        }]}]}
+    });
+    assert_install_refused_without_rewrite(&codex, &codex_http);
+
+    let invalid_optionals = [
+        json!({"type": "command", "command": "/opt/team/run", "timeout": "30"}),
+        json!({"type": "command", "command": "/opt/team/run", "statusMessage": false}),
+        json!({"type": "command", "command": "/opt/team/run", "async": "yes"}),
+        json!({
+            "type": "command",
+            "command": "/opt/team/run",
+            "additionalContextLimit": -1
+        }),
+    ];
+    for handler in invalid_optionals {
+        let document = json!({"hooks": {"PreToolUse": [{"hooks": [handler]}]}});
+        assert_install_refused_without_rewrite(&codex, &document);
+    }
+    let codex_session_end_mcp = json!({
+        "hooks": {"SessionEnd": [{"hooks": [{
+            "type": "mcp_tool", "server": "audit", "tool": "record"
+        }]}]}
+    });
+    assert_install_refused_without_rewrite(&codex, &codex_session_end_mcp);
+    let codex_supported_mcp = json!({
+        "description": "Existing project hooks",
+        "hooks": {"PostToolUse": [{"matcher": "Write|Edit", "hooks": [{
+            "type": "mcp_tool",
+            "server": "scanner",
+            "tool": "scan_patch",
+            "input": {"patch": "${tool_input.command}"},
+            "timeout": 30,
+            "statusMessage": "Scanning edits"
+        }]}]}
+    });
+    fs::write(
+        &codex.config_path,
+        serde_json::to_vec_pretty(&codex_supported_mcp).unwrap(),
+    )
+    .unwrap();
+    install_adapter(plan_adapter(codex.root.path(), AdapterHost::Codex).unwrap())
+        .expect("a documented Codex MCP hook should be preserved");
+
+    let claude = adapter_fixture(AdapterHost::Claude);
+    let claude_supported = json!({
+        "permissions": {"allow": ["Read"]},
+        "hooks": {
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{
+                "type": "http",
+                "url": "https://hooks.example.invalid/pre-tool",
+                "headers": {"Authorization": "Bearer $TOKEN"},
+                "allowedEnvVars": ["TOKEN"],
+                "timeout": 30,
+                "statusMessage": "Reviewing command",
+                "once": false
+            }]}],
+            "Stop": [{"hooks": [{
+                "type": "prompt",
+                "prompt": "Check completion: $ARGUMENTS",
+                "model": "haiku",
+                "continueOnBlock": true
+            }]}],
+            "SessionStart": [{"hooks": [{
+                "type": "mcp_tool",
+                "server": "audit",
+                "tool": "record",
+                "input": {"source": "${source}"}
+            }]}]
+        }
+    });
+    fs::write(
+        &claude.config_path,
+        serde_json::to_vec_pretty(&claude_supported).unwrap(),
+    )
+    .unwrap();
+    install_adapter(plan_adapter(claude.root.path(), AdapterHost::Claude).unwrap())
+        .expect("documented Claude handler variants should be preserved");
+
+    let claude_unsupported_event = json!({
+        "hooks": {"SessionStart": [{"hooks": [{
+            "type": "agent",
+            "prompt": "Inspect the repository"
+        }]}]}
+    });
+    assert_install_refused_without_rewrite(&claude, &claude_unsupported_event);
+}
+
+#[test]
 fn install_rejects_a_tampered_plan_without_writing() {
     let fixture = adapter_fixture(AdapterHost::Codex);
     let before = fs::read(&fixture.config_path).unwrap();
@@ -145,6 +240,53 @@ fn install_rejects_a_tampered_plan_without_writing() {
 
     assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
     assert_eq!(fs::read(&fixture.config_path).unwrap(), before);
+}
+
+#[test]
+fn install_refuses_stale_devmap_artifacts_without_changing_any_file() {
+    for suffix in [".devmap-tmp", ".devmap-backup"] {
+        let fixture = adapter_fixture(AdapterHost::Codex);
+        let original = fs::read(&fixture.config_path).unwrap();
+        let artifact = fixture
+            .config_path
+            .with_file_name(format!("hooks.json{suffix}"));
+        fs::write(&artifact, b"stale artifact owned by an earlier run").unwrap();
+
+        let error = install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Codex).unwrap())
+            .expect_err("a stale transaction artifact must stop installation");
+
+        assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+        assert_eq!(fs::read(&fixture.config_path).unwrap(), original);
+        assert_eq!(
+            fs::read(&artifact).unwrap(),
+            b"stale artifact owned by an earlier run"
+        );
+    }
+}
+
+#[test]
+fn install_refuses_a_symlinked_config_without_changing_its_target() {
+    let fixture = adapter_fixture(AdapterHost::Codex);
+    let external = tempfile::tempdir().unwrap();
+    let external_config = external.path().join("outside-hooks.json");
+    let original = fs::read(&fixture.config_path).unwrap();
+    fs::write(&external_config, &original).unwrap();
+    fs::remove_file(&fixture.config_path).unwrap();
+    if !create_file_symlink(&external_config, &fixture.config_path) {
+        return;
+    }
+
+    let error = install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Codex).unwrap())
+        .expect_err("a project config symlink must never be replaced");
+
+    assert!(matches!(error, DevMapError::UnsafeInstallerOverwrite(_)));
+    assert_eq!(fs::read(&external_config).unwrap(), original);
+    assert!(
+        fs::symlink_metadata(&fixture.config_path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 #[test]
@@ -226,6 +368,14 @@ fn uninstall_removes_only_devmap_owned_handlers_and_preserves_mixed_groups() {
         "type": "command",
         "command": "devmap hook handle --host legacy --event SessionStart --binding-id devmap/v1/legacy/SessionStart"
     }));
+    let deceptive_user_handler = json!({
+        "type": "command",
+        "command": "/opt/team/run --binding-id devmap/v1/not-owned"
+    });
+    mixed_group["hooks"]
+        .as_array_mut()
+        .unwrap()
+        .push(deceptive_user_handler.clone());
     let unrelated = mixed_group["hooks"][0].clone();
     fs::write(
         &fixture.config_path,
@@ -240,6 +390,7 @@ fn uninstall_removes_only_devmap_owned_handlers_and_preserves_mixed_groups() {
     let uninstalled: Value =
         serde_json::from_slice(&fs::read(&fixture.config_path).unwrap()).unwrap();
     assert!(owned_binding_ids(&uninstalled).is_empty());
+    assert!(handlers(&uninstalled).any(|handler| handler == &deceptive_user_handler));
     assert_eq!(unrelated_handler(&uninstalled), &unrelated);
     assert!(
         uninstalled["hooks"]["SessionStart"]
@@ -252,6 +403,36 @@ fn uninstall_removes_only_devmap_owned_handlers_and_preserves_mixed_groups() {
     let second = uninstall_adapter(fixture.root.path(), AdapterHost::Codex).unwrap();
     assert!(!second.changed);
     assert!(second.removed.is_empty());
+}
+
+#[test]
+fn uninstall_preserves_user_authored_group_after_removing_its_only_devmap_handler() {
+    let fixture = adapter_fixture(AdapterHost::Codex);
+    install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Codex).unwrap()).unwrap();
+    let mut config: Value =
+        serde_json::from_slice(&fs::read(&fixture.config_path).unwrap()).unwrap();
+    let devmap_group = &mut config["hooks"]["SessionStart"].as_array_mut().unwrap()[1];
+    devmap_group["matcher"] = Value::String("startup".into());
+    devmap_group["ownerNote"] = Value::String("user metadata".into());
+    fs::write(
+        &fixture.config_path,
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+
+    uninstall_adapter(fixture.root.path(), AdapterHost::Codex).unwrap();
+
+    let uninstalled: Value =
+        serde_json::from_slice(&fs::read(&fixture.config_path).unwrap()).unwrap();
+    let preserved = uninstalled["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group.get("ownerNote").is_some())
+        .expect("a user-authored group must not be deleted");
+    assert_eq!(preserved["matcher"], "startup");
+    assert_eq!(preserved["ownerNote"], "user metadata");
+    assert_eq!(preserved["hooks"], json!([]));
 }
 
 struct AdapterFixture {
@@ -355,6 +536,29 @@ fn all_devmap_handlers_use_official_shape(config: &Value) -> bool {
         })
 }
 
+fn devmap_minimal_group_count(config: &Value) -> usize {
+    config["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|hooks| hooks.values())
+        .flat_map(|groups| groups.as_array().into_iter().flatten())
+        .filter(|group| {
+            let Some(object) = group.as_object() else {
+                return false;
+            };
+            object.len() == 1
+                && object
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .is_some_and(|handlers| {
+                        handlers.len() == 1
+                            && handler_binding_id(&handlers[0])
+                                .is_some_and(|id| id.starts_with("devmap/v1/"))
+                    })
+        })
+        .count()
+}
+
 fn handlers(config: &Value) -> impl Iterator<Item = &Value> {
     config["hooks"]
         .as_object()
@@ -366,6 +570,9 @@ fn handlers(config: &Value) -> impl Iterator<Item = &Value> {
 
 fn handler_binding_id(handler: &Value) -> Option<&str> {
     let mut words = handler.get("command")?.as_str()?.split_ascii_whitespace();
+    if words.next()? != "devmap" || words.next()? != "hook" || words.next()? != "handle" {
+        return None;
+    }
     while let Some(word) = words.next() {
         if word == "--binding-id" {
             return words.next();
@@ -435,5 +642,46 @@ fn host_name(host: AdapterHost) -> &'static str {
         AdapterHost::Codex => "codex",
         AdapterHost::Claude => "claude",
         AdapterHost::GenericMcp => "generic-mcp",
+    }
+}
+
+fn assert_install_refused_without_rewrite(fixture: &AdapterFixture, document: &Value) {
+    let bytes = serde_json::to_vec_pretty(document).unwrap();
+    fs::write(&fixture.config_path, &bytes).unwrap();
+
+    let error = install_adapter(
+        plan_adapter(fixture.root.path(), fixture_host(&fixture.relative_config)).unwrap(),
+    )
+    .expect_err("unsupported or malformed host configuration must be refused");
+
+    assert!(matches!(error, DevMapError::MalformedAdapterConfig(_)));
+    assert_eq!(fs::read(&fixture.config_path).unwrap(), bytes);
+}
+
+fn fixture_host(relative_config: &Path) -> AdapterHost {
+    if relative_config == Path::new(".codex/hooks.json") {
+        AdapterHost::Codex
+    } else {
+        AdapterHost::Claude
+    }
+}
+
+#[cfg(unix)]
+fn create_file_symlink(target: &Path, link: &Path) -> bool {
+    std::os::unix::fs::symlink(target, link).unwrap();
+    true
+}
+
+#[cfg(windows)]
+fn create_file_symlink(target: &Path, link: &Path) -> bool {
+    match std::os::windows::fs::symlink_file(target, link) {
+        Ok(()) => true,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::PermissionDenied
+                || error.raw_os_error() == Some(1314) =>
+        {
+            false
+        }
+        Err(error) => panic!("failed to create test symlink: {error}"),
     }
 }

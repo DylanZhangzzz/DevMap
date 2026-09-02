@@ -37,6 +37,15 @@ pub enum DevMapError {
     #[error("unsafe installer overwrite refused: {0}")]
     UnsafeInstallerOverwrite(PathBuf),
 
+    #[error(
+        "adapter config transaction failed for {path}: {operation_error}; temporary cleanup: {cleanup}"
+    )]
+    AdapterConfigTransaction {
+        path: PathBuf,
+        operation_error: String,
+        cleanup: String,
+    },
+
     #[error("floating point values are not allowed in canonical evidence")]
     FloatingPointNotCanonical,
 
