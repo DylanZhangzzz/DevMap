@@ -15,13 +15,13 @@
 
 <p align="center">
   <img alt="项目状态：实验阶段" src="https://img.shields.io/badge/status-experimental-E9A23B">
-  <img alt="当前里程碑：Phase 1A" src="https://img.shields.io/badge/milestone-Phase%201A-6C63FF">
+  <img alt="当前里程碑：Phase 1B" src="https://img.shields.io/badge/milestone-Phase%201B-6C63FF">
   <img alt="核心语言：Rust" src="https://img.shields.io/badge/core-Rust-CE422B?logo=rust">
-  <img alt="捕获等级：C" src="https://img.shields.io/badge/capture%20grade-C-2F81F7">
+  <img alt="捕获等级：取决于宿主" src="https://img.shields.io/badge/capture%20grade-host--dependent-2F81F7">
 </p>
 
 > [!IMPORTANT]
-> DevMap 正在积极开发中。目前已经交付 Phase 1A——Common Ground 与完整性基础。上图中的 Agent Hooks、PR 证据链和交互式拓扑 Viewer 仍在规划中，尚未实现。
+> DevMap 正在积极开发中。Phase 1A 提供 Common Ground 与完整性基础；Phase 1B 新增本地 Codex、Claude Hooks 和 Generic MCP 捕获端点。源码 Git 工作流自动化、PR 证据链和上图中的交互式拓扑 Viewer 尚未实现。
 
 ## 问题背景
 
@@ -61,7 +61,9 @@ flowchart LR
 
 DevMap 不会回溯重建或猜测接入前的历史决策。它把当前源码 commit 记录为 **Adoption Boundary**，把共同目标和明确引用的需求记录为 **Common Ground**，保证后续开发可以从真实、统一的起点继续。
 
-完整产品将在这个基础上加入 Agent 捕获、分支路线、PR Context Capsule、签名证据和共享图谱投影。
+完整产品将在这个基础上加入分支路线、PR Context Capsule、签名证据和共享图谱投影。
+
+Phase 1B 现在会把结构化生命周期事件和语义事件写入每个 worktree 对应 Git 目录下的 append-only journal。轻量的 Codex、Claude adapter 通过同一个 Kernel 归一化原生 Hooks；通用宿主可以调用本地 stdio MCP 端点。原生 Hooks 不保存完整 prompt transcript。
 
 ## 当前状态
 
@@ -72,14 +74,16 @@ DevMap 不会回溯重建或猜测接入前的历史决策。它把当前源码 
 | 使用普通 Git 分支的独立 Context Repository | ✓ | |
 | Canonical JSON 与 SHA-256 内容标识 | ✓ | |
 | 完整性验证和非零失败退出码 | ✓ | |
+| 项目本地 Codex 与 Claude 捕获 Adapter | ✓ | |
+| Generic MCP stdio 捕获端点 | ✓ | |
 | 历史决策回填 | 明确排除 | |
-| Agent 与 Subagent 自动捕获 | | ✓ |
-| 带权限判断的 Agent Decision 与备选方案 | | ✓ |
+| 原生 Agent 与 Subagent 生命周期捕获 | ✓ | |
+| 显式结构化 Agent Decision 与备选方案 | ✓ | |
 | 分支路线、PR Context Capsule 和 Merge Gate | | ✓ |
 | 测试、构建和发布签名证明 | | ✓ |
 | 交互式力导向拓扑 Viewer | | ✓ |
 
-Phase 1A 的 **Capture Grade 为 C**：显式 CLI 捕获可用，但自动宿主 Hooks 尚未启用。
+Capture Grade 根据实际存在的 adapter 计算。完整且精确的 Codex 或 Claude 原生安装报告 **A**；Generic MCP fallback 报告 **C**；必要 binding 缺失或被修改时报告 **D**。协议也定义了 **B**，但当前内置安装计划预计不会报告该等级。
 
 ## 快速开始
 
@@ -137,6 +141,39 @@ Unix 类系统的可执行文件是 `target/release/devmap`，Windows 下是 `ta
 
 `status` 会独立重算哈希，并验证对象 ID、Manifest 引用、Approval 绑定、Adoption Boundary、仓库状态和禁止出现的自定义 refs。证据缺失或被修改时，命令会输出 invalid 报告并返回非零退出码。
 
+### 5. 启用并操作本地捕获
+
+先预览将要发生的精确项目本地变更。需要时把宿主替换为 `claude` 或 `generic-mcp`：
+
+```bash
+./target/release/devmap adapter plan --source /work/payment-service --host codex
+```
+
+安装前检查输出的 bindings 和目标路径。原生安装只会修改 `.codex/hooks.json` 或 `.claude/settings.json`；Generic MCP 只会修改 `.devmap/mcp.json`。
+
+```bash
+./target/release/devmap adapter install --source /work/payment-service --host codex
+./target/release/devmap adapter verify --source /work/payment-service --host codex
+```
+
+安装后检查生成的配置，并在开始捕获 session 前完成宿主要求的 trust 或 review 步骤。DevMap 不会绕过宿主的信任控制。宿主或项目配置变化后再次运行 `adapter verify`：它根据磁盘上的实际 bindings 报告有效等级，而不是复述 plan 阶段请求的等级。
+
+对于 Generic MCP 宿主，需要检查并注册 `.devmap/mcp.json` descriptor。它通过 stdio 启动 `devmap mcp --source .`，同时支持 legacy `2025-11-25` initialize 流程和当前 `2026-07-28` per-request metadata/discovery 流程。其显式 Requirement、Decision 和 Evidence 工具报告 Grade C。
+
+Capture journal 按 worktree 保存在：
+
+```text
+<git rev-parse --git-dir>/devmap/sessions/<session-id>/events.ndjson
+```
+
+这些 append-only 本地证据不会被暂存到源码仓库。要仅移除 DevMap 所有的 bindings 或精确匹配的 Generic descriptor，请运行：
+
+```bash
+./target/release/devmap adapter uninstall --source /work/payment-service --host codex
+```
+
+Phase 1B 只观察和记录；它**不会**创建或切换 branch/worktree，不会 stage、commit、stash、配置 remote 或 push。源码 Git 工作流管理将在后续阶段实现。
+
 ## 核心语义
 
 | 概念 | 含义 |
@@ -144,16 +181,16 @@ Unix 类系统的可执行文件是 `target/release/devmap`，Windows 下是 `ta
 | Common Ground | 接入时经过明确评审的目标、源码边界与需求上下文 |
 | Adoption Boundary | DevMap 从哪个精确源码 commit 之后开始保证证据链完整 |
 | Requirement Trace | 对人类或权威文档要求的如实引用 |
-| Agent Decision | Agent 自主选择的一条有意义路线；Phase 1A 之后实现 |
+| Agent Decision | Agent 自主选择的一条有意义路线，并包含 basis、alternatives、rationale、authority、scope 与 revisit trigger |
 | Authority | 判断 Agent 是否有权作出该决定的策略 |
 | Evidence | 与相关代码和 Claim 绑定的测试、构建、评审或证明 |
 | Supersession | 明确表示新决定替代旧决定的关系 |
 
-Agent 按照人类要求执行时，**不会**创建 Agent Decision。未来捕获层只在 Agent 面对多个方向并自主选择有意义路线时记录 Decision。
+Agent 按照人类要求执行时，**不会**创建 Agent Decision。Phase 1B Kernel 仅在 Agent 面对多个有意义方向自主选择且发出显式结构化调用时记录 Decision；观察到 mutation 不会凭空生成 Decision。
 
 ## 存储模型
 
-DevMap 永远不会写入源码仓库，只会在其中执行一组很小的只读 Git 命令。Canonical Context 保存在独立仓库中，使用普通分支和 commit：
+除了用户明确选择的项目本地 adapter 文件（`.codex/hooks.json`、`.claude/settings.json` 或 `.devmap/mcp.json`），Phase 1B 不会写入源码 worktree，也不会修改源码 Git 状态。Capture journal 位于每个 worktree 对应的 Git 目录下。Phase 1A 的 Canonical Context 保存在独立仓库中，使用普通分支和 commit：
 
 ```text
 payment-service-context/
@@ -177,13 +214,13 @@ DevMap 只暂存自己的路径；发现意外文件时 Bot commit 会停止。C
 2. Requirement Trace 表示人类意图，不是 Agent Decision。
 3. 先读取 `state/current.json`、对应 Manifest 和相关 Canonical Objects，再决定是否加载更大上下文。
 4. 信任对象前必须验证内容 ID 和哈希。
-5. Capture Grade C 只代表显式捕获，不证明所有 Agent 活动都已被观察。
+5. Capture Grade 表示实际观测覆盖：A 是经过验证的精确原生安装，C 是显式 Generic MCP fallback，D 表示必要 binding 缺失或漂移。
 6. 不得覆盖 Canonical Objects；未来变更必须明确建立 supersession。
 
 ## 路线图
 
 - [x] **Phase 1A — 真实接入基础：** Common Ground、Adoption Boundary、Context Repository、Canonical ID 和完整性验证。
-- [ ] **Phase 1B — Capture Kernel：** 宿主中立协议、薄 Agent Adapter、Capability Handshake、SessionStart/SubagentStart 传播和 Capture Gap 报告。
+- [x] **Phase 1B — Capture Kernel：** 宿主中立协议、薄 Agent Adapter、Capability Handshake、SessionStart/SubagentStart 传播和 Capture Gap 报告。
 - [ ] **Phase 2 — PR 证据链：** Route Branch、Agent Decision、Claim、PR Context Capsule、Merge Gate、Context Bot 接入和签名证明。
 - [ ] **Phase 3 — 开发拓扑：** W3C PROV 投影、本地只读 Viewer、语义缩放、共享 Graph State、PM 过滤器和交互式证据路径。
 
@@ -196,4 +233,4 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-完整系统契约请阅读[产品需求文档](docs/ai-development-map-requirements.md)。[Phase 1A 实施计划](docs/superpowers/plans/2026-08-26-devmap-phase-1a-core.md)记录了当前已交付基础与明确延期边界。
+完整系统契约请阅读[产品需求文档](docs/ai-development-map-requirements.md)。[Phase 1A 实施计划](docs/superpowers/plans/2026-08-26-devmap-phase-1a-core.md)与 [Phase 1B 实施计划](docs/superpowers/plans/2026-08-27-devmap-phase-1b-native-capture.md)记录了当前已交付基础与明确延期边界。

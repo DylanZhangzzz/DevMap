@@ -15,13 +15,13 @@
 
 <p align="center">
   <img alt="Project status: experimental" src="https://img.shields.io/badge/status-experimental-E9A23B">
-  <img alt="Current milestone: Phase 1A" src="https://img.shields.io/badge/milestone-Phase%201A-6C63FF">
+  <img alt="Current milestone: Phase 1B" src="https://img.shields.io/badge/milestone-Phase%201B-6C63FF">
   <img alt="Implementation language: Rust" src="https://img.shields.io/badge/core-Rust-CE422B?logo=rust">
-  <img alt="Capture grade: C" src="https://img.shields.io/badge/capture%20grade-C-2F81F7">
+  <img alt="Capture grade: host dependent" src="https://img.shields.io/badge/capture%20grade-host--dependent-2F81F7">
 </p>
 
 > [!IMPORTANT]
-> DevMap is under active development. Phase 1A—the Common Ground and integrity foundation—is available now. Agent hooks, PR evidence chains, and the interactive topology Viewer shown above are planned and are not yet implemented.
+> DevMap is under active development. Phase 1A provides the Common Ground and integrity foundation; Phase 1B adds local Codex and Claude hooks plus a Generic MCP capture endpoint. Source Git workflow automation, PR evidence chains, and the interactive topology Viewer shown above are not yet implemented.
 
 ## The problem
 
@@ -61,7 +61,9 @@ flowchart LR
 
 DevMap does not reconstruct or invent decisions made before adoption. It records the current source commit as the **Adoption Boundary**, captures the agreed goal and cited requirements as **Common Ground**, and guarantees that future development can build from a truthful shared starting point.
 
-The full product will extend this foundation with Agent capture, branch routes, PR Context Capsules, signed evidence, and a shared graph projection.
+The full product will extend this foundation with branch routes, PR Context Capsules, signed evidence, and a shared graph projection.
+
+Phase 1B now captures structured lifecycle and semantic events in an append-only journal under the resolved Git directory for each worktree. Thin Codex and Claude adapters normalize native hooks through the same kernel; Generic hosts can call the local stdio MCP endpoint. Full prompt transcripts are not stored by native hooks.
 
 ## Current status
 
@@ -72,14 +74,16 @@ The full product will extend this foundation with Agent capture, branch routes, 
 | Independent Context Repository on ordinary Git branches | ✓ | |
 | Canonical JSON and SHA-256 content identities | ✓ | |
 | Integrity verification with non-zero failure exit | ✓ | |
+| Project-local Codex and Claude capture adapters | ✓ | |
+| Generic MCP stdio capture endpoint | ✓ | |
 | Historical decision backfill | Intentionally excluded | |
-| Automatic Agent and subagent capture | | ✓ |
-| Authority-aware Agent Decisions and alternatives | | ✓ |
+| Native Agent and subagent lifecycle capture | ✓ | |
+| Explicit structured Agent Decisions and alternatives | ✓ | |
 | Branch routes, PR Context Capsules, and merge gates | | ✓ |
 | Signed test, build, and release attestations | | ✓ |
 | Interactive force-directed topology Viewer | | ✓ |
 
-Phase 1A reports **Capture Grade C**: explicit CLI capture works, but automatic host hooks are not active.
+Capture Grade is derived from the adapter that is actually present. A complete, exact Codex or Claude native install reports **A**; the Generic MCP fallback reports **C**; missing or modified required bindings report **D**. The protocol also defines **B**, although no current bundled install plan is expected to report it.
 
 ## Quick start
 
@@ -137,6 +141,39 @@ Approval creates immutable Common Ground and Approval objects, fast-forwards Con
 
 `status` independently recomputes hashes and validates object IDs, manifest references, approval binding, the Adoption Boundary, repository state, and forbidden custom refs. Missing or modified evidence produces an invalid report and a non-zero process exit.
 
+### 5. Enable and operate local capture
+
+Always preview the exact project-local change first. Replace the host with `claude` or `generic-mcp` as needed:
+
+```bash
+./target/release/devmap adapter plan --source /work/payment-service --host codex
+```
+
+Review the printed bindings and destination before installing. Native installs change only `.codex/hooks.json` or `.claude/settings.json`; Generic MCP changes only `.devmap/mcp.json`.
+
+```bash
+./target/release/devmap adapter install --source /work/payment-service --host codex
+./target/release/devmap adapter verify --source /work/payment-service --host codex
+```
+
+After installation, inspect the resulting configuration and complete any trust or review step required by the host before opening a capture session. DevMap does not bypass host trust controls. Run `adapter verify` again after host or project configuration changes: it reports the effective grade from bindings on disk, not the grade requested at planning time.
+
+For a Generic MCP host, `.devmap/mcp.json` is the descriptor to review and register. It starts `devmap mcp --source .` over stdio and supports both the legacy `2025-11-25` initialize flow and the current `2026-07-28` per-request metadata/discovery flow. Its explicit Requirement, Decision, and Evidence tools report Grade C.
+
+Capture journals are local to each worktree at:
+
+```text
+<git rev-parse --git-dir>/devmap/sessions/<session-id>/events.ndjson
+```
+
+They are append-only local evidence and are not staged in the source repository. To remove only DevMap-owned bindings or the exact Generic descriptor:
+
+```bash
+./target/release/devmap adapter uninstall --source /work/payment-service --host codex
+```
+
+Phase 1B observes and records; it does **not** create or switch branches or worktrees, stage files, commit, stash, configure remotes, or push. Source Git workflow management begins in a later phase.
+
 ## Core semantics
 
 | Concept | Meaning |
@@ -144,16 +181,16 @@ Approval creates immutable Common Ground and Approval objects, fast-forwards Con
 | Common Ground | The explicitly reviewed goal, source boundary, and requirement context shared at adoption |
 | Adoption Boundary | The exact source commit after which DevMap claims evidence-chain completeness |
 | Requirement Trace | A faithful citation of what a human or authoritative document required |
-| Agent Decision | A meaningful route selected autonomously by an Agent; planned after Phase 1A |
+| Agent Decision | A meaningful route selected autonomously by an Agent, with basis, alternatives, rationale, authority, scope, and a revisit trigger |
 | Authority | The policy that determines whether the Agent could make that decision |
 | Evidence | A test, build, review, or attestation bound to the relevant code and claim |
 | Supersession | An explicit link showing that a newer decision replaces an older one |
 
-Following a human requirement does **not** create an Agent Decision. A future capture layer will record a Decision only when an Agent chooses a meaningful direction among alternatives.
+Following a human requirement does **not** create an Agent Decision. The Phase 1B kernel records a Decision only from an explicit structured call for an Agent choice among meaningful alternatives; observing a mutation never fabricates one.
 
 ## Storage model
 
-DevMap never writes to the source repository. It executes a small allowlist of read-only Git commands there. Canonical context is written to a separate repository using normal branches and commits:
+Except for an explicitly selected project-local adapter file (`.codex/hooks.json`, `.claude/settings.json`, or `.devmap/mcp.json`), Phase 1B does not write the source worktree or mutate source Git state. Capture journals live under the resolved per-worktree Git directory. Canonical Phase 1A context is written to a separate repository using normal branches and commits:
 
 ```text
 payment-service-context/
@@ -177,13 +214,13 @@ Use these invariants when reading or extending a DevMap project:
 2. Treat Requirement Trace as human intent, not as an Agent Decision.
 3. Read `state/current.json`, its manifest, and only the relevant canonical objects before loading broader context.
 4. Verify content IDs and hashes before trusting an object.
-5. Treat Capture Grade C as explicit capture only; it does not prove that every Agent action was observed.
+5. Treat Capture Grade as observed coverage: A is a verified exact native install, C is the explicit Generic MCP fallback, and D means required bindings are missing or drifted.
 6. Do not overwrite canonical objects. Future changes must use explicit supersession.
 
 ## Roadmap
 
 - [x] **Phase 1A — Truthful adoption foundation:** Common Ground, Adoption Boundary, Context Repository, canonical identities, and integrity verification.
-- [ ] **Phase 1B — Capture kernel:** host-neutral protocol, thin Agent adapters, capability handshake, SessionStart/SubagentStart propagation, and capture-gap reporting.
+- [x] **Phase 1B — Capture kernel:** host-neutral protocol, thin Agent adapters, capability handshake, SessionStart/SubagentStart propagation, and capture-gap reporting.
 - [ ] **Phase 2 — PR evidence chain:** route branches, Agent Decisions, Claims, PR Context Capsules, merge gates, Context Bot ingestion, and signed attestations.
 - [ ] **Phase 3 — Development topology:** W3C PROV projection, local read-only Viewer, semantic zoom, shared graph state, PM filters, and interactive evidence paths.
 
@@ -196,4 +233,4 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-Start with the [product requirements](docs/ai-development-map-requirements.md) for the complete system contract. The [Phase 1A implementation plan](docs/superpowers/plans/2026-08-26-devmap-phase-1a-core.md) records the delivered foundation and its deferred boundaries.
+Start with the [product requirements](docs/ai-development-map-requirements.md) for the complete system contract. The [Phase 1A implementation plan](docs/superpowers/plans/2026-08-26-devmap-phase-1a-core.md) and [Phase 1B implementation plan](docs/superpowers/plans/2026-08-27-devmap-phase-1b-native-capture.md) record the delivered foundation and its deferred boundaries.
