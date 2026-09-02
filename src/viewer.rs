@@ -136,7 +136,7 @@ fn serve(
 ) -> Result<(), DevMapError> {
     while !shutdown.load(Ordering::Acquire) {
         if let Some(request) = server.recv_timeout(Duration::from_millis(100))? {
-            respond(request, &state, &token)?;
+            let _ = respond(request, &state, &token);
         }
     }
     Ok(())
@@ -192,10 +192,21 @@ fn respond(
             br#"{"status":"ok"}"#.to_vec(),
         ),
         "/api/v1/dock/snapshot" => {
-            let body = state
+            let body = match state
                 .lock()
                 .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?
-                .snapshot()?;
+                .snapshot()
+            {
+                Ok(body) => body,
+                Err(_) => {
+                    return send(
+                        request,
+                        503,
+                        "text/plain; charset=utf-8",
+                        b"Dock temporarily unavailable\n".to_vec(),
+                    );
+                }
+            };
             send(request, 200, "application/json", body)
         }
         "/api/v1/dock/events" => {
@@ -203,7 +214,18 @@ fn respond(
             let mut state = state
                 .lock()
                 .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
-            let snapshot = state.snapshot()?;
+            let snapshot = match state.snapshot() {
+                Ok(snapshot) => snapshot,
+                Err(_) => {
+                    drop(state);
+                    return send(
+                        request,
+                        503,
+                        "text/plain; charset=utf-8",
+                        b"Dock temporarily unavailable\n".to_vec(),
+                    );
+                }
+            };
             let revision = state.revision();
             let body = if after.is_none_or(|value| revision > value) {
                 let json = String::from_utf8(snapshot)

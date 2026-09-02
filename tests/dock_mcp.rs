@@ -151,3 +151,34 @@ fn mcp_runtime_audit_never_reports_a_tcp_listener() {
     assert!(!implementation.contains("TcpListener"));
     assert!(!implementation.contains("viewer::"));
 }
+
+#[test]
+fn semantic_capture_starts_even_when_the_optional_dock_inventory_is_broken() {
+    let repo = support::committed_repo();
+    let presence = repo.path().join(".git/devmap/presence");
+    std::fs::create_dir_all(&presence).unwrap();
+    std::fs::write(presence.join("v1"), b"not-a-directory").unwrap();
+    let mut runtime = McpRuntime::open(repo.path()).expect("MCP capture must not require the Dock");
+    assert!(runtime.handle(&initialize()).unwrap()["result"].is_object());
+    let context = runtime
+        .handle(&call(json!(2), "devmap_context", json!({})))
+        .unwrap();
+    assert_ne!(context["result"]["isError"], true);
+    let dock = runtime
+        .handle(&call(json!(3), DOCK_DATA_TOOL, json!({})))
+        .unwrap();
+    assert_eq!(dock["result"]["isError"], true);
+}
+
+#[test]
+fn resource_listing_rejects_unknown_fields() {
+    let repo = support::committed_repo();
+    let responses = run_stream(
+        repo.path(),
+        &[
+            initialize(),
+            request(json!(2), "resources/list", json!({"unexpected": true})),
+        ],
+    );
+    assert_eq!(responses[1]["error"]["code"], -32602);
+}

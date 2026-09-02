@@ -1,6 +1,6 @@
 # DevMap Live Worktree Dock MVP verification
 
-Date: 2026-09-02  
+Date: 2026-09-02
 Branch: `codex/devmap-live-worktree-dock`
 
 ## Result

@@ -151,3 +151,31 @@ fn browser_shell_reuses_the_dock_asset_without_embedded_credentials() {
     assert!(html.contains("/api/v1/dock/events"));
     assert!(!html.contains("0123456789abcdef0123456789abcdef"));
 }
+
+#[test]
+fn transient_dock_failure_does_not_kill_the_health_endpoint() {
+    let repo = support::committed_repo();
+    let (handle, runtime) = start_live_viewer(
+        repo.path(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .unwrap();
+    let presence = repo.path().join(".git/devmap/presence");
+    std::fs::create_dir_all(&presence).unwrap();
+    std::fs::write(presence.join("v1"), b"not-a-directory").unwrap();
+    std::thread::sleep(Duration::from_millis(550));
+
+    let failed = request(
+        handle.address,
+        "GET",
+        &format!("/api/v1/dock/snapshot?token={}", handle.token),
+    );
+    assert!(failed.starts_with("HTTP/1.1 503"), "{failed}");
+    let health = request(
+        handle.address,
+        "GET",
+        &format!("/api/v1/health?token={}", handle.token),
+    );
+    assert!(health.starts_with("HTTP/1.1 200"), "{health}");
+    runtime.shutdown().unwrap();
+}

@@ -45,7 +45,7 @@ pub struct TransportAudit {
 
 pub struct McpRuntime {
     workspace: SourceWorkspace,
-    dock: DockService,
+    dock: Option<DockService>,
     audit: TransportAudit,
     legacy_initialized: bool,
 }
@@ -54,7 +54,7 @@ impl McpRuntime {
     pub fn open(source: &Path) -> Result<Self, DevMapError> {
         Ok(Self {
             workspace: SourceGitInspector::open(source)?.workspace()?,
-            dock: DockService::open(source)?,
+            dock: None,
             audit: TransportAudit::default(),
             legacy_initialized: false,
         })
@@ -564,6 +564,13 @@ fn list_resources_response(id: Value, params: Option<&Value>) -> Value {
     if params.is_some_and(|params| !params.is_object()) {
         return invalid_params(id, "resources/list params must be an object");
     }
+    if params.and_then(Value::as_object).is_some_and(|params| {
+        params
+            .keys()
+            .any(|field| !matches!(field.as_str(), "cursor" | "_meta"))
+    }) {
+        return invalid_params(id, "resources/list contains an unexpected field");
+    }
     if params
         .and_then(Value::as_object)
         .and_then(|params| params.get("cursor"))
@@ -629,7 +636,7 @@ fn read_resource_response(id: Value, params: Option<&Value>) -> Value {
 
 fn call_tool_response(
     workspace: &SourceWorkspace,
-    dock: &mut DockService,
+    dock: &mut Option<DockService>,
     id: Value,
     params: Option<&Value>,
 ) -> Value {
@@ -655,6 +662,15 @@ fn call_tool_response(
         if let Err(error) = ensure_fields(&arguments, &[]) {
             return json_rpc_result(id, tool_error(error));
         }
+        if dock.is_none() {
+            match DockService::open(&workspace.root) {
+                Ok(service) => *dock = Some(service),
+                Err(error) => return json_rpc_result(id, tool_error(error)),
+            }
+        }
+        let dock = dock
+            .as_mut()
+            .expect("Dock was initialized or returned an error above");
         return match dock.refresh(OffsetDateTime::now_utc()) {
             Ok(model) => json_rpc_result(id, dock_tool_result(model, name == DOCK_RENDER_TOOL)),
             Err(error) => json_rpc_result(id, tool_error(error)),
