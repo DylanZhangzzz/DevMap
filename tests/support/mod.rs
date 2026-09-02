@@ -9,7 +9,10 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 use devmap::events::CaptureGrade;
+use devmap::git::SourceWorkspace;
+use devmap::journal::{JournalIntegrity, JournalSummary};
 use devmap::presence::{Confidence, PresenceRecord, PresenceStatus, StatusSource};
+use devmap::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 
 pub const SCENARIO_SESSION: &str = "phase-1b-session";
 pub const SCENARIO_ROUTE: &str = "route-native-capture";
@@ -184,5 +187,59 @@ pub fn presence_record(status: PresenceStatus) -> PresenceRecord {
         current_decision_id: None,
         blocker_count: 0,
         gap_count: 0,
+    }
+}
+
+pub struct DockReducerFixture {
+    pub workspace: SourceWorkspace,
+    pub worktrees: Vec<WorktreeDescriptor>,
+    pub presence: devmap::presence::PresenceLoadReport,
+    pub journals: BTreeMap<String, JournalSummary>,
+    pub now: time::OffsetDateTime,
+    _repo: TempDir,
+    _linked: TempDir,
+}
+
+pub fn dock_reducer_fixture() -> DockReducerFixture {
+    let repo = committed_repo();
+    let linked = linked_worktree(repo.path(), "codex/dock-other");
+    let workspace = devmap::git::SourceGitInspector::open(repo.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let worktrees = WorktreeScanner::scan(&workspace).unwrap();
+    let other = worktrees.iter().find(|row| !row.is_current).unwrap();
+    let mut active = presence_record(PresenceStatus::Working);
+    active.repository_id = repository_id(&workspace);
+    active.worktree_id = other.worktree_id.clone();
+    active.session_id = "active-session".into();
+    active.branch = other.branch.clone();
+    active.head = other.head.clone();
+    let journals = BTreeMap::from([(
+        active.session_id.clone(),
+        JournalSummary {
+            session_id: active.session_id.clone(),
+            records: 1,
+            last_sequence: Some(1),
+            last_sha256: Some("a".repeat(64)),
+            integrity: JournalIntegrity::Verified,
+        },
+    )]);
+    DockReducerFixture {
+        workspace,
+        worktrees,
+        presence: devmap::presence::PresenceLoadReport {
+            records: vec![active],
+            warnings: vec![],
+            truncated: false,
+        },
+        journals,
+        now: time::OffsetDateTime::parse(
+            "2026-09-02T12:00:30Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap(),
+        _repo: repo,
+        _linked: linked,
     }
 }

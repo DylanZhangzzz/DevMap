@@ -27,6 +27,8 @@ pub enum Command {
     },
     /// Verify and summarize a Context Repository.
     Status(StatusArgs),
+    /// Show local worktrees and instrumented Agents.
+    Agents(AgentsArgs),
     /// Plan, install, verify, or remove a project-local host adapter.
     Adapter {
         #[command(subcommand)]
@@ -126,8 +128,16 @@ pub struct HookHandleArgs {
 
 #[derive(Debug, Args)]
 pub struct McpArgs {
-    #[arg(long)]
+    #[arg(long, default_value = ".")]
     pub source: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentsArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

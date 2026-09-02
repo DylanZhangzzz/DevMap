@@ -146,6 +146,19 @@ impl PresenceStore {
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
         let root =
             ensure_directory_chain(&workspace.git_common_dir, &["devmap", "presence", "v1"])?;
+        Self::from_root(workspace, root)
+    }
+
+    pub fn open_existing(workspace: &SourceWorkspace) -> Result<Option<Self>, DevMapError> {
+        let root = workspace.git_common_dir.join("devmap/presence/v1");
+        match checked_metadata(&root)? {
+            None => Ok(None),
+            Some(metadata) if metadata.is_dir() => Self::from_root(workspace, root).map(Some),
+            Some(_) => Err(DevMapError::UnsafeInstallerOverwrite(root)),
+        }
+    }
+
+    fn from_root(workspace: &SourceWorkspace, root: PathBuf) -> Result<Self, DevMapError> {
         let current = WorktreeScanner::scan(workspace)?
             .into_iter()
             .find(|row| row.is_current)

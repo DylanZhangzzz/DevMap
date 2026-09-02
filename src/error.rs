@@ -91,6 +91,9 @@ pub enum DevMapError {
     #[error("Presence record does not exist for session: {0}")]
     MissingPresence(String),
 
+    #[error("Dock revision overflow")]
+    DockRevisionOverflow,
+
     #[error("I/O operation failed: {0}")]
     Io(#[from] std::io::Error),
 

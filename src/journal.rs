@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
@@ -30,6 +30,129 @@ pub struct JournalRecord {
     pub event: EventEnvelope,
     pub previous_sha256: Option<String>,
     pub sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JournalIntegrity {
+    Verified,
+    Missing,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalSummary {
+    pub session_id: String,
+    pub records: u64,
+    pub last_sequence: Option<u64>,
+    pub last_sha256: Option<String>,
+    pub integrity: JournalIntegrity,
+}
+
+pub fn summarize_existing_sessions(
+    workspace: &SourceWorkspace,
+    session_ids: &BTreeSet<String>,
+) -> BTreeMap<String, JournalSummary> {
+    let git_dirs = summary_git_directories(workspace);
+    session_ids
+        .iter()
+        .map(|session_id| {
+            (
+                session_id.clone(),
+                match &git_dirs {
+                    Ok(git_dirs) => summarize_existing_session(git_dirs, session_id),
+                    Err(_) => empty_summary(session_id, JournalIntegrity::Corrupt),
+                },
+            )
+        })
+        .collect()
+}
+
+fn empty_summary(session_id: &str, integrity: JournalIntegrity) -> JournalSummary {
+    JournalSummary {
+        session_id: session_id.to_owned(),
+        records: 0,
+        last_sequence: None,
+        last_sha256: None,
+        integrity,
+    }
+}
+
+fn summary_git_directories(workspace: &SourceWorkspace) -> Result<Vec<PathBuf>, DevMapError> {
+    const MAX_LINKED_WORKTREES: usize = 256;
+    let mut git_dirs = vec![workspace.git_common_dir.clone()];
+    let administration_root = workspace.git_common_dir.join("worktrees");
+    match checked_metadata(&administration_root)? {
+        None => return Ok(git_dirs),
+        Some(metadata) if metadata.is_dir() => {}
+        Some(_) => {
+            return Err(corruption(
+                "worktree administration root is not a directory",
+            ));
+        }
+    }
+    for (index, entry) in fs::read_dir(&administration_root)?.enumerate() {
+        if index == MAX_LINKED_WORKTREES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "journal summary worktrees",
+                limit: MAX_LINKED_WORKTREES,
+            });
+        }
+        let path = entry?.path();
+        match checked_metadata(&path)? {
+            Some(metadata) if metadata.is_dir() => git_dirs.push(path),
+            _ => return Err(corruption("invalid linked-worktree administration entry")),
+        }
+    }
+    Ok(git_dirs)
+}
+
+fn summarize_existing_session(git_dirs: &[PathBuf], session_id: &str) -> JournalSummary {
+    if !is_normal_session_component(session_id) {
+        return empty_summary(session_id, JournalIntegrity::Corrupt);
+    }
+    let mut session_roots = Vec::new();
+    for git_dir in git_dirs {
+        let session_root = git_dir.join("devmap/sessions").join(session_id);
+        match checked_metadata(&session_root) {
+            Ok(Some(metadata)) if metadata.is_dir() => session_roots.push(session_root),
+            Ok(None) => {}
+            _ => return empty_summary(session_id, JournalIntegrity::Corrupt),
+        }
+    }
+    if session_roots.is_empty() {
+        return empty_summary(session_id, JournalIntegrity::Missing);
+    }
+    if session_roots.len() != 1 {
+        return empty_summary(session_id, JournalIntegrity::Corrupt);
+    }
+    let session_root = &session_roots[0];
+    let events = session_root.join("events.ndjson");
+    match checked_metadata(&events) {
+        Ok(Some(metadata)) if metadata.is_file() => {}
+        Ok(None) => return empty_summary(session_id, JournalIntegrity::Missing),
+        _ => return empty_summary(session_id, JournalIntegrity::Corrupt),
+    }
+    let records = read_limited(&events, MAX_JOURNAL_BYTES, "journal summary").and_then(|bytes| {
+        let (records, complete_len) = parse_complete_records(&bytes)?;
+        if complete_len != bytes.len() || records.len() > MAX_SESSION_RECORDS {
+            return Err(corruption(
+                "journal summary has an incomplete or oversized tail",
+            ));
+        }
+        Ok(records)
+    });
+    match records {
+        Ok(records) => JournalSummary {
+            session_id: session_id.to_owned(),
+            records: records.len() as u64,
+            last_sequence: records.last().map(|record| record.sequence),
+            last_sha256: records.last().map(|record| record.sha256.clone()),
+            integrity: JournalIntegrity::Verified,
+        },
+        Err(_) => empty_summary(session_id, JournalIntegrity::Corrupt),
+    }
 }
 
 #[derive(Debug, Clone)]

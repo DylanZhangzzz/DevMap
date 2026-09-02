@@ -33,3 +33,13 @@ fn help_exposes_phase_1b_commands() {
     assert!(stdout.contains("verify"));
     assert!(stdout.contains("uninstall"));
 }
+
+#[test]
+fn help_exposes_live_agent_inventory() {
+    let output = Command::new(env!("CARGO_BIN_EXE_devmap"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("agents"));
+}

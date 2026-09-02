@@ -4,6 +4,7 @@ pub mod capture;
 pub mod cli;
 pub mod commands;
 pub mod context;
+pub mod dock;
 pub mod domain;
 pub mod error;
 pub mod events;
@@ -41,6 +42,7 @@ where
             command: CommonGroundCommand::Approve(args),
         } => commands::approve(args),
         Command::Status(args) => commands::status(args),
+        Command::Agents(args) => dock::agents(args),
         Command::Adapter { command } => dispatch_adapter(command),
         Command::Hook { command } => dispatch_hook(command),
         Command::Mcp(args) => {
