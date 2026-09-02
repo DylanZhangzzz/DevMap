@@ -230,6 +230,116 @@ fn validation_is_host_aware_and_checks_documented_optional_field_types() {
 }
 
 #[test]
+fn claude_rejects_known_fields_on_the_wrong_handler_type() {
+    let fixture = adapter_fixture(AdapterHost::Claude);
+    let mismatches = [
+        json!({"type": "http", "url": "https://example.invalid", "command": "/bin/true"}),
+        json!({"type": "http", "url": "https://example.invalid", "args": ["--check"]}),
+        json!({"type": "http", "url": "https://example.invalid", "async": true}),
+        json!({"type": "http", "url": "https://example.invalid", "asyncRewake": true}),
+        json!({"type": "http", "url": "https://example.invalid", "shell": "bash"}),
+        json!({"type": "command", "command": "/bin/true", "url": "https://example.invalid"}),
+        json!({"type": "command", "command": "/bin/true", "headers": {"X-Audit": "on"}}),
+        json!({"type": "command", "command": "/bin/true", "allowedEnvVars": ["TOKEN"]}),
+        json!({"type": "command", "command": "/bin/true", "server": "audit"}),
+        json!({"type": "command", "command": "/bin/true", "tool": "record"}),
+        json!({"type": "command", "command": "/bin/true", "input": {"event": "${hook_event_name}"}}),
+        json!({"type": "command", "command": "/bin/true", "prompt": "Check this"}),
+        json!({"type": "command", "command": "/bin/true", "model": "haiku"}),
+        json!({"type": "agent", "prompt": "Check this", "continueOnBlock": true}),
+        json!({"type": "command", "command": "/bin/true", "shell": "cmd"}),
+    ];
+
+    for handler in mismatches {
+        assert_install_refused_without_rewrite(
+            &fixture,
+            &document_with_handler("PreToolUse", handler),
+        );
+    }
+
+    let extensible = document_with_handler(
+        "PreToolUse",
+        json!({
+            "type": "command",
+            "command": "/bin/true",
+            "futureExtension": {"opaque": true}
+        }),
+    );
+    fs::write(
+        &fixture.config_path,
+        serde_json::to_vec_pretty(&extensible).unwrap(),
+    )
+    .unwrap();
+    install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Claude).unwrap())
+        .expect("unknown extension fields should remain forward-compatible");
+}
+
+#[test]
+fn codex_rejects_known_fields_on_the_wrong_handler_type() {
+    let fixture = adapter_fixture(AdapterHost::Codex);
+    let mismatches = [
+        json!({"type": "command", "command": "/bin/true", "server": "audit"}),
+        json!({"type": "command", "command": "/bin/true", "tool": "record"}),
+        json!({"type": "command", "command": "/bin/true", "input": {"event": "${hook_event_name}"}}),
+        json!({"type": "mcp_tool", "server": "audit", "tool": "record", "command": "/bin/true"}),
+        json!({"type": "mcp_tool", "server": "audit", "tool": "record", "commandWindows": "cmd /c exit 0"}),
+        json!({"type": "mcp_tool", "server": "audit", "tool": "record", "additionalContextLimit": 1024}),
+        json!({"type": "mcp_tool", "server": "audit", "tool": "record", "async": true}),
+    ];
+
+    for handler in mismatches {
+        assert_install_refused_without_rewrite(
+            &fixture,
+            &document_with_handler("PostToolUse", handler),
+        );
+    }
+
+    let extensible = document_with_handler(
+        "PostToolUse",
+        json!({
+            "type": "mcp_tool",
+            "server": "audit",
+            "tool": "record",
+            "futureExtension": {"opaque": true}
+        }),
+    );
+    fs::write(
+        &fixture.config_path,
+        serde_json::to_vec_pretty(&extensible).unwrap(),
+    )
+    .unwrap();
+    install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Codex).unwrap())
+        .expect("unknown extension fields should remain forward-compatible");
+}
+
+#[test]
+fn claude_accepts_worktree_create_http_but_rejects_prompt_handlers() {
+    let fixture = adapter_fixture(AdapterHost::Claude);
+    let valid = document_with_handler(
+        "WorktreeCreate",
+        json!({
+            "type": "http",
+            "url": "https://hooks.example.invalid/worktree",
+            "headers": {"Authorization": "Bearer $TOKEN"},
+            "allowedEnvVars": ["TOKEN"]
+        }),
+    );
+    fs::write(
+        &fixture.config_path,
+        serde_json::to_vec_pretty(&valid).unwrap(),
+    )
+    .unwrap();
+    install_adapter(plan_adapter(fixture.root.path(), AdapterHost::Claude).unwrap())
+        .expect("Claude documents HTTP handlers for WorktreeCreate");
+
+    let invalid = document_with_handler(
+        "WorktreeCreate",
+        json!({"type": "prompt", "prompt": "Create a worktree"}),
+    );
+    assert_install_refused_without_rewrite(&fixture, &invalid);
+}
+
+#[test]
 fn install_rejects_a_tampered_plan_without_writing() {
     let fixture = adapter_fixture(AdapterHost::Codex);
     let before = fs::read(&fixture.config_path).unwrap();
@@ -664,6 +774,13 @@ fn fixture_host(relative_config: &Path) -> AdapterHost {
     } else {
         AdapterHost::Claude
     }
+}
+
+fn document_with_handler(event: &str, handler: Value) -> Value {
+    json!({
+        "description": "Existing project hooks",
+        "hooks": {event: [{"hooks": [handler]}]}
+    })
 }
 
 #[cfg(unix)]

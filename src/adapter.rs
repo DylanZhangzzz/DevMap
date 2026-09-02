@@ -451,7 +451,6 @@ fn handler_type_supported(host: AdapterHost, event: &str, handler_type: &str) ->
                 handler_type,
                 "command" | "http" | "mcp_tool" | "prompt" | "agent"
             ),
-            "WorktreeCreate" => handler_type == "command",
             _ => matches!(handler_type, "command" | "http" | "mcp_tool"),
         },
         AdapterHost::GenericMcp => false,
@@ -464,12 +463,45 @@ fn validate_codex_handler(
     location: &str,
     handler_type: &str,
 ) -> Result<(), DevMapError> {
-    validate_optional_string(path, handler, location, "commandWindows")?;
-    validate_optional_bool(path, handler, location, "async")?;
-    validate_optional_unsigned_integer(path, handler, location, "additionalContextLimit")?;
-    validate_optional_object(path, handler, location, "input")?;
+    const KNOWN_FIELDS: &[&str] = &[
+        "command",
+        "commandWindows",
+        "additionalContextLimit",
+        "async",
+        "server",
+        "tool",
+        "input",
+    ];
     match handler_type {
-        "command" | "mcp_tool" => Ok(()),
+        "command" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &[
+                    "command",
+                    "commandWindows",
+                    "additionalContextLimit",
+                    "async",
+                ],
+            )?;
+            validate_optional_string(path, handler, location, "commandWindows")?;
+            validate_optional_bool(path, handler, location, "async")?;
+            validate_optional_unsigned_integer(path, handler, location, "additionalContextLimit")
+        }
+        "mcp_tool" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["server", "tool", "input"],
+            )?;
+            validate_optional_object(path, handler, location, "input")
+        }
         _ => unreachable!("Codex handler type was validated"),
     }
 }
@@ -480,21 +512,123 @@ fn validate_claude_handler(
     location: &str,
     handler_type: &str,
 ) -> Result<(), DevMapError> {
+    const KNOWN_FIELDS: &[&str] = &[
+        "command",
+        "args",
+        "async",
+        "asyncRewake",
+        "shell",
+        "url",
+        "headers",
+        "allowedEnvVars",
+        "server",
+        "tool",
+        "input",
+        "prompt",
+        "model",
+        "continueOnBlock",
+    ];
     validate_optional_string(path, handler, location, "if")?;
     validate_optional_bool(path, handler, location, "once")?;
-    validate_optional_string_array(path, handler, location, "args")?;
-    validate_optional_bool(path, handler, location, "async")?;
-    validate_optional_bool(path, handler, location, "asyncRewake")?;
-    validate_optional_string(path, handler, location, "shell")?;
-    validate_optional_string_map(path, handler, location, "headers")?;
-    validate_optional_string_array(path, handler, location, "allowedEnvVars")?;
-    validate_optional_object(path, handler, location, "input")?;
-    validate_optional_string(path, handler, location, "model")?;
-    validate_optional_bool(path, handler, location, "continueOnBlock")?;
     match handler_type {
-        "command" | "http" | "mcp_tool" | "prompt" | "agent" => Ok(()),
+        "command" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["command", "args", "async", "asyncRewake", "shell"],
+            )?;
+            validate_optional_string_array(path, handler, location, "args")?;
+            validate_optional_bool(path, handler, location, "async")?;
+            validate_optional_bool(path, handler, location, "asyncRewake")?;
+            validate_optional_shell(path, handler, location)
+        }
+        "http" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["url", "headers", "allowedEnvVars"],
+            )?;
+            validate_optional_string_map(path, handler, location, "headers")?;
+            validate_optional_string_array(path, handler, location, "allowedEnvVars")
+        }
+        "mcp_tool" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["server", "tool", "input"],
+            )?;
+            validate_optional_object(path, handler, location, "input")
+        }
+        "prompt" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["prompt", "model", "continueOnBlock"],
+            )?;
+            validate_optional_string(path, handler, location, "model")?;
+            validate_optional_bool(path, handler, location, "continueOnBlock")
+        }
+        "agent" => {
+            validate_allowed_type_fields(
+                path,
+                handler,
+                location,
+                handler_type,
+                KNOWN_FIELDS,
+                &["prompt", "model"],
+            )?;
+            validate_optional_string(path, handler, location, "model")
+        }
         _ => unreachable!("Claude handler type was validated"),
     }
+}
+
+fn validate_allowed_type_fields(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+    handler_type: &str,
+    known_fields: &[&str],
+    allowed_fields: &[&str],
+) -> Result<(), DevMapError> {
+    if let Some(field) = known_fields
+        .iter()
+        .find(|field| handler.contains_key(**field) && !allowed_fields.contains(field))
+    {
+        Err(malformed(
+            path,
+            format!("{location}.{field} is not supported for type {handler_type}"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_optional_shell(
+    path: &Path,
+    handler: &Map<String, Value>,
+    location: &str,
+) -> Result<(), DevMapError> {
+    validate_optional(
+        path,
+        handler,
+        location,
+        "shell",
+        "bash or powershell",
+        |value| matches!(value.as_str(), Some("bash" | "powershell")),
+    )
 }
 
 fn validate_optional(
@@ -793,7 +927,7 @@ fn write_config(path: &Path, document: &Value) -> Result<(), DevMapError> {
     }
     drop(file);
 
-    replace_config(path, &temporary, &backup)
+    replace_config(path, &temporary, &backup, &bytes)
 }
 
 fn path_entry_exists(path: &Path) -> std::io::Result<bool> {
@@ -832,14 +966,24 @@ fn suffixed_path(path: &Path, suffix: &str) -> Result<PathBuf, DevMapError> {
 }
 
 #[cfg(not(windows))]
-fn replace_config(path: &Path, temporary: &Path, _backup: &Path) -> Result<(), DevMapError> {
+fn replace_config(
+    path: &Path,
+    temporary: &Path,
+    _backup: &Path,
+    _expected: &[u8],
+) -> Result<(), DevMapError> {
     commit_temporary_with(path, temporary, fs::rename)
 }
 
 #[cfg(windows)]
-fn replace_config(path: &Path, temporary: &Path, backup: &Path) -> Result<(), DevMapError> {
+fn replace_config(
+    path: &Path,
+    temporary: &Path,
+    backup: &Path,
+    expected: &[u8],
+) -> Result<(), DevMapError> {
     commit_temporary_with(path, temporary, |temporary, path| {
-        windows_atomic_replace(temporary, path, backup)
+        windows_atomic_replace(temporary, path, backup, expected)
     })
 }
 
@@ -894,8 +1038,52 @@ fn remove_temporary_file(temporary: &Path) -> std::io::Result<()> {
     }
 }
 
+#[cfg(any(windows, test))]
+fn finalize_verified_replacement(
+    path: &Path,
+    expected: &[u8],
+    restore: impl FnOnce() -> std::io::Result<()>,
+    cleanup_backup: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let verification_error = match fs::read(path) {
+        Ok(actual) if actual == expected => None,
+        Ok(_) => Some(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "named adapter config did not match the serialized bytes",
+        )),
+        Err(error) => Some(std::io::Error::other(format!(
+            "reading back the named adapter config failed: {error}"
+        ))),
+    };
+    if let Some(verification_error) = verification_error {
+        return match restore() {
+            Ok(()) => Err(verification_error),
+            Err(restore_error) => Err(std::io::Error::other(format!(
+                "{verification_error}; restoring the original failed: {restore_error}"
+            ))),
+        };
+    }
+
+    if let Err(cleanup_error) = cleanup_backup() {
+        return match restore() {
+            Ok(()) => Err(std::io::Error::other(format!(
+                "cleaning replacement backup failed and the replacement was rolled back: {cleanup_error}"
+            ))),
+            Err(restore_error) => Err(std::io::Error::other(format!(
+                "cleaning replacement backup failed: {cleanup_error}; restoring the original failed: {restore_error}"
+            ))),
+        };
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
-fn windows_atomic_replace(temporary: &Path, path: &Path, backup: &Path) -> std::io::Result<()> {
+fn windows_atomic_replace(
+    temporary: &Path,
+    path: &Path,
+    backup: &Path,
+    expected: &[u8],
+) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
@@ -941,7 +1129,13 @@ fn windows_atomic_replace(temporary: &Path, path: &Path, backup: &Path) -> std::
     }
 
     if !path.try_exists()? {
-        return move_file(temporary, path, false);
+        move_file(temporary, path, false)?;
+        return finalize_verified_replacement(
+            path,
+            expected,
+            || move_file(path, temporary, false),
+            || Ok(()),
+        );
     }
 
     let temporary_wide = wide(temporary);
@@ -972,23 +1166,18 @@ fn windows_atomic_replace(temporary: &Path, path: &Path, backup: &Path) -> std::
         return Err(replace_error);
     }
 
-    if let Err(cleanup_error) = fs::remove_file(backup) {
-        return match move_file(backup, path, true) {
-            Ok(()) => Err(std::io::Error::other(format!(
-                "cleaning replacement backup failed and the replacement was rolled back: {cleanup_error}"
-            ))),
-            Err(restore_error) => Err(std::io::Error::other(format!(
-                "cleaning replacement backup failed: {cleanup_error}; restoring the original from {} failed: {restore_error}",
-                backup.display()
-            ))),
-        };
-    }
-    Ok(())
+    finalize_verified_replacement(
+        path,
+        expected,
+        || move_file(backup, path, true),
+        || fs::remove_file(backup),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn replacement_failure_preserves_original_and_cleans_temporary_file() {
@@ -1027,6 +1216,115 @@ mod tests {
         let rendered = error.to_string();
         assert!(rendered.contains("injected replacement failure"));
         assert!(rendered.contains("cleanup"));
+    }
+
+    #[test]
+    fn replacement_readback_mismatch_restores_before_backup_cleanup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        fs::write(&path, b"unexpected replacement").unwrap();
+        let restored = Cell::new(false);
+        let cleanup_called = Cell::new(false);
+
+        let error = finalize_verified_replacement(
+            &path,
+            b"expected replacement",
+            || {
+                restored.set(true);
+                fs::write(&path, b"original")
+            },
+            || {
+                cleanup_called.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("a byte mismatch must fail the transaction");
+
+        assert!(restored.get());
+        assert!(!cleanup_called.get());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(error.to_string().contains("did not match"));
+    }
+
+    #[test]
+    fn replacement_readback_failure_restores_before_backup_cleanup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        fs::create_dir(&path).unwrap();
+        let restored = Cell::new(false);
+        let cleanup_called = Cell::new(false);
+
+        let error = finalize_verified_replacement(
+            &path,
+            b"expected replacement",
+            || {
+                restored.set(true);
+                fs::remove_dir(&path)?;
+                fs::write(&path, b"original")
+            },
+            || {
+                cleanup_called.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("a read-back failure must fail the transaction");
+
+        assert!(restored.get());
+        assert!(!cleanup_called.get());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(error.to_string().contains("reading back"));
+    }
+
+    #[test]
+    fn replacement_backup_cleanup_runs_only_after_exact_readback() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        fs::write(&path, b"expected replacement").unwrap();
+        let restored = Cell::new(false);
+        let cleanup_called = Cell::new(false);
+
+        finalize_verified_replacement(
+            &path,
+            b"expected replacement",
+            || {
+                restored.set(true);
+                Ok(())
+            },
+            || {
+                assert_eq!(fs::read(&path).unwrap(), b"expected replacement");
+                cleanup_called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(!restored.get());
+        assert!(cleanup_called.get());
+    }
+
+    #[test]
+    fn replacement_readback_restore_failure_preserves_the_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("hooks.json");
+        let backup = root.path().join("hooks.json.devmap-backup");
+        fs::write(&path, b"unexpected replacement").unwrap();
+        fs::write(&backup, b"original").unwrap();
+        let cleanup_called = Cell::new(false);
+
+        let error = finalize_verified_replacement(
+            &path,
+            b"expected replacement",
+            || Err(std::io::Error::other("injected restore failure")),
+            || {
+                cleanup_called.set(true);
+                fs::remove_file(&backup)
+            },
+        )
+        .expect_err("a restore failure must propagate");
+
+        assert!(!cleanup_called.get());
+        assert_eq!(fs::read(&backup).unwrap(), b"original");
+        assert!(error.to_string().contains("injected restore failure"));
     }
 
     #[cfg(windows)]
