@@ -82,6 +82,9 @@ pub enum DevMapError {
     #[error("Git command returned non-UTF-8 output: {0}")]
     NonUtf8GitOutput(String),
 
+    #[error("Git returned malformed worktree porcelain output")]
+    MalformedWorktreePorcelain,
+
     #[error("I/O operation failed: {0}")]
     Io(#[from] std::io::Error),
 

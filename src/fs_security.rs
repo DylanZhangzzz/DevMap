@@ -65,6 +65,30 @@ pub(crate) fn checked_metadata(path: &Path) -> Result<Option<Metadata>, DevMapEr
     }
 }
 
+pub(crate) fn checked_canonical_directory(path: &Path) -> Result<PathBuf, DevMapError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        current.push(component.as_os_str());
+        if matches!(
+            component,
+            std::path::Component::Prefix(_) | std::path::Component::RootDir
+        ) {
+            continue;
+        }
+        let metadata = checked_metadata(&current)?
+            .ok_or_else(|| DevMapError::UnsafeInstallerOverwrite(current.clone()))?;
+        if !metadata.is_dir() {
+            return Err(DevMapError::UnsafeInstallerOverwrite(current));
+        }
+    }
+    Ok(fs::canonicalize(absolute)?)
+}
+
 pub(crate) fn ensure_directory(path: &Path) -> Result<(), DevMapError> {
     if let Some(metadata) = checked_metadata(path)? {
         if !metadata.is_dir() {

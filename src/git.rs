@@ -10,6 +10,7 @@ use crate::error::DevMapError;
 pub struct SourceWorkspace {
     pub root: PathBuf,
     pub git_dir: PathBuf,
+    pub git_common_dir: PathBuf,
     pub branch: Option<String>,
     pub head: String,
 }
@@ -61,17 +62,25 @@ impl SourceGitInspector {
     pub fn workspace(&self) -> Result<SourceWorkspace, DevMapError> {
         let root = self.required_git(["rev-parse", "--show-toplevel"])?;
         let git_dir = self.required_git(["rev-parse", "--git-dir"])?;
+        let git_common_dir = self.required_git(["rev-parse", "--git-common-dir"])?;
         let head = self.required_git(["rev-parse", "HEAD"])?;
         let branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
         let root = PathBuf::from(root);
-        let git_dir = PathBuf::from(git_dir);
+        let resolve = |value: String| {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        };
+        let git_dir = resolve(git_dir);
+        let git_common_dir =
+            crate::fs_security::checked_canonical_directory(&resolve(git_common_dir))?;
 
         Ok(SourceWorkspace {
-            git_dir: if git_dir.is_absolute() {
-                git_dir
-            } else {
-                root.join(git_dir)
-            },
+            git_dir,
+            git_common_dir,
             root,
             branch,
             head,
