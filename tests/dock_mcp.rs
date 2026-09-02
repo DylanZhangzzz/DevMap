@@ -1,0 +1,153 @@
+mod support;
+
+use std::io::Cursor;
+
+use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI};
+use devmap::mcp::{DOCK_DATA_TOOL, DOCK_RENDER_TOOL, MCP_TOOLS, McpRuntime, serve_mcp};
+use serde_json::{Value, json};
+
+fn request(id: Value, method: &str, params: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+}
+
+fn call(id: Value, name: &str, arguments: Value) -> Value {
+    request(
+        id,
+        "tools/call",
+        json!({"name": name, "arguments": arguments}),
+    )
+}
+
+fn run_stream(source: &std::path::Path, messages: &[Value]) -> Vec<Value> {
+    let mut input = messages
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    input.push('\n');
+    let mut output = Vec::new();
+    serve_mcp(source, Cursor::new(input.into_bytes()), &mut output).unwrap();
+    String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            assert!(line.len() <= devmap::mcp::MAX_MCP_LINE_BYTES);
+            serde_json::from_str(line).unwrap()
+        })
+        .collect()
+}
+
+fn initialize() -> Value {
+    request(
+        json!(1),
+        "initialize",
+        json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "dock-test", "version": "1"}
+        }),
+    )
+}
+
+#[test]
+fn dock_resource_and_decoupled_tools_are_advertised() {
+    let repo = support::committed_repo();
+    let responses = run_stream(
+        repo.path(),
+        &[
+            initialize(),
+            request(json!(2), "tools/list", json!({})),
+            request(json!(3), "resources/list", json!({})),
+            request(
+                json!(4),
+                "resources/read",
+                json!({"uri": DOCK_RESOURCE_URI}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        responses[0]["result"]["capabilities"],
+        json!({"resources": {}, "tools": {}})
+    );
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 6);
+    assert_eq!(MCP_TOOLS.len(), 6);
+    let snapshot = tools
+        .iter()
+        .find(|tool| tool["name"] == DOCK_DATA_TOOL)
+        .unwrap();
+    let render = tools
+        .iter()
+        .find(|tool| tool["name"] == DOCK_RENDER_TOOL)
+        .unwrap();
+    assert_eq!(snapshot["annotations"]["readOnlyHint"], true);
+    assert!(snapshot.get("_meta").is_none());
+    assert_eq!(render["_meta"]["ui"]["resourceUri"], DOCK_RESOURCE_URI);
+
+    let resource = &responses[2]["result"]["resources"][0];
+    assert_eq!(resource["uri"], DOCK_RESOURCE_URI);
+    assert_eq!(resource["mimeType"], DOCK_MIME_TYPE);
+    let content = &responses[3]["result"]["contents"][0];
+    assert_eq!(content["uri"], DOCK_RESOURCE_URI);
+    assert_eq!(content["mimeType"], DOCK_MIME_TYPE);
+    assert!(content["text"].as_str().unwrap().contains("Worktree Dock"));
+    assert_eq!(content["_meta"]["ui"]["csp"]["connectDomains"], json!([]));
+}
+
+#[test]
+fn dock_calls_are_read_only_closed_world_and_revisioned() {
+    let repo = support::committed_repo();
+    let before = support::source_snapshot(repo.path());
+    let responses = run_stream(
+        repo.path(),
+        &[
+            initialize(),
+            call(json!(2), DOCK_DATA_TOOL, json!({})),
+            call(json!(3), DOCK_DATA_TOOL, json!({})),
+            call(json!(4), DOCK_RENDER_TOOL, json!({})),
+            call(json!(5), DOCK_DATA_TOOL, json!({"unexpected": true})),
+            request(json!(6), "resources/read", json!({"uri": "ui://other"})),
+        ],
+    );
+
+    let revisions = responses[1..=3]
+        .iter()
+        .map(|response| {
+            response["result"]["structuredContent"]["revision"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(revisions.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["schema_version"],
+        "devmap/dock/1"
+    );
+    assert!(responses[1]["result"].get("_meta").is_none());
+    assert_eq!(
+        responses[3]["result"]["_meta"]["ui"]["resourceUri"],
+        DOCK_RESOURCE_URI
+    );
+    assert_eq!(responses[4]["result"]["isError"], true);
+    assert_eq!(responses[5]["error"]["code"], -32602);
+    assert_eq!(support::source_snapshot(repo.path()), before);
+}
+
+#[test]
+fn mcp_runtime_audit_never_reports_a_tcp_listener() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    assert!(runtime.handle(&initialize()).unwrap()["result"].is_object());
+    for id in 1..=3 {
+        let response = runtime
+            .handle(&call(json!(id), DOCK_DATA_TOOL, json!({})))
+            .unwrap();
+        assert!(response["result"]["structuredContent"]["revision"].is_u64());
+    }
+    assert_eq!(runtime.audit().stdio_messages, 4);
+    assert_eq!(runtime.audit().tcp_listeners_opened, 0);
+    let implementation = include_str!("../src/mcp.rs");
+    assert!(!implementation.contains("TcpListener"));
+    assert!(!implementation.contains("viewer::"));
+}

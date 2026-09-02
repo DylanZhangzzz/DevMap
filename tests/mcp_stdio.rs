@@ -152,7 +152,10 @@ fn stdio_handles_initialize_list_all_tools_and_multiple_messages() {
         responses[0]["result"]["protocolVersion"],
         LEGACY_PROTOCOL_VERSION
     );
-    assert_eq!(responses[0]["result"]["capabilities"], json!({"tools": {}}));
+    assert_eq!(
+        responses[0]["result"]["capabilities"],
+        json!({"resources": {}, "tools": {}})
+    );
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "devmap");
 
     assert_eq!(responses[1]["id"], "tools");
@@ -248,7 +251,10 @@ fn stdio_preserves_ids_and_returns_json_rpc_errors_without_answering_notificatio
         responses[0]["result"]["protocolVersion"],
         LEGACY_PROTOCOL_VERSION
     );
-    assert_eq!(responses[0]["result"]["capabilities"], json!({"tools": {}}));
+    assert_eq!(
+        responses[0]["result"]["capabilities"],
+        json!({"resources": {}, "tools": {}})
+    );
     assert!(responses[0].get("error").is_none());
     assert_eq!(responses[1]["id"], 7);
     assert_eq!(responses[2]["id"], 1.5);
@@ -295,7 +301,10 @@ fn dual_era_stdio_serves_modern_discovery_and_stateless_tools_alongside_legacy()
         discovery["supportedVersions"],
         json!([MODERN_PROTOCOL_VERSION])
     );
-    assert_eq!(discovery["capabilities"], json!({"tools": {}}));
+    assert_eq!(
+        discovery["capabilities"],
+        json!({"resources": {}, "tools": {}})
+    );
     assert_eq!(
         discovery["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
         "devmap"

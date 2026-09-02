@@ -7,17 +7,24 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
 use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
+use crate::dock::{DockReadModel, DockService};
+use crate::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 use crate::error::DevMapError;
 use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
 use crate::presence::{PresenceSignal, PresenceStore};
 
-pub const MCP_TOOLS: [&str; 4] = [
+pub const DOCK_DATA_TOOL: &str = "devmap_dock_snapshot";
+pub const DOCK_RENDER_TOOL: &str = "devmap_open_dock";
+
+pub const MCP_TOOLS: [&str; 6] = [
     "devmap_context",
     "devmap_record_requirement",
     "devmap_record_decision",
     "devmap_record_evidence",
+    DOCK_DATA_TOOL,
+    DOCK_RENDER_TOOL,
 ];
 
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -30,6 +37,39 @@ pub const MAX_SEMANTIC_STRING_BYTES: usize = 16 * 1024;
 pub const MAX_SEMANTIC_ARRAY_ITEMS: usize = 64;
 const MAX_IDENTIFIER_BYTES: usize = 512;
 
+#[derive(Debug, Default)]
+pub struct TransportAudit {
+    pub stdio_messages: u64,
+    pub tcp_listeners_opened: u64,
+}
+
+pub struct McpRuntime {
+    workspace: SourceWorkspace,
+    dock: DockService,
+    audit: TransportAudit,
+    legacy_initialized: bool,
+}
+
+impl McpRuntime {
+    pub fn open(source: &Path) -> Result<Self, DevMapError> {
+        Ok(Self {
+            workspace: SourceGitInspector::open(source)?.workspace()?,
+            dock: DockService::open(source)?,
+            audit: TransportAudit::default(),
+            legacy_initialized: false,
+        })
+    }
+
+    pub fn handle(&mut self, message: &Value) -> Option<Value> {
+        self.audit.stdio_messages = self.audit.stdio_messages.saturating_add(1);
+        handle_message(self, message)
+    }
+
+    pub fn audit(&self) -> &TransportAudit {
+        &self.audit
+    }
+}
+
 pub fn serve_mcp(
     source: &Path,
     mut reader: impl BufRead,
@@ -37,13 +77,12 @@ pub fn serve_mcp(
 ) -> Result<(), DevMapError> {
     // Workspace identity is stable for the lifetime of this stdio process. Resolving it once
     // avoids spawning multiple Git commands for every semantic capture.
-    let workspace = SourceGitInspector::open(source)?.workspace()?;
-    let mut legacy_initialized = false;
+    let mut runtime = McpRuntime::open(source)?;
     loop {
         let response = match read_bounded_line(&mut reader)? {
             None => break,
             Some(Ok(line)) => match serde_json::from_slice::<Value>(&line) {
-                Ok(message) => handle_message(&workspace, &message, &mut legacy_initialized),
+                Ok(message) => runtime.handle(&message),
                 Err(error) => Some(json_rpc_error(
                     Value::Null,
                     -32700,
@@ -110,11 +149,7 @@ fn read_bounded_line(
     }
 }
 
-fn handle_message(
-    workspace: &SourceWorkspace,
-    message: &Value,
-    legacy_initialized: &mut bool,
-) -> Option<Value> {
+fn handle_message(runtime: &mut McpRuntime, message: &Value) -> Option<Value> {
     let Some(object) = message.as_object() else {
         return Some(json_rpc_error(Value::Null, -32600, "Invalid Request", None));
     };
@@ -142,12 +177,12 @@ fn handle_message(
     if method == "initialize" {
         let response = initialize_response(id, params);
         if response.get("result").is_some() {
-            *legacy_initialized = true;
+            runtime.legacy_initialized = true;
         }
         return Some(response);
     }
 
-    let era = match request_era(method, params, *legacy_initialized) {
+    let era = match request_era(method, params, runtime.legacy_initialized) {
         Ok(era) => era,
         Err(error) => return Some(error.with_id(id)),
     };
@@ -155,7 +190,9 @@ fn handle_message(
         "server/discover" if era == RequestEra::Modern => json_rpc_result(id, discovery_result()),
         "server/discover" => invalid_params(id, "server/discover requires modern request metadata"),
         "tools/list" => list_tools_response(id, params),
-        "tools/call" => call_tool_response(workspace, id, params),
+        "tools/call" => call_tool_response(&runtime.workspace, &mut runtime.dock, id, params),
+        "resources/list" => list_resources_response(id, params),
+        "resources/read" => read_resource_response(id, params),
         _ => json_rpc_error(id, -32601, "Method not found", None),
     };
     Some(if era == RequestEra::Modern {
@@ -256,7 +293,7 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
         id,
         json!({
             "protocolVersion": LEGACY_PROTOCOL_VERSION,
-            "capabilities": {"tools": {}},
+            "capabilities": {"resources": {}, "tools": {}},
             "serverInfo": {
                 "name": "devmap",
                 "version": env!("CARGO_PKG_VERSION")
@@ -268,7 +305,7 @@ fn initialize_response(id: Value, params: Option<&Value>) -> Value {
 fn discovery_result() -> Value {
     json!({
         "supportedVersions": [MODERN_PROTOCOL_VERSION],
-        "capabilities": {"tools": {}}
+        "capabilities": {"resources": {}, "tools": {}}
     })
 }
 
@@ -497,7 +534,7 @@ fn add_modern_result_fields(method: &str, mut response: Value) -> Value {
             "_meta".into(),
             json!({"io.modelcontextprotocol/serverInfo": server_info()}),
         );
-        if matches!(method, "server/discover" | "tools/list") {
+        if matches!(method, "server/discover" | "tools/list" | "resources/list") {
             result.insert("ttlMs".into(), json!(0));
             result.insert("cacheScope".into(), Value::String("private".into()));
         }
@@ -523,7 +560,79 @@ fn list_tools_response(id: Value, params: Option<&Value>) -> Value {
     json_rpc_result(id, json!({"tools": tool_descriptors()}))
 }
 
-fn call_tool_response(workspace: &SourceWorkspace, id: Value, params: Option<&Value>) -> Value {
+fn list_resources_response(id: Value, params: Option<&Value>) -> Value {
+    if params.is_some_and(|params| !params.is_object()) {
+        return invalid_params(id, "resources/list params must be an object");
+    }
+    if params
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("cursor"))
+        .is_some_and(|cursor| !cursor.is_string())
+    {
+        return invalid_params(id, "cursor must be a string");
+    }
+    json_rpc_result(
+        id,
+        json!({
+            "resources": [{
+                "uri": DOCK_RESOURCE_URI,
+                "name": "DevMap Live Worktree Dock",
+                "description": "A read-only live view of local worktrees and instrumented Agents.",
+                "mimeType": DOCK_MIME_TYPE
+            }]
+        }),
+    )
+}
+
+fn read_resource_response(id: Value, params: Option<&Value>) -> Value {
+    let Some(params) = params.and_then(Value::as_object) else {
+        return invalid_params(id, "resources/read params must be an object");
+    };
+    if params
+        .keys()
+        .any(|field| !matches!(field.as_str(), "uri" | "_meta"))
+    {
+        return invalid_params(id, "resources/read contains an unexpected field");
+    }
+    if params.get("uri").and_then(Value::as_str) != Some(DOCK_RESOURCE_URI) {
+        return invalid_params(id, "unknown resource URI");
+    }
+    if dock_html().len() > MAX_MCP_LINE_BYTES / 2 {
+        return json_rpc_error(
+            id,
+            -32000,
+            "Dock resource exceeds the configured byte limit",
+            Some(json!({"resource": "Dock HTML", "limit": MAX_MCP_LINE_BYTES / 2})),
+        );
+    }
+    json_rpc_result(
+        id,
+        json!({
+            "contents": [{
+                "uri": DOCK_RESOURCE_URI,
+                "mimeType": DOCK_MIME_TYPE,
+                "text": dock_html(),
+                "_meta": {
+                    "ui": {
+                        "prefersBorder": false,
+                        "csp": {
+                            "connectDomains": [],
+                            "resourceDomains": [],
+                            "frameDomains": []
+                        }
+                    }
+                }
+            }]
+        }),
+    )
+}
+
+fn call_tool_response(
+    workspace: &SourceWorkspace,
+    dock: &mut DockService,
+    id: Value,
+    params: Option<&Value>,
+) -> Value {
     let Some(params) = params.and_then(Value::as_object) else {
         return invalid_params(id, "tools/call params must be an object");
     };
@@ -540,6 +649,16 @@ fn call_tool_response(workspace: &SourceWorkspace, id: Value, params: Option<&Va
     }
     if !MCP_TOOLS.contains(&name) {
         return invalid_params(id, format!("Unknown tool: {name}"));
+    }
+
+    if matches!(name, DOCK_DATA_TOOL | DOCK_RENDER_TOOL) {
+        if let Err(error) = ensure_fields(&arguments, &[]) {
+            return json_rpc_result(id, tool_error(error));
+        }
+        return match dock.refresh(OffsetDateTime::now_utc()) {
+            Ok(model) => json_rpc_result(id, dock_tool_result(model, name == DOCK_RENDER_TOOL)),
+            Err(error) => json_rpc_result(id, tool_error(error)),
+        };
     }
 
     match call_tool(workspace, name, &arguments) {
@@ -896,7 +1015,34 @@ fn tool_descriptors() -> Vec<Value> {
                 "outcome": string_schema("Evidence outcome.")
             }),
         ),
+        dock_tool_descriptor(DOCK_DATA_TOOL, false),
+        dock_tool_descriptor(DOCK_RENDER_TOOL, true),
     ]
+}
+
+fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
+    let mut descriptor = json!({
+        "name": name,
+        "description": if renders_ui {
+            "Open the read-only DevMap worktree Dock."
+        } else {
+            "Read the current local DevMap worktree and Agent state."
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        },
+        "annotations": {
+            "readOnlyHint": true,
+            "openWorldHint": false,
+            "destructiveHint": false
+        }
+    });
+    if renders_ui {
+        descriptor["_meta"] = json!({"ui": {"resourceUri": DOCK_RESOURCE_URI}});
+    }
+    descriptor
 }
 
 fn tool_descriptor(name: &str, description: &str, required: &[&str], properties: Value) -> Value {
@@ -935,6 +1081,28 @@ fn tool_result(structured: Value) -> Value {
         "content": [{"type": "text", "text": text}],
         "structuredContent": structured,
     })
+}
+
+fn dock_tool_result(model: &DockReadModel, renders_ui: bool) -> Value {
+    let structured =
+        serde_json::to_value(model).expect("DockReadModel serialization is infallible");
+    let total = model.current.len() + model.active.len() + model.stale_or_uninstrumented.len();
+    let mut result = json!({
+        "content": [{
+            "type": "text",
+            "text": format!(
+                "DevMap Dock revision {}: {} worktree/Agent rows, {} warning(s).",
+                model.revision,
+                total,
+                model.warnings.len()
+            )
+        }],
+        "structuredContent": structured
+    });
+    if renders_ui {
+        result["_meta"] = json!({"ui": {"resourceUri": DOCK_RESOURCE_URI}});
+    }
+    result
 }
 
 fn tool_error(error: DevMapError) -> Value {
