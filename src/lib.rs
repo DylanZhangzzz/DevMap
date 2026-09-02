@@ -1,3 +1,4 @@
+pub mod adapter;
 pub mod canonical;
 pub mod capture;
 pub mod cli;
@@ -43,13 +44,12 @@ where
 }
 
 fn dispatch_adapter(command: AdapterCommand) -> Result<CommandOutput, DevMapError> {
-    let name = match command {
-        AdapterCommand::Plan(_) => "adapter plan",
-        AdapterCommand::Install(_) => "adapter install",
-        AdapterCommand::Verify(_) => "adapter verify",
-        AdapterCommand::Uninstall(_) => "adapter uninstall",
-    };
-    Err(DevMapError::UnsupportedCommand(name))
+    match command {
+        AdapterCommand::Plan(args) => commands::adapter_plan(args),
+        AdapterCommand::Install(args) => commands::adapter_install(args),
+        AdapterCommand::Verify(args) => commands::adapter_verify(args),
+        AdapterCommand::Uninstall(args) => commands::adapter_uninstall(args),
+    }
 }
 
 fn dispatch_hook(command: HookCommand) -> Result<CommandOutput, DevMapError> {

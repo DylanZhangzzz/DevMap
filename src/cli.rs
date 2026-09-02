@@ -9,6 +9,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     about = "Evidence-backed development maps for humans and AI agents"
 )]
 pub struct Cli {
+    /// DevMap-owned hook binding marker (used by installed host configuration).
+    #[arg(long, global = true, hide = true)]
+    pub binding_id: Option<String>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -98,7 +101,7 @@ pub enum HookCommand {
 
 #[derive(Debug, Args)]
 pub struct HookHandleArgs {
-    #[arg(long)]
+    #[arg(long, default_value = ".")]
     pub source: PathBuf,
     #[arg(long)]
     pub host: AdapterHost,

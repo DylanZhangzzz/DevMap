@@ -13,6 +13,9 @@ pub enum DevMapError {
     #[error("malformed adapter configuration: {0}")]
     MalformedAdapterConfig(String),
 
+    #[error("adapter host is not available in this phase: {0}")]
+    UnsupportedAdapterHost(String),
+
     #[error("unsupported host event: {0}")]
     UnsupportedHostEvent(String),
 

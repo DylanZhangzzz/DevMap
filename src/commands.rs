@@ -6,8 +6,12 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
+use crate::adapter::{install_adapter, plan_adapter, uninstall_adapter, verify_adapter};
 use crate::canonical::{canonical_json, sha256_hex};
-use crate::cli::{ApproveArgs, InitArgs, StatusArgs};
+use crate::cli::{
+    AdapterHost, AdapterInstallArgs, AdapterPlanArgs, AdapterUninstallArgs, AdapterVerifyArgs,
+    ApproveArgs, InitArgs, StatusArgs,
+};
 use crate::context::ContextRepo;
 use crate::domain::{
     ApprovalEvent, CanonicalObjectRef, CommonGround, CommonGroundDraft, CommonGroundManifest,
@@ -20,6 +24,100 @@ const DRAFT_PATH: &str = "bootstrap/common-ground-draft.json";
 const BOOTSTRAP_BRANCH: &str = "bootstrap/initial";
 const MANIFEST_PATH: &str = "manifests/common-ground.json";
 const CURRENT_STATE_PATH: &str = "state/current.json";
+
+pub fn adapter_plan(args: AdapterPlanArgs) -> Result<CommandOutput, DevMapError> {
+    let plan = plan_adapter(&args.source, args.host)?;
+    let mut stdout = format!(
+        "host={}\nconfig_path={}\nkernel_command_path=devmap hook handle\ncapture_grade={}\n",
+        host_name(plan.host),
+        plan.config_path.display(),
+        grade_name(plan.capture_grade)
+    );
+    for binding in plan.bindings {
+        stdout.push_str(&format!(
+            "binding={} event={} command={}\n",
+            binding.binding_id, binding.event, binding.command
+        ));
+    }
+    Ok(CommandOutput {
+        stdout,
+        exit_code: 0,
+    })
+}
+
+pub fn adapter_install(args: AdapterInstallArgs) -> Result<CommandOutput, DevMapError> {
+    let report = install_adapter(plan_adapter(&args.source, args.host)?)?;
+    Ok(CommandOutput {
+        stdout: format!(
+            "host={}\nconfig_path={}\nchanged={}\nadded={}\n",
+            host_name(report.host),
+            report.config_path.display(),
+            report.changed,
+            report.added.join(",")
+        ),
+        exit_code: 0,
+    })
+}
+
+pub fn adapter_verify(args: AdapterVerifyArgs) -> Result<CommandOutput, DevMapError> {
+    let hosts = match args.host {
+        Some(host) => vec![host],
+        None => vec![AdapterHost::Codex, AdapterHost::Claude],
+    };
+    let mut stdout = String::new();
+    let mut exit_code = 0;
+    for host in hosts {
+        let report = verify_adapter(&args.source, host)?;
+        let capabilities = serde_json::to_string(&report.capabilities)?;
+        stdout.push_str(&format!(
+            "host={}\nconfig_path={}\nkernel_command_path={}\npresent={}\nmissing={}\nmodified={}\ncapabilities={}\ncapture_grade={}\ndrift_reason={}\n",
+            host_name(report.host),
+            report.config_path.display(),
+            report.kernel_command_path,
+            report.present.join(","),
+            report.missing.join(","),
+            report.modified.join(","),
+            capabilities,
+            grade_name(report.capture_grade),
+            report.drift_reasons.join("; ")
+        ));
+        if report.capture_grade == crate::events::CaptureGrade::D {
+            exit_code = 1;
+        }
+    }
+    Ok(CommandOutput { stdout, exit_code })
+}
+
+pub fn adapter_uninstall(args: AdapterUninstallArgs) -> Result<CommandOutput, DevMapError> {
+    let report = uninstall_adapter(&args.source, args.host)?;
+    Ok(CommandOutput {
+        stdout: format!(
+            "host={}\nconfig_path={}\nchanged={}\nremoved={}\n",
+            host_name(report.host),
+            report.config_path.display(),
+            report.changed,
+            report.removed.join(",")
+        ),
+        exit_code: 0,
+    })
+}
+
+fn host_name(host: AdapterHost) -> &'static str {
+    match host {
+        AdapterHost::Codex => "codex",
+        AdapterHost::Claude => "claude",
+        AdapterHost::GenericMcp => "generic-mcp",
+    }
+}
+
+fn grade_name(grade: crate::events::CaptureGrade) -> &'static str {
+    match grade {
+        crate::events::CaptureGrade::A => "A",
+        crate::events::CaptureGrade::B => "B",
+        crate::events::CaptureGrade::C => "C",
+        crate::events::CaptureGrade::D => "D",
+    }
+}
 
 pub fn init(args: InitArgs) -> Result<CommandOutput, DevMapError> {
     let inspector = SourceGitInspector::open(&args.source)?;
