@@ -311,6 +311,66 @@ fn dual_era_stdio_serves_modern_discovery_and_stateless_tools_alongside_legacy()
 }
 
 #[test]
+fn modern_discovery_and_tools_list_emit_required_conservative_cache_fields() {
+    let repository = committed_repo();
+    let responses = run_stream(
+        repository.path(),
+        &[
+            modern_request(json!("discover"), "server/discover", json!({})),
+            modern_request(json!("list"), "tools/list", json!({})),
+        ],
+    );
+
+    assert_eq!(responses.len(), 2);
+    for response in responses {
+        assert_eq!(response["result"]["ttlMs"], 0);
+        assert_eq!(response["result"]["cacheScope"], "private");
+        assert_eq!(
+            response["result"]["_meta"],
+            json!({
+                "io.modelcontextprotocol/serverInfo": {
+                    "name": "devmap",
+                    "version": env!("CARGO_PKG_VERSION")
+                }
+            })
+        );
+        assert!(response.get("ttlMs").is_none());
+        assert!(response["result"]["_meta"].get("ttlMs").is_none());
+        assert!(response["result"]["_meta"].get("cacheScope").is_none());
+    }
+}
+
+#[test]
+fn legacy_metadata_without_namespaced_protocol_version_stays_legacy_after_initialize() {
+    let repository = committed_repo();
+    let responses = run_stream(
+        repository.path(),
+        &[
+            initialize(json!("initialize")),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            request(
+                json!("legacy-list"),
+                "tools/list",
+                json!({
+                    "_meta": {
+                        "progressToken": "legacy-progress",
+                        "com.example/requestTag": "legacy-metadata"
+                    }
+                }),
+            ),
+        ],
+    );
+
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[1]["id"], "legacy-list");
+    assert!(responses[1].get("error").is_none());
+    assert!(responses[1]["result"]["tools"].is_array());
+    for modern_field in ["resultType", "ttlMs", "cacheScope"] {
+        assert!(responses[1]["result"].get(modern_field).is_none());
+    }
+}
+
+#[test]
 fn dual_era_rejects_unsupported_missing_and_mixed_version_metadata() {
     let repository = committed_repo();
     let unsupported_modern = |id: &str, version: &str| {

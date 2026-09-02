@@ -96,7 +96,7 @@ fn handle_message(source: &Path, message: &Value, legacy_initialized: &mut bool)
         _ => json_rpc_error(id, -32601, "Method not found", None),
     };
     Some(if era == RequestEra::Modern {
-        add_modern_result_fields(response)
+        add_modern_result_fields(method, response)
     } else {
         response
     })
@@ -127,8 +127,11 @@ fn request_era(
 ) -> Result<RequestEra, PendingError> {
     let metadata = params
         .and_then(Value::as_object)
-        .and_then(|params| params.get("_meta"));
-    let Some(metadata) = metadata else {
+        .and_then(|params| params.get("_meta"))
+        .and_then(Value::as_object);
+    let requested =
+        metadata.and_then(|metadata| metadata.get("io.modelcontextprotocol/protocolVersion"));
+    let Some(requested) = requested else {
         if legacy_initialized && method != "server/discover" {
             return Ok(RequestEra::Legacy);
         }
@@ -138,17 +141,7 @@ fn request_era(
             data: None,
         });
     };
-    let Some(metadata) = metadata.as_object() else {
-        return Err(PendingError {
-            code: -32602,
-            message: "_meta must be an object".into(),
-            data: None,
-        });
-    };
-    let Some(requested) = metadata
-        .get("io.modelcontextprotocol/protocolVersion")
-        .and_then(Value::as_str)
-    else {
+    let Some(requested) = requested.as_str() else {
         return Err(PendingError {
             code: -32602,
             message: "modern protocolVersion metadata is required".into(),
@@ -165,6 +158,7 @@ fn request_era(
             })),
         });
     }
+    let metadata = metadata.expect("modern protocol metadata came from an object");
     if !metadata
         .get("io.modelcontextprotocol/clientCapabilities")
         .is_some_and(Value::is_object)
@@ -225,13 +219,17 @@ fn discovery_result() -> Value {
     })
 }
 
-fn add_modern_result_fields(mut response: Value) -> Value {
+fn add_modern_result_fields(method: &str, mut response: Value) -> Value {
     if let Some(result) = response.get_mut("result").and_then(Value::as_object_mut) {
         result.insert("resultType".into(), Value::String("complete".into()));
         result.insert(
             "_meta".into(),
             json!({"io.modelcontextprotocol/serverInfo": server_info()}),
         );
+        if matches!(method, "server/discover" | "tools/list") {
+            result.insert("ttlMs".into(), json!(0));
+            result.insert("cacheScope".into(), Value::String("private".into()));
+        }
     }
     response
 }
