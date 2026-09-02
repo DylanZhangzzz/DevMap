@@ -12,6 +12,7 @@ pub mod git;
 pub mod hook;
 pub mod journal;
 pub mod mcp;
+pub mod presence;
 pub mod worktrees;
 
 use std::ffi::OsString;

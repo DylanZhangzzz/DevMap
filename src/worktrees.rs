@@ -38,6 +38,13 @@ struct PorcelainRecord {
 
 pub struct WorktreeScanner;
 
+pub fn repository_id(workspace: &SourceWorkspace) -> String {
+    format!(
+        "sha256-{}",
+        sha256_hex(normalized_path(&workspace.git_common_dir).as_bytes())
+    )
+}
+
 impl WorktreeScanner {
     pub fn scan(workspace: &SourceWorkspace) -> Result<Vec<WorktreeDescriptor>, DevMapError> {
         let output = Command::new("git")
@@ -54,10 +61,7 @@ impl WorktreeScanner {
         }
 
         let records = parse_porcelain(&output.stdout)?;
-        let repository_id = format!(
-            "sha256-{}",
-            sha256_hex(normalized_path(&workspace.git_common_dir).as_bytes())
-        );
+        let repository_id = repository_id(workspace);
         let current_root = checked_canonical_directory(&workspace.root)?;
         let mut seen_git_dirs = BTreeSet::new();
         let mut rows = Vec::with_capacity(records.len());

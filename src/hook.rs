@@ -14,6 +14,7 @@ use crate::events::{
 };
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
+use crate::presence::{PresenceSignal, PresenceStore};
 
 const ADAPTER_VERSION: &str = "devmap-hook/1";
 const MAX_IDENTIFIER_BYTES: usize = 512;
@@ -38,7 +39,7 @@ pub fn handle_hook(
     let session_id =
         identifier_field(&input, &["session_id"]).unwrap_or_else(|| "missing-session".to_owned());
     let journal = JournalStore::open(&workspace, &session_id)?;
-    journal.append_batch_with(|next_sequence| {
+    let records = journal.append_batch_with(|next_sequence| {
         let mut sequenced_input = input;
         sequenced_input.insert("sequence".into(), Value::from(next_sequence));
         normalize_hook_input(
@@ -48,6 +49,16 @@ pub fn handle_hook(
             &workspace,
         )
     })?;
+    if let Err(error) = PresenceStore::open(&workspace).and_then(|store| {
+        store
+            .observe(
+                PresenceSignal::AcceptedRecords(&records),
+                OffsetDateTime::now_utc(),
+            )
+            .map(|_| ())
+    }) {
+        eprintln!("devmap: presence update skipped: {error}");
+    }
 
     Ok(CommandOutput {
         stdout: "{}\n".to_owned(),

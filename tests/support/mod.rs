@@ -8,6 +8,9 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
+use devmap::events::CaptureGrade;
+use devmap::presence::{Confidence, PresenceRecord, PresenceStatus, StatusSource};
+
 pub const SCENARIO_SESSION: &str = "phase-1b-session";
 pub const SCENARIO_ROUTE: &str = "route-native-capture";
 pub const SCENARIO_MAIN_AGENT: &str = "agent-main";
@@ -144,4 +147,42 @@ pub fn linked_worktree(repo: &Path, branch: &str) -> TempDir {
         ],
     );
     directory
+}
+
+pub fn presence_record(status: PresenceStatus) -> PresenceRecord {
+    let (status_source, confidence, lease_expires_at) = match status {
+        PresenceStatus::Unknown => (StatusSource::GitOnly, Confidence::Unknown, None),
+        PresenceStatus::Completed => (StatusSource::CaptureEvent, Confidence::Observed, None),
+        PresenceStatus::Stale => (
+            StatusSource::Lease,
+            Confidence::Leased,
+            Some("2026-09-02T12:00:00Z".into()),
+        ),
+        _ => (
+            StatusSource::CaptureEvent,
+            Confidence::Observed,
+            Some("2026-09-02T12:02:00Z".into()),
+        ),
+    };
+    PresenceRecord {
+        schema_version: 1,
+        repository_id: format!("sha256-{}", "1".repeat(64)),
+        worktree_id: format!("wt-{}", "2".repeat(64)),
+        session_id: "session-presence".into(),
+        actor_id: "agent-main".into(),
+        host: "codex".into(),
+        route_id: None,
+        branch: Some("main".into()),
+        head: "3".repeat(40),
+        status,
+        status_source,
+        confidence,
+        capture_grade: CaptureGrade::D,
+        last_event_at: "2026-09-02T12:00:00Z".into(),
+        lease_expires_at,
+        current_activity_id: None,
+        current_decision_id: None,
+        blocker_count: 0,
+        gap_count: 0,
+    }
 }

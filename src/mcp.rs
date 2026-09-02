@@ -11,6 +11,7 @@ use crate::error::DevMapError;
 use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
+use crate::presence::{PresenceSignal, PresenceStore};
 
 pub const MCP_TOOLS: [&str; 4] = [
     "devmap_context",
@@ -616,6 +617,16 @@ fn call_tool(
         )?,
         _ => unreachable!("tool names were checked before dispatch"),
     };
+    if let Err(error) = PresenceStore::open(workspace).and_then(|store| {
+        store
+            .observe(
+                PresenceSignal::AcceptedRecords(std::slice::from_ref(&record)),
+                OffsetDateTime::now_utc(),
+            )
+            .map(|_| ())
+    }) {
+        eprintln!("devmap: presence update skipped: {error}");
+    }
     Ok(json!({"sha256": record.sha256}))
 }
 

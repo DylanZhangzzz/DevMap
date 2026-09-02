@@ -10,6 +10,7 @@ use std::thread;
 use devmap::git::SourceGitInspector;
 use devmap::journal::JournalStore;
 use devmap::mcp::{MCP_TOOLS, serve_mcp};
+use devmap::presence::{PresenceStatus, PresenceStore};
 use serde_json::{Value, json};
 
 use support::{committed_repo, git};
@@ -169,6 +170,14 @@ fn stdio_handles_initialize_list_all_tools_and_multiple_messages() {
             .iter()
             .all(|tool| tool["inputSchema"]["type"] == "object")
     );
+
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let presence = PresenceStore::open(&workspace).unwrap().load_all();
+    assert_eq!(presence.records.len(), 1);
+    assert_eq!(presence.records[0].status, PresenceStatus::Working);
 
     let context = &responses[2]["result"]["structuredContent"];
     let workspace = SourceGitInspector::open(repository.path())

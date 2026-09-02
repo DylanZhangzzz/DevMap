@@ -1,6 +1,7 @@
 mod support;
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::{Cursor, Write};
 use std::process::{Command, Stdio};
 
@@ -9,6 +10,7 @@ use devmap::events::EventType;
 use devmap::git::SourceGitInspector;
 use devmap::hook::{handle_hook, normalize_hook_input};
 use devmap::journal::JournalStore;
+use devmap::presence::{PresenceStatus, PresenceStore};
 use serde_json::{Value, json};
 use support::committed_repo;
 
@@ -298,6 +300,52 @@ fn unsupported_and_malformed_inputs_fail_closed_without_stopping_the_host() {
             .len(),
         before
     );
+}
+
+#[test]
+fn successful_hook_projects_presence_after_the_authoritative_journal() {
+    let (repo, workspace) = workspace();
+    let output = handle_hook(
+        HookHandleArgs {
+            source: repo.path().to_path_buf(),
+            host: AdapterHost::Codex,
+            event: "SessionStart".into(),
+        },
+        &mut Cursor::new(serde_json::to_vec(&fixture(AdapterHost::Codex, "SessionStart")).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(output.exit_code, 0);
+
+    let report = PresenceStore::open(&workspace).unwrap().load_all();
+    assert!(report.warnings.is_empty());
+    assert_eq!(report.records.len(), 1);
+    assert_eq!(report.records[0].status, PresenceStatus::Starting);
+}
+
+#[test]
+fn presence_failure_never_rolls_back_a_successful_hook_capture() {
+    let (repo, workspace) = workspace();
+    let devmap_dir = workspace.git_common_dir.join("devmap");
+    fs::create_dir_all(&devmap_dir).unwrap();
+    fs::write(devmap_dir.join("presence"), b"deliberate conflict").unwrap();
+
+    let output = handle_hook(
+        HookHandleArgs {
+            source: repo.path().to_path_buf(),
+            host: AdapterHost::Codex,
+            event: "SessionStart".into(),
+        },
+        &mut Cursor::new(serde_json::to_vec(&fixture(AdapterHost::Codex, "SessionStart")).unwrap()),
+    )
+    .unwrap();
+
+    assert_eq!(output.exit_code, 0);
+    let records = JournalStore::open(&workspace, "phase-1b-session")
+        .unwrap()
+        .replay()
+        .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].event.event_type(), &EventType::SessionStarted);
 }
 
 #[test]

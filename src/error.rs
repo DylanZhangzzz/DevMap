@@ -85,6 +85,12 @@ pub enum DevMapError {
     #[error("Git returned malformed worktree porcelain output")]
     MalformedWorktreePorcelain,
 
+    #[error("invalid Presence record: {0}")]
+    InvalidPresence(String),
+
+    #[error("Presence record does not exist for session: {0}")]
+    MissingPresence(String),
+
     #[error("I/O operation failed: {0}")]
     Io(#[from] std::io::Error),
 
