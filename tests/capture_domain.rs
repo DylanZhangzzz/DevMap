@@ -1,8 +1,14 @@
+use devmap::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
 use devmap::events::{
     ActorIdentity, CaptureCapabilities, CaptureGrade, EVENT_SCHEMA_VERSION, EventEnvelope,
     EventType, HostIdentity, SessionContext,
 };
+use devmap::git::SourceGitInspector;
+use devmap::journal::JournalStore;
 use serde_json::json;
+
+mod support;
+use support::committed_repo;
 
 fn valid_envelope(
     event_id: &str,
@@ -225,4 +231,160 @@ fn event_envelope_deserialization_applies_constructor_validation() {
     });
 
     assert!(serde_json::from_value::<EventEnvelope>(raw).is_err());
+}
+
+fn test_kernel() -> (tempfile::TempDir, CaptureKernel) {
+    let repository = committed_repo();
+    let workspace = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let store = JournalStore::open(&workspace, "kernel-session").unwrap();
+    let kernel = CaptureKernel::new(
+        store,
+        CaptureGrade::A,
+        HostIdentity::new("codex", "1.0.0").unwrap(),
+        ActorIdentity::new("agent-1", None).unwrap(),
+        valid_context().unwrap(),
+    );
+    (repository, kernel)
+}
+
+#[test]
+fn kernel_records_human_instruction_as_requirement_trace_not_agent_decision() {
+    let (_repository, kernel) = test_kernel();
+    let record = kernel
+        .record_requirement(
+            "evt-requirement",
+            "2026-08-27T16:00:00Z",
+            RequirementTraceInput {
+                source_kind: "human_instruction".into(),
+                source_locator: Some("turn:7".into()),
+                quoted_text: "Keep the API backwards compatible.".into(),
+            },
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(record.event.event_type(), &EventType::InstructionObserved);
+    assert_eq!(
+        record.event.payload()["requirement_trace"]["approved_quotation"],
+        "Keep the API backwards compatible."
+    );
+    assert!(record.event.payload().get("agent_decision").is_none());
+}
+
+#[test]
+fn kernel_rejects_incomplete_or_unalternatived_agent_decisions() {
+    let invalid_decisions = [
+        AgentDecisionInput {
+            decision: "Use the compact format.".into(),
+            basis: vec!["Canonical replay requires it.".into()],
+            alternatives: vec!["Pretty JSON".into()],
+            rationale: "It preserves content hashes.".into(),
+            scope: "material route".into(),
+            authority: " ".into(),
+            revisit_trigger: "A schema migration.".into(),
+        },
+        AgentDecisionInput {
+            decision: "Use the compact format.".into(),
+            basis: vec!["Canonical replay requires it.".into()],
+            alternatives: vec!["Pretty JSON".into()],
+            rationale: " ".into(),
+            scope: "material route".into(),
+            authority: "maintainer".into(),
+            revisit_trigger: "A schema migration.".into(),
+        },
+        AgentDecisionInput {
+            decision: "Use the compact format.".into(),
+            basis: vec!["Canonical replay requires it.".into()],
+            alternatives: vec!["Pretty JSON".into()],
+            rationale: "It preserves content hashes.".into(),
+            scope: " ".into(),
+            authority: "maintainer".into(),
+            revisit_trigger: "A schema migration.".into(),
+        },
+        AgentDecisionInput {
+            decision: "Use the compact format.".into(),
+            basis: vec!["Canonical replay requires it.".into()],
+            alternatives: vec!["Pretty JSON".into()],
+            rationale: "It preserves content hashes.".into(),
+            scope: "material route".into(),
+            authority: "maintainer".into(),
+            revisit_trigger: " ".into(),
+        },
+        AgentDecisionInput {
+            decision: "Use the compact format.".into(),
+            basis: vec!["Canonical replay requires it.".into()],
+            alternatives: vec![],
+            rationale: "It preserves content hashes.".into(),
+            scope: "material route".into(),
+            authority: "maintainer".into(),
+            revisit_trigger: "A schema migration.".into(),
+        },
+    ];
+
+    for (index, input) in invalid_decisions.into_iter().enumerate() {
+        let (_repository, kernel) = test_kernel();
+        assert!(
+            kernel
+                .record_decision(
+                    &format!("evt-decision-{index}"),
+                    "2026-08-27T16:00:00Z",
+                    input
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn kernel_records_capture_gap_for_unexplained_mutation_without_guessing_reason() {
+    let (_repository, kernel) = test_kernel();
+    let record = kernel
+        .record_gap(
+            "evt-gap",
+            "2026-08-27T16:00:00Z",
+            "unexplained_mutation",
+            "workspace:0123456789abcdef0123456789abcdef01234567",
+        )
+        .unwrap();
+
+    assert_eq!(record.event.event_type(), &EventType::CaptureGap);
+    assert_eq!(record.event.payload()["reason"], "unexplained_mutation");
+    assert!(record.event.payload().get("guessed_reason").is_none());
+}
+
+#[test]
+fn kernel_rejects_raw_transcript_capture_and_marks_workspace_evidence_provisional() {
+    let (_repository, kernel) = test_kernel();
+    let raw_transcript = kernel.record_requirement(
+        "evt-raw",
+        "2026-08-27T16:00:00Z",
+        RequirementTraceInput {
+            source_kind: "human_instruction".into(),
+            source_locator: Some("turn:7".into()),
+            quoted_text: "Approved quotation only.".into(),
+        },
+        true,
+    );
+    assert!(matches!(
+        raw_transcript,
+        Err(devmap::error::DevMapError::RawTranscriptDisabled)
+    ));
+
+    let (_repository, kernel) = test_kernel();
+    let record = kernel
+        .record_evidence(
+            "evt-evidence",
+            "2026-08-27T16:00:00Z",
+            EvidenceInput {
+                kind: "test".into(),
+                target: "workspace:0123456789abcdef0123456789abcdef01234567".into(),
+                command: Some("cargo test".into()),
+                outcome: "passed".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(record.event.payload()["provisional"], true);
 }

@@ -19,6 +19,12 @@ pub enum DevMapError {
     #[error("invalid event envelope: {0}")]
     InvalidEventEnvelope(String),
 
+    #[error("raw transcript capture is disabled in Phase 1B")]
+    RawTranscriptDisabled,
+
+    #[error("invalid evidence target: {0}")]
+    InvalidEvidenceTarget(String),
+
     #[error("capture journal is corrupt: {0}")]
     JournalCorruption(String),
 
