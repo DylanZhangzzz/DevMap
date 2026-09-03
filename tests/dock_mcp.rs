@@ -1,9 +1,13 @@
 mod support;
 
 use std::io::Cursor;
+use std::net::TcpStream;
+use std::time::{Duration, Instant};
 
 use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI};
-use devmap::mcp::{DOCK_DATA_TOOL, DOCK_RENDER_TOOL, MCP_TOOLS, McpRuntime, serve_mcp};
+use devmap::mcp::{
+    DOCK_BROWSER_TOOL, DOCK_DATA_TOOL, DOCK_RENDER_TOOL, MCP_TOOLS, McpRuntime, serve_mcp,
+};
 use serde_json::{Value, json};
 
 fn request(id: Value, method: &str, params: Value) -> Value {
@@ -71,8 +75,8 @@ fn dock_resource_and_decoupled_tools_are_advertised() {
         json!({"resources": {}, "tools": {}})
     );
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 6);
-    assert_eq!(MCP_TOOLS.len(), 6);
+    assert_eq!(tools.len(), 7);
+    assert_eq!(MCP_TOOLS.len(), 7);
     let snapshot = tools
         .iter()
         .find(|tool| tool["name"] == DOCK_DATA_TOOL)
@@ -91,8 +95,33 @@ fn dock_resource_and_decoupled_tools_are_advertised() {
     let content = &responses[3]["result"]["contents"][0];
     assert_eq!(content["uri"], DOCK_RESOURCE_URI);
     assert_eq!(content["mimeType"], DOCK_MIME_TYPE);
-    assert!(content["text"].as_str().unwrap().contains("Worktree Dock"));
+    assert!(content["text"].as_str().unwrap().contains("Git Work Map"));
     assert_eq!(content["_meta"]["ui"]["csp"]["connectDomains"], json!([]));
+}
+
+#[test]
+fn render_tool_advertises_the_openai_output_template_compatibility_alias() {
+    let repo = support::committed_repo();
+    let responses = run_stream(
+        repo.path(),
+        &[initialize(), request(json!(2), "tools/list", json!({}))],
+    );
+
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+    let snapshot = tools
+        .iter()
+        .find(|tool| tool["name"] == DOCK_DATA_TOOL)
+        .unwrap();
+    let render = tools
+        .iter()
+        .find(|tool| tool["name"] == DOCK_RENDER_TOOL)
+        .unwrap();
+
+    assert!(snapshot["_meta"].get("openai/outputTemplate").is_none());
+    assert_eq!(
+        render["_meta"]["openai/outputTemplate"],
+        "ui://devmap/dock/v1.html"
+    );
 }
 
 #[test]
@@ -147,9 +176,72 @@ fn mcp_runtime_audit_never_reports_a_tcp_listener() {
     }
     assert_eq!(runtime.audit().stdio_messages, 4);
     assert_eq!(runtime.audit().tcp_listeners_opened, 0);
-    let implementation = include_str!("../src/mcp.rs");
-    assert!(!implementation.contains("TcpListener"));
-    assert!(!implementation.contains("viewer::"));
+}
+
+#[test]
+fn browser_tool_is_the_only_dock_tool_that_opens_and_reuses_a_listener() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    runtime
+        .handle(&call(json!(2), DOCK_DATA_TOOL, json!({})))
+        .unwrap();
+    runtime
+        .handle(&call(json!(3), DOCK_RENDER_TOOL, json!({})))
+        .unwrap();
+    assert_eq!(runtime.audit().tcp_listeners_opened, 0);
+
+    let first = runtime
+        .handle(&call(json!(4), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+    let second = runtime
+        .handle(&call(json!(5), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+
+    assert_eq!(runtime.audit().tcp_listeners_opened, 1);
+    assert_eq!(
+        first["result"]["structuredContent"]["url"],
+        second["result"]["structuredContent"]["url"]
+    );
+    assert_eq!(first["result"]["structuredContent"]["reused"], false);
+    assert_eq!(second["result"]["structuredContent"]["reused"], true);
+    assert!(first["result"]["structuredContent"]["revision"].is_u64());
+    assert!(
+        !first["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("token=")
+    );
+}
+
+#[test]
+fn dropping_mcp_runtime_stops_the_browser_dock_listener() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let response = runtime
+        .handle(&call(json!(2), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+    let url = response["result"]["structuredContent"]["url"]
+        .as_str()
+        .unwrap();
+    let address = url
+        .strip_prefix("http://")
+        .unwrap()
+        .split_once('/')
+        .unwrap()
+        .0
+        .parse()
+        .unwrap();
+    assert!(TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok());
+
+    drop(runtime);
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline
+        && TcpStream::connect_timeout(&address, Duration::from_millis(50)).is_ok()
+    {}
+    assert!(TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err());
 }
 
 #[test]

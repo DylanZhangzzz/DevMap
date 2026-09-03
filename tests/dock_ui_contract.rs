@@ -1,6 +1,30 @@
 use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 
 #[test]
+fn dock_asset_renders_each_lane_through_the_repeated_merge_target() {
+    let html = dock_html();
+    for contract in [
+        "relationship-map",
+        "target-left",
+        "workspace-node",
+        "chat-node",
+        "return-edge",
+        "target-right",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing graph contract: {contract}"
+        );
+    }
+    assert!(html.contains("Merged into"));
+    assert!(html.contains("Not merged"));
+    assert!(html.contains("No linked chat"));
+    assert!(html.contains("ahead"));
+    assert!(html.contains("behind"));
+    assert!(!html.contains("<details class=\"group\""));
+}
+
+#[test]
 fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     let html = dock_html();
     assert_eq!(DOCK_RESOURCE_URI, "ui://devmap/dock/v1.html");
@@ -23,18 +47,17 @@ fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
     assert_eq!(html.matches("<main").count(), 1);
     assert!(html.contains("type=\"button\""));
     assert!(html.contains("aria-live=\"polite\""));
-    assert!(html.contains("Current"));
-    assert!(html.contains("Active"));
-    assert!(html.contains("Stale or uninstrumented"));
-    assert!(html.contains("<details class=\"group\""));
-    assert!(!html.contains("<details class=\"group\" open"));
-    assert!(html.contains(".group-current .row"));
-    assert!(html.contains("Status"));
-    assert!(html.contains("Confidence"));
+    assert!(html.contains("Workspaces"));
+    assert!(html.contains("Linked chats"));
+    assert!(html.contains("Active Agent"));
+    assert!(html.contains("UNINSTRUMENTED"));
+    assert!(html.contains(".lane.current"));
+    assert!(html.contains("Merge unknown"));
     assert!(html.contains("CAPTURE INCOMPLETE"));
     assert!(html.contains("OFFLINE · last update"));
     assert!(html.contains("Date.now() - lastValidAt > 6000"));
     assert!(html.contains("@container"));
+    assert!(html.contains("max-width: 519px"));
     assert!(html.contains("prefers-reduced-motion"));
     assert!(html.contains(":focus-visible"));
     assert!(html.contains("visibilitychange"));

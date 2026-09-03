@@ -9,6 +9,47 @@ use devmap::presence::{Confidence, PresenceStatus, StatusSource};
 use devmap::worktrees::repository_id;
 
 #[test]
+fn reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane() {
+    let fixture = support::dock_reducer_fixture();
+    let model = DockReducer::new(NoRoutes)
+        .reduce(
+            &fixture.workspace,
+            fixture.worktrees,
+            fixture.presence,
+            fixture.journals,
+            fixture.now,
+        )
+        .unwrap();
+
+    let lane = model
+        .lanes
+        .iter()
+        .find(|lane| !lane.chats.is_empty())
+        .unwrap();
+    assert_eq!(lane.chats[0].session_id, "active-session");
+    assert_eq!(lane.chats[0].association_source, "presence_worktree_id");
+    assert_eq!(lane.relationship.merge_target.as_deref(), Some("main"));
+    assert_eq!(lane.relationship.merged, Some(true));
+}
+
+#[test]
+fn reducer_does_not_attach_a_chat_without_exact_presence() {
+    let mut fixture = support::dock_reducer_fixture();
+    fixture.presence.records.clear();
+    let model = DockReducer::new(NoRoutes)
+        .reduce(
+            &fixture.workspace,
+            fixture.worktrees,
+            fixture.presence,
+            fixture.journals,
+            fixture.now,
+        )
+        .unwrap();
+
+    assert!(model.lanes.iter().all(|lane| lane.chats.is_empty()));
+}
+
+#[test]
 fn reducer_puts_current_first_and_unknown_worktrees_in_warning_group() {
     let fixture = support::dock_reducer_fixture();
     let model = DockReducer::new(NoRoutes)
@@ -369,6 +410,9 @@ fn reducer_bounds_large_multi_agent_output_without_hiding_truncation() {
         .unwrap();
     let bytes = devmap::canonical::canonical_json(&model).unwrap();
     assert!(model.truncated);
+    assert!(!model.lanes.is_empty());
+    assert!(model.lanes.iter().any(|lane| lane.is_current));
+    assert!(model.lanes.iter().any(|lane| !lane.chats.is_empty()));
     assert!(bytes.len() <= devmap::dock::MAX_DOCK_MODEL_BYTES);
     assert!(
         model

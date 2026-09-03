@@ -9,7 +9,8 @@
       "default_tools_approval_mode": "writes",
       "tools": {
         "devmap_dock_snapshot": {"approval_mode": "auto"},
-        "devmap_open_dock": {"approval_mode": "auto"}
+        "devmap_open_dock": {"approval_mode": "auto"},
+        "devmap_start_browser_dock": {"approval_mode": "auto"}
       }
     }
   }

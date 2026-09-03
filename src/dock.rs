@@ -11,6 +11,7 @@ use crate::cli::AgentsArgs;
 use crate::error::DevMapError;
 use crate::events::CaptureGrade;
 use crate::git::{SourceGitInspector, SourceWorkspace};
+use crate::git_relationship::{DevelopmentTarget, GitRelationship, GitRelationshipResolver};
 use crate::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
 use crate::presence::{
     Confidence, PresenceLoadReport, PresenceRecord, PresenceStatus, PresenceStore, StatusSource,
@@ -42,12 +43,42 @@ pub struct DockEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DockChat {
+    pub session_id: String,
+    pub actor_id: String,
+    pub host: String,
+    pub route_id: Option<String>,
+    pub status: PresenceStatus,
+    pub status_source: StatusSource,
+    pub confidence: Confidence,
+    pub capture_grade: CaptureGrade,
+    pub last_event_at: String,
+    pub blocker_count: u32,
+    pub gap_count: u32,
+    pub capture_incomplete: bool,
+    pub association_source: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DockLane {
+    pub worktree_id: String,
+    pub workspace_path: String,
+    pub is_current: bool,
+    pub branch: Option<String>,
+    pub head: String,
+    pub relationship: GitRelationship,
+    pub chats: Vec<DockChat>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockReadModel {
     pub schema_version: &'static str,
     pub repository_id: String,
     pub revision: u64,
     pub generated_at: String,
     pub current_worktree_id: String,
+    pub development_target: Option<DevelopmentTarget>,
+    pub lanes: Vec<DockLane>,
     pub current: Vec<DockEntry>,
     pub active: Vec<DockEntry>,
     pub stale_or_uninstrumented: Vec<DockEntry>,
@@ -101,6 +132,7 @@ impl<R: RouteProvider> DockReducer<R> {
             .iter()
             .map(|row| (row.worktree_id.clone(), row))
             .collect::<HashMap<_, _>>();
+        let relationship_report = GitRelationshipResolver::resolve(workspace, &worktrees)?;
         let mut represented = HashSet::new();
         let mut entries = Vec::new();
         let mut warnings = presence
@@ -111,6 +143,15 @@ impl<R: RouteProvider> DockReducer<R> {
                 subject_id: warning.subject_id,
             })
             .collect::<Vec<_>>();
+        warnings.extend(
+            relationship_report
+                .warnings
+                .iter()
+                .map(|warning| DockWarning {
+                    code: warning.code.into(),
+                    subject_id: warning.worktree_id.clone(),
+                }),
+        );
 
         for record in presence.records {
             if record.repository_id != repository_id {
@@ -154,6 +195,47 @@ impl<R: RouteProvider> DockReducer<R> {
             }
         }
         entries.sort_by(compare_entries);
+        let mut lanes = worktrees
+            .iter()
+            .map(|worktree| DockLane {
+                worktree_id: worktree.worktree_id.clone(),
+                workspace_path: worktree.root.to_string_lossy().into_owned(),
+                is_current: worktree.is_current,
+                branch: worktree.branch.clone(),
+                head: worktree.head.clone(),
+                relationship: relationship_report
+                    .by_worktree_id
+                    .get(&worktree.worktree_id)
+                    .cloned()
+                    .unwrap_or(GitRelationship {
+                        base_target: relationship_report
+                            .target
+                            .as_ref()
+                            .map(|target| target.name.clone()),
+                        merge_target: relationship_report
+                            .target
+                            .as_ref()
+                            .map(|target| target.name.clone()),
+                        merged: None,
+                        ahead: None,
+                        behind: None,
+                        dirty: false,
+                        changed_file_count: 0,
+                    }),
+                chats: entries
+                    .iter()
+                    .filter(|entry| entry.worktree_id == worktree.worktree_id)
+                    .filter_map(chat_from_entry)
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        lanes.sort_by(|left, right| {
+            right
+                .is_current
+                .cmp(&left.is_current)
+                .then_with(|| left.workspace_path.cmp(&right.workspace_path))
+                .then_with(|| left.worktree_id.cmp(&right.worktree_id))
+        });
         warnings.sort_by(|left, right| {
             left.code
                 .cmp(&right.code)
@@ -186,6 +268,8 @@ impl<R: RouteProvider> DockReducer<R> {
             revision: 0,
             generated_at: now.format(&Rfc3339)?,
             current_worktree_id,
+            development_target: relationship_report.target,
+            lanes,
             current,
             active,
             stale_or_uninstrumented,
@@ -255,6 +339,8 @@ impl DockReadModel {
             schema_version: &'a str,
             repository_id: &'a str,
             current_worktree_id: &'a str,
+            development_target: &'a Option<DevelopmentTarget>,
+            lanes: &'a [DockLane],
             current: &'a [DockEntry],
             active: &'a [DockEntry],
             stale_or_uninstrumented: &'a [DockEntry],
@@ -265,6 +351,8 @@ impl DockReadModel {
             schema_version: self.schema_version,
             repository_id: &self.repository_id,
             current_worktree_id: &self.current_worktree_id,
+            development_target: &self.development_target,
+            lanes: &self.lanes,
             current: &self.current,
             active: &self.active,
             stale_or_uninstrumented: &self.stale_or_uninstrumented,
@@ -361,6 +449,24 @@ fn compare_entries(left: &DockEntry, right: &DockEntry) -> std::cmp::Ordering {
         .then_with(|| left.session_id.cmp(&right.session_id))
 }
 
+fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
+    Some(DockChat {
+        session_id: entry.session_id.clone()?,
+        actor_id: entry.actor_id.clone()?,
+        host: entry.host.clone()?,
+        route_id: entry.route_id.clone(),
+        status: entry.status,
+        status_source: entry.status_source,
+        confidence: entry.confidence,
+        capture_grade: entry.capture_grade?,
+        last_event_at: entry.last_event_at.clone()?,
+        blocker_count: entry.blocker_count,
+        gap_count: entry.gap_count,
+        capture_incomplete: entry.capture_incomplete,
+        association_source: "presence_worktree_id",
+    })
+}
+
 fn event_instant(entry: &DockEntry) -> Option<OffsetDateTime> {
     entry
         .last_event_at
@@ -429,12 +535,18 @@ fn bounded(value: &str, limit: usize) -> String {
 
 fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     const STRUCTURAL_RESERVE: usize = 32 * 1024;
-    let mut remaining = MAX_DOCK_MODEL_BYTES.saturating_sub(STRUCTURAL_RESERVE);
+    let available = MAX_DOCK_MODEL_BYTES.saturating_sub(STRUCTURAL_RESERVE);
+    let mut lane_remaining = available / 2;
+    let mut compatibility_remaining = available - lane_remaining;
     let mut output_truncated = false;
-    output_truncated |= retain_within_budget(&mut model.current, &mut remaining)?;
-    output_truncated |= retain_within_budget(&mut model.active, &mut remaining)?;
-    output_truncated |= retain_within_budget(&mut model.warnings, &mut remaining)?;
-    output_truncated |= retain_within_budget(&mut model.stale_or_uninstrumented, &mut remaining)?;
+    output_truncated |= retain_lanes_within_budget(&mut model.lanes, &mut lane_remaining)?;
+    output_truncated |= retain_within_budget(&mut model.current, &mut compatibility_remaining)?;
+    output_truncated |= retain_within_budget(&mut model.active, &mut compatibility_remaining)?;
+    output_truncated |= retain_within_budget(&mut model.warnings, &mut compatibility_remaining)?;
+    output_truncated |= retain_within_budget(
+        &mut model.stale_or_uninstrumented,
+        &mut compatibility_remaining,
+    )?;
     if output_truncated {
         model.truncated = true;
         model.warnings.push(DockWarning {
@@ -472,5 +584,34 @@ fn retain_within_budget<T: Serialize>(
     }
     let truncated = kept.len() != original;
     *values = kept;
+    Ok(truncated)
+}
+
+fn retain_lanes_within_budget(
+    lanes: &mut Vec<DockLane>,
+    remaining: &mut usize,
+) -> Result<bool, DevMapError> {
+    let original_lanes = lanes.len();
+    let original_chats = lanes.iter().map(|lane| lane.chats.len()).sum::<usize>();
+    let mut kept = Vec::with_capacity(original_lanes);
+    for mut lane in lanes.drain(..) {
+        let chats = std::mem::take(&mut lane.chats);
+        let base_size = canonical_json(&lane)?.len().saturating_add(1);
+        if base_size > *remaining {
+            continue;
+        }
+        *remaining -= base_size;
+        for chat in chats {
+            let size = canonical_json(&chat)?.len().saturating_add(1);
+            if size <= *remaining {
+                *remaining -= size;
+                lane.chats.push(chat);
+            }
+        }
+        kept.push(lane);
+    }
+    let kept_chats = kept.iter().map(|lane| lane.chats.len()).sum::<usize>();
+    let truncated = kept.len() != original_lanes || kept_chats != original_chats;
+    *lanes = kept;
     Ok(truncated)
 }

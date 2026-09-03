@@ -1,5 +1,5 @@
 use std::io::Cursor;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,9 @@ pub struct ViewerHandle {
 
 pub struct ViewerRuntime {
     shutdown: Arc<AtomicBool>,
-    server: Arc<Server>,
+    running: Arc<AtomicBool>,
+    server: Option<Arc<Server>>,
+    address: SocketAddr,
     worker: Option<JoinHandle<Result<(), DevMapError>>>,
 }
 
@@ -50,9 +52,11 @@ impl ViewerState {
 
 impl ViewerRuntime {
     pub fn shutdown(mut self) -> Result<(), DevMapError> {
-        self.shutdown.store(true, Ordering::Release);
-        self.server.unblock();
-        self.join_worker()
+        self.stop_and_join()
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
     }
 
     fn wait(mut self) -> Result<(), DevMapError> {
@@ -60,12 +64,40 @@ impl ViewerRuntime {
     }
 
     fn join_worker(&mut self) -> Result<(), DevMapError> {
-        self.worker
-            .take()
-            .ok_or(DevMapError::ViewerWorker)?
-            .join()
-            .map_err(|_| DevMapError::ViewerWorker)??;
+        if let Some(worker) = self.worker.take() {
+            worker.join().map_err(|_| DevMapError::ViewerWorker)??;
+        }
         Ok(())
+    }
+
+    fn stop_and_join(&mut self) -> Result<(), DevMapError> {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(server) = &self.server {
+            server.unblock();
+        }
+        self.join_worker()?;
+        self.server.take();
+        self.running.store(false, Ordering::Release);
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline
+            && TcpStream::connect_timeout(&self.address, Duration::from_millis(25)).is_ok()
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ViewerRuntime {
+    fn drop(&mut self) {
+        let _ = self.stop_and_join();
+    }
+}
+
+impl ViewerHandle {
+    pub fn url(&self) -> String {
+        format!("http://{}/?token={}", self.address, self.token)
     }
 }
 
@@ -87,6 +119,8 @@ pub fn start_live_viewer(
     let shutdown = Arc::new(AtomicBool::new(false));
     let worker_server = Arc::clone(&server);
     let worker_shutdown = Arc::clone(&shutdown);
+    let running = Arc::new(AtomicBool::new(true));
+    let worker_running = Arc::clone(&running);
     let worker_token = token.clone();
     let state = Arc::new(Mutex::new(ViewerState {
         dock,
@@ -94,13 +128,19 @@ pub fn start_live_viewer(
     }));
     let worker = thread::Builder::new()
         .name("devmap-live-viewer".into())
-        .spawn(move || serve(worker_server, worker_shutdown, state, worker_token))?;
+        .spawn(move || {
+            let result = serve(worker_server, worker_shutdown, state, worker_token);
+            worker_running.store(false, Ordering::Release);
+            result
+        })?;
 
     Ok((
         ViewerHandle { address, token },
         ViewerRuntime {
             shutdown,
-            server,
+            running,
+            server: Some(server),
+            address,
             worker: Some(worker),
         },
     ))
@@ -109,7 +149,7 @@ pub fn start_live_viewer(
 pub fn run_live(source: &Path) -> Result<CommandOutput, DevMapError> {
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
     let (handle, runtime) = start_live_viewer(source, bind)?;
-    println!("http://{}/?token={}", handle.address, handle.token);
+    println!("{}", handle.url());
     runtime.wait()?;
     Ok(CommandOutput {
         stdout: String::new(),

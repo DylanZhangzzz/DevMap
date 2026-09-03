@@ -3,449 +3,273 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DevMap Live Worktree Dock</title>
+  <title>DevMap Git Relationship Map</title>
   <style>
     :root {
-      color-scheme: dark light;
-      --bg: #0f172a;
-      --surface: #172033;
-      --surface-strong: #202b40;
-      --text: #f8fafc;
-      --muted: #aebbd0;
-      --border: #526078;
-      --accent: #4ade80;
-      --accent-soft: #153b2a;
-      --warning: #fbbf24;
-      --warning-soft: #453411;
-      --danger: #fda4af;
-      --danger-soft: #4c1d2a;
-      --focus: #93c5fd;
-      --radius: 10px;
-      --space-1: 4px;
-      --space-2: 8px;
-      --space-3: 12px;
-      --space-4: 16px;
+      color-scheme: dark;
+      --bg: #07101f; --surface: #111c2e; --surface-strong: #18263c; --line: #34445d;
+      --text: #f8fafc; --muted: #9fb0c8; --green: #34d399; --green-soft: #0d352d;
+      --amber: #f59e0b; --amber-soft: #3d2b0d; --purple: #c4b5fd; --purple-soft: #302456;
+      --cyan: #22d3ee; --cyan-soft: #103b48; --blue: #60a5fa; --blue-soft: #15365c;
+      --red: #fb7185; --gray: #94a3b8; --radius: 12px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-
     * { box-sizing: border-box; }
-    html, body { min-width: 0; min-height: 100%; margin: 0; }
-    body { background: var(--bg); color: var(--text); font-size: 0.875rem; line-height: 1.5; }
+    html, body { min-width: 0; min-height: 100%; margin: 0; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 50% -20%, #172d4d 0, var(--bg) 42%); color: var(--text); font-size: 14px; line-height: 1.45; }
     button { font: inherit; }
-    .shell { container-type: inline-size; min-height: 100dvh; padding: var(--space-3); }
-    .skip-link { position: fixed; left: var(--space-3); top: -80px; z-index: 10; padding: var(--space-2); background: var(--text); color: var(--bg); }
-    .skip-link:focus { top: var(--space-3); }
-    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
-    .eyebrow { margin: 0 0 var(--space-1); color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: clamp(1.2rem, 4cqi, 1.6rem); line-height: 1.2; letter-spacing: -0.025em; }
-    .subhead { margin: var(--space-1) 0 0; color: var(--muted); }
-    .refresh { min-width: 48px; min-height: 48px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; transition: background-color 180ms ease, border-color 180ms ease; }
-    .refresh:hover { background: var(--surface-strong); border-color: var(--accent); }
-    .refresh:active { background: var(--accent-soft); }
-    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-    .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin-bottom: var(--space-4); }
-    .metric { min-width: 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-    .metric strong { display: block; font-variant-numeric: tabular-nums; font-size: 1.1rem; }
-    .metric span { color: var(--muted); font-size: 0.72rem; }
-    .connection { min-height: 1.5rem; margin: 0 0 var(--space-3); color: var(--muted); font-variant-numeric: tabular-nums; }
-    .connection.offline { color: var(--warning); font-weight: 650; }
-    .group { margin: 0 0 var(--space-4); }
-    .group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 48px; gap: var(--space-2); margin-bottom: var(--space-2); }
-    summary.group-heading { cursor: pointer; list-style: none; }
-    summary.group-heading::-webkit-details-marker { display: none; }
-    summary.group-heading::before { content: "▸"; color: var(--muted); }
-    details[open] > summary.group-heading::before { content: "▾"; }
-    h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
-    .count { color: var(--muted); font-variant-numeric: tabular-nums; }
-    .rows { display: grid; gap: var(--space-2); }
-    .empty { margin: 0; padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); }
-    .row { width: 100%; min-height: 52px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; transition: background-color 180ms ease, border-color 180ms ease; }
-    .row:hover { background: var(--surface-strong); }
-    .row[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-    .group-current .row { border-left-color: var(--accent); }
-    .row-top, .row-meta { display: flex; align-items: center; min-width: 0; gap: var(--space-2); }
-    .row-top { justify-content: space-between; }
-    .identity { min-width: 0; overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-    .branch { margin-top: var(--space-1); overflow-wrap: anywhere; color: var(--muted); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.76rem; }
-    .row-meta { flex-wrap: wrap; margin-top: var(--space-2); color: var(--muted); font-size: 0.72rem; }
-    .label { color: var(--text); font-weight: 650; }
-    .badge { flex: none; padding: 2px 7px; border: 1px solid currentColor; border-radius: 999px; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-    .status-working, .status-starting, .status-idle { color: var(--accent); background: var(--accent-soft); }
-    .status-waiting, .status-stale { color: var(--warning); background: var(--warning-soft); }
-    .status-completed, .status-unknown { color: var(--muted); }
-    .capture-warning { color: var(--danger); background: var(--danger-soft); }
-    .warnings { margin: var(--space-4) 0 0; padding: var(--space-3); border: 1px solid var(--warning); border-radius: var(--radius); background: var(--warning-soft); color: #fde68a; }
+    .shell { container-type: inline-size; min-height: 100dvh; padding: 16px; }
+    .skip-link { position: fixed; left: 12px; top: -90px; z-index: 20; padding: 8px 12px; background: var(--text); color: var(--bg); }
+    .skip-link:focus { top: 12px; }
+    :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .eyebrow { margin: 0 0 4px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(20px, 4cqi, 30px); line-height: 1.15; letter-spacing: -.03em; }
+    .subhead { margin: 5px 0 0; color: var(--muted); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
+    .refresh { min-width: 48px; min-height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; }
+    .refresh:hover { border-color: var(--green); background: var(--surface-strong); }
+    .overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 10px; }
+    .metric { min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17, 28, 46, .82); }
+    .metric strong { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .metric span { color: var(--muted); font-size: 11px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .connection { margin: 0; color: var(--green); font-size: 12px; font-weight: 700; }
+    .connection.offline { color: var(--amber); }
+    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--gray); }
+    .dot.merged { background: var(--green); } .dot.open { background: var(--amber); }
+    .dot.agent { background: var(--purple); } .dot.dirty { background: var(--red); }
+    .map-frame { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: rgba(7, 16, 31, .72); overflow: hidden; }
+    .map-heading { display: grid; grid-template-columns: 76px minmax(170px, 1.7fr) minmax(145px, 1.2fr) minmax(100px, .8fr) 76px; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .map-heading span:last-child { text-align: right; }
+    .relationship-map { min-width: 0; }
+    .empty { margin: 14px; padding: 20px; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--muted); text-align: center; }
+    .lane { position: relative; display: grid; grid-template-columns: 76px minmax(170px, 1.7fr) minmax(145px, 1.2fr) minmax(100px, .8fr) 76px; align-items: stretch; gap: 10px; min-width: 0; padding: 14px; border-bottom: 1px solid #25344b; }
+    .lane:last-child { border-bottom: 0; }
+    .lane.current { background: linear-gradient(90deg, rgba(96, 165, 250, .1), transparent 40%); box-shadow: inset 3px 0 0 var(--blue); }
+    .node { position: relative; z-index: 2; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    .target-node { align-self: center; padding: 8px 5px; color: var(--muted); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 11px; font-weight: 800; text-align: center; overflow-wrap: anywhere; }
+    .target-node::after { content: ""; position: absolute; top: 50%; width: 12px; height: 2px; background: var(--line); }
+    .target-left::after { left: 100%; } .target-right::after { right: 100%; }
+    .lane.merged .target-right { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+    .lane.unmerged .target-right { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); }
+    .workspace-node { width: 100%; min-width: 0; padding: 10px 11px; border-color: #58708f; color: var(--text); text-align: left; cursor: pointer; }
+    .workspace-node:hover { background: var(--surface-strong); border-color: var(--blue); }
+    .workspace-node[aria-pressed="true"] { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(96, 165, 250, .2); }
+    .workspace-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+    .branch { min-width: 0; color: #dbeafe; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
+    .current-pill { flex: none; padding: 2px 6px; border-radius: 999px; background: var(--blue-soft); color: #bfdbfe; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
+    .path { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .workspace-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 8px; color: var(--muted); font-size: 10px; }
+    .dirty-mark { color: var(--red); font-weight: 800; }
+    .chat-stack { display: grid; align-content: center; gap: 6px; min-width: 0; }
+    .chat-node { min-width: 0; padding: 8px 10px; border-color: var(--gray); color: var(--muted); }
+    .chat-node.working, .chat-node.starting { border-color: var(--purple); background: var(--purple-soft); color: #ede9fe; }
+    .chat-node.idle { border-color: var(--cyan); background: var(--cyan-soft); color: #cffafe; }
+    .chat-node.waiting { border-color: var(--blue); background: var(--blue-soft); color: #dbeafe; }
+    .chat-node.stale { border-color: var(--amber); background: var(--amber-soft); color: #fde68a; }
+    .chat-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+    .chat-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-status { flex: none; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .chat-meta { display: block; margin-top: 3px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 9px; opacity: .82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .capture-warning { display: inline-block; margin-top: 5px; color: var(--red); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
+    .return-edge { position: relative; z-index: 1; align-self: center; min-height: 54px; color: var(--muted); text-align: center; }
+    .return-edge .line { position: absolute; top: 50%; left: -10px; height: 3px; border-radius: 4px; background: var(--line); }
+    .lane.merged .return-edge .line { right: -22px; background: var(--green); }
+    .lane.unmerged .return-edge .line { right: 24%; background: var(--amber); }
+    .lane.unmerged .return-edge .line::after { content: ""; position: absolute; right: -1px; top: -4px; border-left: 7px solid var(--amber); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+    .lane.unknown .return-edge .line { right: 24%; background: repeating-linear-gradient(90deg, var(--gray) 0 5px, transparent 5px 10px); }
+    .merge-label { position: relative; z-index: 2; display: inline-block; max-width: 100%; padding: 2px 6px; border-radius: 999px; background: var(--bg); font-size: 9px; font-weight: 900; line-height: 1.25; }
+    .lane.merged .merge-label { color: var(--green); } .lane.unmerged .merge-label { color: var(--amber); }
+    .counts { position: absolute; z-index: 2; top: calc(50% + 8px); left: 0; right: 0; color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--amber); border-radius: 10px; background: var(--amber-soft); color: #fde68a; }
     .warnings[hidden] { display: none; }
-
-    @container (max-width: 330px) {
-      .summary { grid-template-columns: 1fr; }
-      .masthead { align-items: center; }
-      .row-top { align-items: flex-start; }
+    @container (max-width: 519px) {
+      .shell { padding: 12px; } .toolbar { align-items: flex-start; flex-direction: column; }
+      .legend { justify-content: flex-start; } .map-heading { display: none; }
+      .lane { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; }
+      .target-node, .workspace-node, .chat-stack, .return-edge { grid-column: 1; }
+      .target-node { justify-self: center; width: min(150px, 72%); }
+      .target-node::after { top: 100%; left: 50%; width: 2px; height: 10px; }
+      .target-right::after { top: auto; bottom: 100%; left: 50%; width: 2px; height: 10px; }
+      .return-edge { min-height: 56px; }
+      .return-edge .line { top: -8px; bottom: -8px; left: 50%; width: 3px; height: auto; }
+      .lane.merged .return-edge .line { right: auto; background: var(--green); }
+      .lane.unmerged .return-edge .line { right: auto; bottom: 24%; background: var(--amber); }
+      .lane.unmerged .return-edge .line::after { right: -4px; top: auto; bottom: -1px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--amber); border-bottom: 0; }
+      .lane.unknown .return-edge .line { right: auto; background: repeating-linear-gradient(180deg, var(--gray) 0 5px, transparent 5px 10px); }
+      .counts { top: calc(50% + 9px); }
     }
-
-    @container (min-width: 680px) {
-      #groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
-      .group { margin-bottom: 0; }
-    }
-
-    @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #f1f5f9;
-        --surface: #ffffff;
-        --surface-strong: #e8eef6;
-        --text: #0f172a;
-        --muted: #475569;
-        --border: #94a3b8;
-        --accent: #166534;
-        --accent-soft: #dcfce7;
-        --warning: #92400e;
-        --warning-soft: #fef3c7;
-        --danger: #9f1239;
-        --danger-soft: #ffe4e6;
-        --focus: #1d4ed8;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
-    }
+    @container (max-width: 350px) { .overview { grid-template-columns: 1fr; } .masthead { align-items: center; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
   </style>
 </head>
 <body>
-  <a class="skip-link" href="#dock-main">Skip to worktrees</a>
+  <a class="skip-link" href="#dock-main">Skip to Git relationship map</a>
   <div class="shell">
     <header class="masthead">
-      <div>
-        <p class="eyebrow">Live local state</p>
-        <h1>Worktree Dock</h1>
-        <p class="subhead" id="revision">Waiting for a valid snapshot</p>
-      </div>
-      <button class="refresh" id="refresh" type="button" aria-label="Refresh worktree status">Refresh</button>
+      <div><p class="eyebrow">Live local Git state</p><h1>Git Work Map</h1><p class="subhead" id="revision">Waiting for a valid snapshot</p></div>
+      <button class="refresh" id="refresh" type="button" aria-label="Refresh Git relationship map">Refresh</button>
     </header>
-
-    <div class="summary" aria-label="Worktree summary">
-      <div class="metric"><strong id="metric-current">0</strong><span>Current</span></div>
-      <div class="metric"><strong id="metric-active">0</strong><span>Active</span></div>
-      <div class="metric"><strong id="metric-attention">0</strong><span>Needs attention</span></div>
+    <div class="overview" aria-label="Relationship summary">
+      <div class="metric"><strong id="metric-workspaces">0</strong><span>Workspaces</span></div>
+      <div class="metric"><strong id="metric-chats">0</strong><span>Linked chats</span></div>
+      <div class="metric"><strong id="metric-open">0</strong><span>Not merged</span></div>
     </div>
-
-    <p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p>
-
+    <div class="toolbar">
+      <p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p>
+      <div class="legend" aria-label="Map legend"><span><i class="dot merged"></i>Merged</span><span><i class="dot open"></i>Not merged</span><span><i class="dot agent"></i>Active Agent</span><span><i class="dot dirty"></i>Dirty</span></div>
+    </div>
     <main id="dock-main" tabindex="-1">
-      <div id="groups">
-        <section class="group group-current" aria-labelledby="current-heading">
-          <div class="group-heading"><h2 id="current-heading">Current</h2><span class="count" id="current-count">0</span></div>
-          <div class="rows" id="current-rows"></div>
-        </section>
-        <section class="group" aria-labelledby="active-heading">
-          <div class="group-heading"><h2 id="active-heading">Active</h2><span class="count" id="active-count">0</span></div>
-          <div class="rows" id="active-rows"></div>
-        </section>
-        <details class="group" aria-labelledby="stale-heading">
-          <summary class="group-heading"><h2 id="stale-heading">Stale or uninstrumented</h2><span class="count" id="stale-count">0</span></summary>
-          <div class="rows" id="stale-rows"></div>
-        </details>
-      </div>
+      <section class="map-frame" aria-labelledby="map-title">
+        <h2 id="map-title" hidden>Workspace, Agent, branch, and merge relationships</h2>
+        <div class="map-heading" aria-hidden="true"><span>Base</span><span>Branch / workspace</span><span>Chat / Agent</span><span>Return</span><span>Target</span></div>
+        <div class="relationship-map" id="relationship-map"></div>
+      </section>
       <p class="warnings" id="warnings" role="status" hidden></p>
     </main>
   </div>
-
   <script>
     (() => {
       "use strict";
-      const MAX_ROWS = 2048;
-      const MAX_TEXT = 16384;
+      const MAX_ROWS = 2048, MAX_TEXT = 16384;
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map();
-      let nextRequestId = 1;
-      let renderedRevision = -1;
-      let lastValidAt = 0;
-      let refreshTimer;
-      let ageTimer;
-      let eventStream;
-      let selectedWorktreeId = null;
-
+      const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
+      const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
+      let nextRequestId = 1, renderedRevision = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream, selectedWorktreeId = null;
       const byId = (id) => document.getElementById(id);
       const boundedText = (value) => typeof value === "string" && value.length > 0 && value.length <= MAX_TEXT;
       const optionalText = (value) => value === null || value === undefined || boundedText(value);
       const safeRouteId = (value) => value === null || value === undefined || /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$/.test(value);
-      const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
-      const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
-
-      function post(message) {
-        window.parent.postMessage(message, "*");
+      const safeCount = (value) => value === null || (Number.isSafeInteger(value) && value >= 0);
+      function validChat(chat) {
+        return chat && typeof chat === "object" && boundedText(chat.session_id) && boundedText(chat.actor_id)
+          && boundedText(chat.host) && safeRouteId(chat.route_id) && allowedStatus.has(chat.status)
+          && allowedConfidence.has(chat.confidence) && boundedText(chat.last_event_at)
+          && typeof chat.capture_incomplete === "boolean" && chat.association_source === "presence_worktree_id";
       }
-
+      function validRelationship(value) {
+        return value && typeof value === "object" && optionalText(value.base_target) && optionalText(value.merge_target)
+          && (value.merged === null || typeof value.merged === "boolean") && safeCount(value.ahead) && safeCount(value.behind)
+          && typeof value.dirty === "boolean" && Number.isSafeInteger(value.changed_file_count) && value.changed_file_count >= 0;
+      }
+      function validLane(lane) {
+        return lane && typeof lane === "object" && /^wt-[0-9a-f]{64}$/.test(lane.worktree_id)
+          && boundedText(lane.workspace_path) && optionalText(lane.branch) && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(lane.head)
+          && typeof lane.is_current === "boolean" && validRelationship(lane.relationship)
+          && Array.isArray(lane.chats) && lane.chats.length <= MAX_ROWS && lane.chats.every(validChat);
+      }
+      function post(message) { window.parent.postMessage(message, "*"); }
       function callTool(name, args) {
         if (pendingRequests.size > 1) return null;
-        const id = nextRequestId++;
-        pendingRequests.set(id, name);
-        post({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
-        return id;
+        const id = nextRequestId++; pendingRequests.set(id, name);
+        post({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }); return id;
       }
-
       function initializeMcp() {
-        const id = nextRequestId++;
-        pendingRequests.set(id, "ui/initialize");
-        post({
-          jsonrpc: "2.0",
-          id,
-          method: "ui/initialize",
-          params: {
-            protocolVersion: "2026-07-28",
-            capabilities: {},
-            clientInfo: { name: "devmap-dock", version: "1" }
-          }
-        });
+        const id = nextRequestId++; pendingRequests.set(id, "ui/initialize");
+        post({ jsonrpc: "2.0", id, method: "ui/initialize", params: { protocolVersion: "2026-07-28", capabilities: {}, clientInfo: { name: "devmap-dock", version: "1" } } });
       }
-
       function scheduleRefresh(delay = 2000) {
         clearTimeout(refreshTimer);
-        if (document.visibilityState === "visible" && transport === "mcp") {
-          refreshTimer = setTimeout(() => {
-            callTool("devmap_dock_snapshot", {});
-            scheduleRefresh(2000);
-          }, Math.max(2000, delay));
-        }
+        if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_dock_snapshot", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
       }
-
-      function validRow(row) {
-        return row && typeof row === "object"
-          && /^wt-[0-9a-f]{64}$/.test(row.worktree_id)
-          && optionalText(row.actor_id)
-          && optionalText(row.branch)
-          && safeRouteId(row.route_id)
-          && boundedText(row.display_path)
-          && allowedStatus.has(row.status)
-          && allowedConfidence.has(row.confidence)
-          && typeof row.capture_incomplete === "boolean";
-      }
-
       function acceptSnapshot(value) {
         if (!value || value.schema_version !== "devmap/dock/1") return false;
         if (!Number.isSafeInteger(value.revision) || value.revision < renderedRevision) return false;
-        if (!/^sha256-[0-9a-f]{64}$/.test(value.repository_id)) return false;
-        if (!/^wt-[0-9a-f]{64}$/.test(value.current_worktree_id)) return false;
-        let totalRows = 0;
-        for (const key of ["current", "active", "stale_or_uninstrumented"]) {
-          if (!Array.isArray(value[key]) || value[key].length > 2048) return false;
-          totalRows += value[key].length;
-          if (totalRows > MAX_ROWS || value[key].some((row) => !validRow(row))) return false;
-        }
-        if (!Array.isArray(value.warnings) || value.warnings.length > MAX_ROWS
-            || value.warnings.some((warning) => !warning || !boundedText(warning.code)
-              || !optionalText(warning.subject_id))) return false;
-        if (value.revision === renderedRevision) {
-          lastValidAt = Date.now();
-          setOnline();
-          return true;
-        }
-        renderedRevision = value.revision;
-        lastValidAt = Date.now();
-        renderSnapshot(value);
-        setOnline();
-        return true;
+        if (!/^sha256-[0-9a-f]{64}$/.test(value.repository_id) || !/^wt-[0-9a-f]{64}$/.test(value.current_worktree_id)) return false;
+        if (!Array.isArray(value.lanes) || value.lanes.length > MAX_ROWS || value.lanes.some((lane) => !validLane(lane))) return false;
+        if (!Array.isArray(value.warnings) || value.warnings.length > MAX_ROWS || value.warnings.some((warning) => !warning || !boundedText(warning.code) || !optionalText(warning.subject_id))) return false;
+        if (value.revision === renderedRevision) { lastValidAt = Date.now(); setOnline(); return true; }
+        renderedRevision = value.revision; lastValidAt = Date.now(); renderSnapshot(value); setOnline(); return true;
       }
-
       function renderSnapshot(value) {
-        byId("revision").textContent = `Revision ${value.revision} · ${value.repository_id.slice(0, 18)}…`;
-        byId("metric-current").textContent = String(value.current.length);
-        byId("metric-active").textContent = String(value.active.length);
-        byId("metric-attention").textContent = String(value.stale_or_uninstrumented.length + value.warnings.length);
-        renderGroup("current", value.current);
-        renderGroup("active", value.active);
-        renderGroup("stale", value.stale_or_uninstrumented);
-        const warning = byId("warnings");
-        warning.hidden = value.warnings.length === 0 && !value.truncated;
-        warning.textContent = value.truncated
-          ? `PARTIAL VIEW · ${value.warnings.length} integrity warning(s)`
-          : `${value.warnings.length} integrity warning(s)`;
-      }
-
-      function renderGroup(prefix, rows) {
-        byId(`${prefix}-count`).textContent = String(rows.length);
-        const container = byId(`${prefix}-rows`);
+        const target = value.development_target?.name || "target unknown";
+        byId("revision").textContent = `Revision ${value.revision} · merge target ${target}`;
+        byId("metric-workspaces").textContent = String(value.lanes.length);
+        byId("metric-chats").textContent = String(value.lanes.reduce((sum, lane) => sum + lane.chats.length, 0));
+        byId("metric-open").textContent = String(value.lanes.filter((lane) => lane.relationship.merged === false).length);
         const fragment = document.createDocumentFragment();
-        if (rows.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "empty";
-          empty.textContent = "No worktrees in this group";
-          fragment.append(empty);
-        }
-        for (const row of rows) fragment.append(createRow(row));
-        container.replaceChildren(fragment);
+        if (value.lanes.length === 0) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No local Git workspaces found"; fragment.append(empty); }
+        for (const lane of value.lanes) fragment.append(createLane(lane));
+        byId("relationship-map").replaceChildren(fragment);
+        const warning = byId("warnings"); warning.hidden = value.warnings.length === 0 && !value.truncated;
+        warning.textContent = value.truncated ? `PARTIAL VIEW · ${value.warnings.length} integrity warning(s)` : `${value.warnings.length} integrity warning(s)`;
       }
-
-      function createRow(row) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "row";
-        button.dataset.worktreeId = row.worktree_id;
-        button.setAttribute("aria-pressed", String(row.worktree_id === selectedWorktreeId));
-        button.setAttribute("aria-label", `Select ${row.actor_id || "uninstrumented worktree"}; Status ${row.status}; Confidence ${row.confidence}`);
-
-        const top = document.createElement("span");
-        top.className = "row-top";
-        const identity = document.createElement("span");
-        identity.className = "identity";
-        identity.textContent = row.actor_id || "Uninstrumented worktree";
-        const status = document.createElement("span");
-        status.className = `badge status-${row.status}`;
-        status.textContent = row.status;
-        top.append(identity, status);
-
-        const branch = document.createElement("span");
-        branch.className = "branch";
-        branch.textContent = row.branch || "detached HEAD";
-        branch.title = row.display_path;
-
-        const meta = document.createElement("span");
-        meta.className = "row-meta";
-        appendMeta(meta, "Status", row.status);
-        appendMeta(meta, "Confidence", row.confidence);
-        if (row.capture_incomplete) {
-          const incomplete = document.createElement("span");
-          incomplete.className = "badge capture-warning";
-          incomplete.textContent = "CAPTURE INCOMPLETE";
-          meta.append(incomplete);
-        }
-        button.append(top, branch, meta);
-        button.addEventListener("click", () => selectRow(row));
-        return button;
+      function createLane(lane) {
+        const state = lane.relationship.merged === true ? "merged" : lane.relationship.merged === false ? "unmerged" : "unknown";
+        const article = document.createElement("article"); article.className = `lane ${state}${lane.is_current ? " current" : ""}`; article.dataset.worktreeId = lane.worktree_id;
+        const base = targetNode("target-left", lane.relationship.base_target || "unknown");
+        const workspace = document.createElement("button"); workspace.type = "button"; workspace.className = "node workspace-node"; workspace.dataset.worktreeId = lane.worktree_id;
+        workspace.setAttribute("aria-pressed", String(lane.worktree_id === selectedWorktreeId)); workspace.setAttribute("aria-label", `Select workspace ${lane.branch || "detached HEAD"}; ${mergeText(lane)}`); workspace.addEventListener("click", () => selectLane(lane));
+        const workspaceTop = document.createElement("span"); workspaceTop.className = "workspace-top";
+        const branch = document.createElement("span"); branch.className = "branch"; branch.textContent = lane.branch || "detached HEAD"; workspaceTop.append(branch);
+        if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; workspaceTop.append(current); }
+        const path = document.createElement("span"); path.className = "path"; path.textContent = lane.workspace_path; path.title = lane.workspace_path;
+        const meta = document.createElement("span"); meta.className = "workspace-meta"; meta.append(document.createTextNode(`HEAD ${lane.head.slice(0, 8)}`));
+        if (lane.relationship.dirty) { const dirty = document.createElement("span"); dirty.className = "dirty-mark"; dirty.textContent = `● DIRTY ${lane.relationship.changed_file_count}`; meta.append(dirty); } else meta.append(document.createTextNode("CLEAN"));
+        workspace.append(workspaceTop, path, meta);
+        const chats = document.createElement("div"); chats.className = "chat-stack";
+        if (lane.chats.length === 0) chats.append(createUnlinkedChat()); else for (const chat of lane.chats) chats.append(createChat(chat));
+        const edge = document.createElement("div"); edge.className = "return-edge"; edge.setAttribute("aria-label", mergeText(lane));
+        const line = document.createElement("span"); line.className = "line";
+        const label = document.createElement("span"); label.className = "merge-label"; label.textContent = state === "merged" ? "Merged into" : state === "unmerged" ? "Not merged" : "Merge unknown";
+        const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = lane.relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${lane.relationship.ahead} · behind ${lane.relationship.behind}`;
+        edge.append(line, label, counts);
+        article.append(base, workspace, chats, edge, targetNode("target-right", lane.relationship.merge_target || "unknown")); return article;
       }
-
-      function appendMeta(container, label, value) {
-        const item = document.createElement("span");
-        const strong = document.createElement("span");
-        strong.className = "label";
-        strong.textContent = `${label}: `;
-        item.append(strong, document.createTextNode(value));
-        container.append(item);
+      function targetNode(position, text) { const node = document.createElement("div"); node.className = `node target-node ${position}`; node.textContent = text; node.title = text; return node; }
+      function createChat(chat) {
+        const node = document.createElement("div"); node.className = `node chat-node ${chat.status}`;
+        const title = document.createElement("span"); title.className = "chat-title";
+        const actor = document.createElement("strong"); actor.textContent = chat.actor_id; actor.title = chat.actor_id;
+        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = chat.status; title.append(actor, status);
+        const session = document.createElement("span"); session.className = "chat-meta"; session.textContent = `${chat.host} · ${chat.session_id}`; session.title = chat.session_id; node.append(title, session);
+        if (chat.capture_incomplete) { const warning = document.createElement("span"); warning.className = "capture-warning"; warning.textContent = "CAPTURE INCOMPLETE"; node.append(warning); } return node;
       }
-
-      function selectRow(row) {
-        selectedWorktreeId = row.worktree_id;
-        document.querySelectorAll(".row").forEach((button) => {
-          button.setAttribute("aria-pressed", String(button.dataset.worktreeId === row.worktree_id));
-        });
-        if (transport === "mcp") {
-          post({
-            jsonrpc: "2.0",
-            method: "ui/update-model-context",
-            params: {
-              content: [{
-                type: "text",
-                text: `DevMap selection: worktree_id=${row.worktree_id} route_id=${row.route_id || "none"}`
-              }]
-            }
-          });
-        }
+      function createUnlinkedChat() {
+        const node = document.createElement("div"); node.className = "node chat-node unknown";
+        const title = document.createElement("span"); title.className = "chat-title";
+        const label = document.createElement("strong"); label.textContent = "No linked chat";
+        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = "UNINSTRUMENTED"; title.append(label, status); node.append(title); return node;
       }
-
-      function setOnline() {
-        const node = byId("connection");
-        node.className = "connection";
-        node.textContent = "LIVE · updated now";
-        scheduleAge();
+      function mergeText(lane) {
+        const target = lane.relationship.merge_target || "unknown target";
+        if (lane.relationship.merged === true) return `Merged into ${target}`;
+        if (lane.relationship.merged === false) return `Not merged into ${target}; ahead ${lane.relationship.ahead}; behind ${lane.relationship.behind}`;
+        return `Merge relationship to ${target} is unknown`;
       }
-
-      function setOffline() {
-        const node = byId("connection");
-        node.className = "connection offline";
-        const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never";
-        node.textContent = `OFFLINE · last update ${age}`;
-        scheduleAge();
+      function selectLane(lane) {
+        selectedWorktreeId = lane.worktree_id;
+        document.querySelectorAll(".workspace-node").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.worktreeId === lane.worktree_id)));
+        const route = lane.chats.find((chat) => chat.route_id)?.route_id || "none";
+        if (transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
       }
-
-      function formatAge(milliseconds) {
-        if (!Number.isFinite(milliseconds)) return "unknown";
-        const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-        return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`;
-      }
-
-      function scheduleAge() {
-        clearTimeout(ageTimer);
-        if (document.visibilityState === "visible") {
-          ageTimer = setTimeout(() => {
-            if (lastValidAt && Date.now() - lastValidAt > 6000) setOffline();
-            else scheduleAge();
-          }, 1000);
-        }
-      }
-
-      async function fetchSnapshot() {
-        try {
-          const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" });
-          if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot");
-        } catch (_) {
-          setOffline();
-        }
-      }
-
+      function setOnline() { const node = byId("connection"); node.className = "connection"; node.textContent = "LIVE · updated now"; scheduleAge(); }
+      function setOffline() { const node = byId("connection"); node.className = "connection offline"; const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never"; node.textContent = `OFFLINE · last update ${age}`; scheduleAge(); }
+      function formatAge(milliseconds) { if (!Number.isFinite(milliseconds)) return "unknown"; const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`; }
+      function scheduleAge() { clearTimeout(ageTimer); if (document.visibilityState === "visible") ageTimer = setTimeout(() => { if (lastValidAt && Date.now() - lastValidAt > 6000) setOffline(); else scheduleAge(); }, 1000); }
+      async function fetchSnapshot() { try { const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" }); if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot"); } catch (_) { setOffline(); } }
       function connectEvents() {
-        if (eventStream) eventStream.close();
-        eventStream = new EventSource(`/api/v1/dock/events${browserQuery}`);
-        eventStream.addEventListener("dock", (event) => {
-          try {
-            if (!acceptSnapshot(JSON.parse(event.data))) setOffline();
-          } catch (_) {
-            setOffline();
-          }
-        });
-        eventStream.addEventListener("error", () => {
-          if (!lastValidAt || Date.now() - lastValidAt > 6000) setOffline();
-        });
+        if (eventStream) eventStream.close(); eventStream = new EventSource(`/api/v1/dock/events${browserQuery}`);
+        eventStream.addEventListener("dock", (event) => { try { if (!acceptSnapshot(JSON.parse(event.data))) setOffline(); } catch (_) { setOffline(); } });
+        eventStream.addEventListener("error", () => { if (!lastValidAt || Date.now() - lastValidAt > 6000) setOffline(); });
       }
-
       window.addEventListener("message", (event) => {
-        if (event.source !== window.parent) return;
-        const message = event.data;
-        if (message?.jsonrpc !== "2.0") return;
-        if (message.method === "ui/notifications/tool-result") {
-          if (!acceptSnapshot(message.params?.structuredContent)) setOffline();
-          return;
-        }
-        if (pendingRequests.has(message.id)) {
-          const pending = pendingRequests.get(message.id);
-          pendingRequests.delete(message.id);
-          if (pending === "ui/initialize" && message.result) {
-            post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
-            callTool("devmap_dock_snapshot", {});
-            scheduleRefresh();
-          } else if (!acceptSnapshot(message.result?.structuredContent)) {
-            setOffline();
-          }
-        }
+        if (event.source !== window.parent) return; const message = event.data; if (message?.jsonrpc !== "2.0") return;
+        if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
+        if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id); pendingRequests.delete(message.id);
+          if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
+          else if (!acceptSnapshot(message.result?.structuredContent)) setOffline(); }
       });
-
       document.addEventListener("visibilitychange", () => {
-        clearTimeout(refreshTimer);
-        clearTimeout(ageTimer);
-        if (eventStream) eventStream.close();
-        if (document.visibilityState === "visible") {
-          if (transport === "mcp") {
-            callTool("devmap_dock_snapshot", {});
-            scheduleRefresh();
-          } else {
-            fetchSnapshot();
-            connectEvents();
-          }
-          scheduleAge();
-        }
+        clearTimeout(refreshTimer); clearTimeout(ageTimer); if (eventStream) eventStream.close();
+        if (document.visibilityState === "visible") { if (transport === "mcp") { callTool("devmap_dock_snapshot", {}); scheduleRefresh(); } else { fetchSnapshot(); connectEvents(); } scheduleAge(); }
       });
-
-      byId("refresh").addEventListener("click", () => {
-        if (transport === "mcp") callTool("devmap_dock_snapshot", {});
-        else fetchSnapshot();
-      });
-
-      if (transport === "mcp") initializeMcp();
-      else {
-        fetchSnapshot();
-        connectEvents();
-      }
-      scheduleAge();
+      byId("refresh").addEventListener("click", () => { if (transport === "mcp") callTool("devmap_dock_snapshot", {}); else fetchSnapshot(); });
+      if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();
   </script>
 </body>

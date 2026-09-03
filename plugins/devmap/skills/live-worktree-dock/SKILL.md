@@ -5,10 +5,19 @@ description: Show, open, or refresh the DevMap Live Worktree Dock when the user 
 
 # Live Worktree Dock
 
-Use `devmap_open_dock` once when the user asks to show or open the visual Dock. The result is a read-only MCP App in Codex's side pane.
+Use `devmap_open_dock` once when the user asks to show or refresh the visual Dock without specifying its placement. The result is a read-only MCP App whose placement is selected by the host.
+
+When the user explicitly asks to open or reopen DevMap on the right, use this exact workflow:
+
+1. Call `devmap_start_browser_dock` once. It starts a loopback Viewer when needed and otherwise reuses the healthy Viewer owned by this MCP process.
+2. Read `structuredContent.url` from the result.
+3. In Codex, use the documented app Browser opener for that URL with `placement: right`. In another host, use only its documented local-app surface.
+4. If Codex reports that the tab was queued, report the queued state accurately and do not call `devmap_start_browser_dock` again.
+
+Never repeat the authenticated URL in chat text. Never launch a manual terminal server, inject into the Codex interface, or claim the Browser tab is permanently pinned. Closing the tab is safe; repeating the workflow reopens the same healthy Viewer. A new MCP process receives a fresh URL.
 
 Use `devmap_dock_snapshot` when the user explicitly asks for a text-only refresh or inspection without opening the interface.
 
 Report the scope honestly: the Dock covers local worktrees that share the current repository's Git common directory and only shows Agent state backed by available Presence records. Never claim cross-machine or organization-wide coverage.
 
-In Codex, the plugin uses host-managed STDIO. Do not suggest a manual server command. If the tools are unavailable, say that plugin enablement, project trust, or managed MCP policy may be preventing activation.
+In Codex, the plugin uses host-managed STDIO. If the tools are unavailable, say that plugin enablement, project trust, or managed MCP policy may be preventing activation.

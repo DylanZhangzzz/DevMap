@@ -8,12 +8,12 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "DevMap",
-    "shortDescription": "Inspect local worktrees and Agent presence.",
-    "longDescription": "DevMap adds a read-only live worktree Dock and evidence capture tools over host-managed STDIO.",
+    "shortDescription": "Map worktrees, Agents, branches, and merge state.",
+    "longDescription": "DevMap adds a read-only Git relationship map and evidence capture tools over host-managed STDIO.",
     "developerName": "Dylan Zhang",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read"],
-    "defaultPrompt": "Show the DevMap Worktree Dock."
+    "defaultPrompt": "Open the DevMap Git relationship map on the right."
   },
   "mcpServers": "./.mcp.json"
 }

@@ -22,6 +22,10 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
     assert_eq!(manifest["skills"], "./skills/");
     assert!(manifest["author"]["name"].is_string());
     assert_eq!(manifest["interface"]["displayName"], "DevMap");
+    assert_eq!(
+        manifest["interface"]["defaultPrompt"],
+        "Open the DevMap Git relationship map on the right."
+    );
 
     let servers = mcp["mcpServers"].as_object().unwrap();
     assert_eq!(servers.len(), 1);
@@ -32,12 +36,16 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
     assert_eq!(server["startup_timeout_sec"], 10);
     assert_eq!(server["tool_timeout_sec"], 10);
     assert_eq!(server["default_tools_approval_mode"], "writes");
-    assert_eq!(server["tools"].as_object().unwrap().len(), 2);
+    assert_eq!(server["tools"].as_object().unwrap().len(), 3);
     assert_eq!(
         server["tools"]["devmap_dock_snapshot"]["approval_mode"],
         "auto"
     );
     assert_eq!(server["tools"]["devmap_open_dock"]["approval_mode"], "auto");
+    assert_eq!(
+        server["tools"]["devmap_start_browser_dock"]["approval_mode"],
+        "auto"
+    );
     assert!(server.get("cwd").is_none());
     assert!(server.get("url").is_none());
 }
@@ -106,6 +114,7 @@ fn configured_command_launches_dock_over_stdio_without_browser_server() {
         .collect::<Vec<_>>();
     assert!(names.contains(&"devmap_dock_snapshot"));
     assert!(names.contains(&"devmap_open_dock"));
+    assert!(names.contains(&"devmap_start_browser_dock"));
 }
 
 #[test]
@@ -118,6 +127,9 @@ fn bundled_skill_has_a_narrow_honest_trigger() {
     assert!(normalized.contains("show, open, or refresh"));
     assert!(skill.contains("devmap_open_dock"));
     assert!(skill.contains("devmap_dock_snapshot"));
+    assert!(skill.contains("devmap_start_browser_dock"));
+    assert!(skill.contains("placement: right"));
+    assert!(normalized.contains("never repeat the authenticated url"));
     assert!(skill.contains("local worktrees"));
     assert!(skill.contains("cross-machine"));
     assert!(!skill.contains("start an HTTP server"));

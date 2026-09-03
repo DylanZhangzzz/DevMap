@@ -1,4 +1,5 @@
 use std::io::{BufRead, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
@@ -14,17 +15,20 @@ use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabiliti
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
 use crate::presence::{PresenceSignal, PresenceStore};
+use crate::viewer::{ViewerHandle, ViewerRuntime, start_live_viewer};
 
 pub const DOCK_DATA_TOOL: &str = "devmap_dock_snapshot";
 pub const DOCK_RENDER_TOOL: &str = "devmap_open_dock";
+pub const DOCK_BROWSER_TOOL: &str = "devmap_start_browser_dock";
 
-pub const MCP_TOOLS: [&str; 6] = [
+pub const MCP_TOOLS: [&str; 7] = [
     "devmap_context",
     "devmap_record_requirement",
     "devmap_record_decision",
     "devmap_record_evidence",
     DOCK_DATA_TOOL,
     DOCK_RENDER_TOOL,
+    DOCK_BROWSER_TOOL,
 ];
 
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -46,8 +50,14 @@ pub struct TransportAudit {
 pub struct McpRuntime {
     workspace: SourceWorkspace,
     dock: Option<DockService>,
+    browser_dock: Option<BrowserDock>,
     audit: TransportAudit,
     legacy_initialized: bool,
+}
+
+struct BrowserDock {
+    handle: ViewerHandle,
+    runtime: ViewerRuntime,
 }
 
 impl McpRuntime {
@@ -55,6 +65,7 @@ impl McpRuntime {
         Ok(Self {
             workspace: SourceGitInspector::open(source)?.workspace()?,
             dock: None,
+            browser_dock: None,
             audit: TransportAudit::default(),
             legacy_initialized: false,
         })
@@ -190,7 +201,7 @@ fn handle_message(runtime: &mut McpRuntime, message: &Value) -> Option<Value> {
         "server/discover" if era == RequestEra::Modern => json_rpc_result(id, discovery_result()),
         "server/discover" => invalid_params(id, "server/discover requires modern request metadata"),
         "tools/list" => list_tools_response(id, params),
-        "tools/call" => call_tool_response(&runtime.workspace, &mut runtime.dock, id, params),
+        "tools/call" => call_tool_response(runtime, id, params),
         "resources/list" => list_resources_response(id, params),
         "resources/read" => read_resource_response(id, params),
         _ => json_rpc_error(id, -32601, "Method not found", None),
@@ -634,12 +645,7 @@ fn read_resource_response(id: Value, params: Option<&Value>) -> Value {
     )
 }
 
-fn call_tool_response(
-    workspace: &SourceWorkspace,
-    dock: &mut Option<DockService>,
-    id: Value,
-    params: Option<&Value>,
-) -> Value {
+fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value>) -> Value {
     let Some(params) = params.and_then(Value::as_object) else {
         return invalid_params(id, "tools/call params must be an object");
     };
@@ -658,17 +664,42 @@ fn call_tool_response(
         return invalid_params(id, format!("Unknown tool: {name}"));
     }
 
+    if name == DOCK_BROWSER_TOOL {
+        if let Err(error) = ensure_fields(&arguments, &[]) {
+            return json_rpc_result(id, tool_error(error));
+        }
+        return match start_or_reuse_browser_dock(runtime) {
+            Ok((url, revision, reused)) => json_rpc_result(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": "DevMap Browser Dock is ready."
+                    }],
+                    "structuredContent": {
+                        "url": url,
+                        "revision": revision,
+                        "reused": reused
+                    },
+                    "isError": false
+                }),
+            ),
+            Err(error) => json_rpc_result(id, tool_error(error)),
+        };
+    }
+
     if matches!(name, DOCK_DATA_TOOL | DOCK_RENDER_TOOL) {
         if let Err(error) = ensure_fields(&arguments, &[]) {
             return json_rpc_result(id, tool_error(error));
         }
-        if dock.is_none() {
-            match DockService::open(&workspace.root) {
-                Ok(service) => *dock = Some(service),
+        if runtime.dock.is_none() {
+            match DockService::open(&runtime.workspace.root) {
+                Ok(service) => runtime.dock = Some(service),
                 Err(error) => return json_rpc_result(id, tool_error(error)),
             }
         }
-        let dock = dock
+        let dock = runtime
+            .dock
             .as_mut()
             .expect("Dock was initialized or returned an error above");
         return match dock.refresh(OffsetDateTime::now_utc()) {
@@ -677,10 +708,50 @@ fn call_tool_response(
         };
     }
 
-    match call_tool(workspace, name, &arguments) {
+    match call_tool(&runtime.workspace, name, &arguments) {
         Ok(structured) => json_rpc_result(id, tool_result(structured)),
         Err(error) => json_rpc_result(id, tool_error(error)),
     }
+}
+
+fn start_or_reuse_browser_dock(
+    runtime: &mut McpRuntime,
+) -> Result<(String, u64, bool), DevMapError> {
+    if runtime
+        .browser_dock
+        .as_ref()
+        .is_some_and(|dock| dock.runtime.is_running())
+    {
+        let dock = runtime
+            .browser_dock
+            .as_ref()
+            .expect("healthy Viewer exists");
+        let revision = runtime
+            .dock
+            .as_ref()
+            .map(|service| service.snapshot().revision)
+            .unwrap_or(1);
+        return Ok((dock.handle.url(), revision, true));
+    }
+    runtime.browser_dock = None;
+
+    let revision = if let Some(dock) = runtime.dock.as_mut() {
+        dock.refresh(OffsetDateTime::now_utc())?.revision
+    } else {
+        let dock = DockService::open(&runtime.workspace.root)?;
+        let revision = dock.snapshot().revision;
+        runtime.dock = Some(dock);
+        revision
+    };
+    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+    let (handle, viewer_runtime) = start_live_viewer(&runtime.workspace.root, bind)?;
+    let url = handle.url();
+    runtime.browser_dock = Some(BrowserDock {
+        handle,
+        runtime: viewer_runtime,
+    });
+    runtime.audit.tcp_listeners_opened = runtime.audit.tcp_listeners_opened.saturating_add(1);
+    Ok((url, revision, false))
 }
 
 fn call_tool(
@@ -1033,13 +1104,16 @@ fn tool_descriptors() -> Vec<Value> {
         ),
         dock_tool_descriptor(DOCK_DATA_TOOL, false),
         dock_tool_descriptor(DOCK_RENDER_TOOL, true),
+        dock_tool_descriptor(DOCK_BROWSER_TOOL, false),
     ]
 }
 
 fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
     let mut descriptor = json!({
         "name": name,
-        "description": if renders_ui {
+        "description": if name == DOCK_BROWSER_TOOL {
+            "Start or reuse the read-only DevMap Viewer for a right-side Browser panel."
+        } else if renders_ui {
             "Open the read-only DevMap worktree Dock."
         } else {
             "Read the current local DevMap worktree and Agent state."
@@ -1056,7 +1130,10 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
         }
     });
     if renders_ui {
-        descriptor["_meta"] = json!({"ui": {"resourceUri": DOCK_RESOURCE_URI}});
+        descriptor["_meta"] = json!({
+            "ui": {"resourceUri": DOCK_RESOURCE_URI},
+            "openai/outputTemplate": DOCK_RESOURCE_URI
+        });
     }
     descriptor
 }
