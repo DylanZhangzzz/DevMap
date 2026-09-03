@@ -3,105 +3,115 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DevMap Git Relationship Map</title>
+  <title>DevMap Git Work Map</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #07101f; --surface: #111c2e; --surface-strong: #18263c; --line: #34445d;
-      --text: #f8fafc; --muted: #9fb0c8; --green: #34d399; --green-soft: #0d352d;
-      --amber: #f59e0b; --amber-soft: #3d2b0d; --purple: #c4b5fd; --purple-soft: #302456;
-      --cyan: #22d3ee; --cyan-soft: #103b48; --blue: #60a5fa; --blue-soft: #15365c;
-      --red: #fb7185; --gray: #94a3b8; --radius: 12px;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #07111f; --surface: #0d1a2d; --surface-strong: #13243a;
+      --line: #38506d; --line-soft: #213651; --text: #f4f8ff; --muted: #a9bad0;
+      --root: #55a7ff; --root-soft: #0c3156; --dev: #42d7a5; --dev-soft: #0b3a32;
+      --branch: #c29bff; --branch-soft: #2c2050; --merged: #41dfa5;
+      --open: #ffba49; --unknown: #9aabc1; --dirty: #ff6680; --focus: #fff2a8;
     }
     * { box-sizing: border-box; }
-    html, body { min-width: 0; min-height: 100%; margin: 0; overflow-x: hidden; }
-    body { background: radial-gradient(circle at 50% -20%, #172d4d 0, var(--bg) 42%); color: var(--text); font-size: 14px; line-height: 1.45; }
-    button { font: inherit; }
-    .shell { container-type: inline-size; min-height: 100dvh; padding: 16px; }
-    .skip-link { position: fixed; left: 12px; top: -90px; z-index: 20; padding: 8px 12px; background: var(--text); color: var(--bg); }
-    .skip-link:focus { top: 12px; }
-    :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
-    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .eyebrow { margin: 0 0 4px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: clamp(20px, 4cqi, 30px); line-height: 1.15; letter-spacing: -.03em; }
-    .subhead { margin: 5px 0 0; color: var(--muted); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
-    .refresh { min-width: 48px; min-height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; }
-    .refresh:hover { border-color: var(--green); background: var(--surface-strong); }
-    .overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 10px; }
-    .metric { min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17, 28, 46, .82); }
-    .metric strong { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
-    .metric span { color: var(--muted); font-size: 11px; }
-    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
-    .connection { margin: 0; color: var(--green); font-size: 12px; font-weight: 700; }
-    .connection.offline { color: var(--amber); }
-    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; color: var(--muted); font-size: 11px; }
-    .legend span { display: inline-flex; align-items: center; gap: 5px; }
-    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--gray); }
-    .dot.merged { background: var(--green); } .dot.open { background: var(--amber); }
-    .dot.agent { background: var(--purple); } .dot.dirty { background: var(--red); }
-    .map-frame { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: rgba(7, 16, 31, .72); overflow: hidden; }
-    .map-heading { display: grid; grid-template-columns: 76px minmax(170px, 1.7fr) minmax(145px, 1.2fr) minmax(100px, .8fr) 76px; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-    .map-heading span:last-child { text-align: right; }
-    .relationship-map { min-width: 0; }
-    .empty { margin: 14px; padding: 20px; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--muted); text-align: center; }
-    .lane { position: relative; display: grid; grid-template-columns: 76px minmax(170px, 1.7fr) minmax(145px, 1.2fr) minmax(100px, .8fr) 76px; align-items: stretch; gap: 10px; min-width: 0; padding: 14px; border-bottom: 1px solid #25344b; }
-    .lane:last-child { border-bottom: 0; }
-    .lane.current { background: linear-gradient(90deg, rgba(96, 165, 250, .1), transparent 40%); box-shadow: inset 3px 0 0 var(--blue); }
-    .node { position: relative; z-index: 2; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-    .target-node { align-self: center; padding: 8px 5px; color: var(--muted); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 11px; font-weight: 800; text-align: center; overflow-wrap: anywhere; }
-    .target-node::after { content: ""; position: absolute; top: 50%; width: 12px; height: 2px; background: var(--line); }
-    .target-left::after { left: 100%; } .target-right::after { right: 100%; }
-    .lane.merged .target-right { border-color: var(--green); color: var(--green); background: var(--green-soft); }
-    .lane.unmerged .target-right { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); }
-    .workspace-node { width: 100%; min-width: 0; padding: 10px 11px; border-color: #58708f; color: var(--text); text-align: left; cursor: pointer; }
-    .workspace-node:hover { background: var(--surface-strong); border-color: var(--blue); }
-    .workspace-node[aria-pressed="true"] { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(96, 165, 250, .2); }
-    .workspace-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-    .branch { min-width: 0; color: #dbeafe; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
-    .current-pill { flex: none; padding: 2px 6px; border-radius: 999px; background: var(--blue-soft); color: #bfdbfe; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
-    .path { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
-    .workspace-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 8px; color: var(--muted); font-size: 10px; }
-    .dirty-mark { color: var(--red); font-weight: 800; }
-    .chat-stack { display: grid; align-content: center; gap: 6px; min-width: 0; }
-    .chat-node { min-width: 0; padding: 8px 10px; border-color: var(--gray); color: var(--muted); }
-    .chat-node.working, .chat-node.starting { border-color: var(--purple); background: var(--purple-soft); color: #ede9fe; }
-    .chat-node.idle { border-color: var(--cyan); background: var(--cyan-soft); color: #cffafe; }
-    .chat-node.waiting { border-color: var(--blue); background: var(--blue-soft); color: #dbeafe; }
-    .chat-node.stale { border-color: var(--amber); background: var(--amber-soft); color: #fde68a; }
-    .chat-title { display: grid; gap: 4px; min-width: 0; }
-    .chat-title strong { min-width: 0; overflow-wrap: anywhere; }
-    .chat-status { justify-self: start; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
-    .chat-meta { display: block; margin-top: 3px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 9px; opacity: .82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .capture-warning { display: inline-block; margin-top: 5px; color: var(--red); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
-    .return-edge { position: relative; z-index: 1; align-self: center; min-height: 54px; color: var(--muted); text-align: center; }
-    .return-edge .line { position: absolute; top: 50%; left: -10px; height: 3px; border-radius: 4px; background: var(--line); }
-    .lane.merged .return-edge .line { right: -22px; background: var(--green); }
-    .lane.unmerged .return-edge .line { right: 24%; background: var(--amber); }
-    .lane.unmerged .return-edge .line::after { content: ""; position: absolute; right: -1px; top: -4px; border-left: 7px solid var(--amber); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-    .lane.unknown .return-edge .line { right: 24%; background: repeating-linear-gradient(90deg, var(--gray) 0 5px, transparent 5px 10px); }
-    .merge-label { position: relative; z-index: 2; display: inline-block; max-width: 100%; padding: 2px 6px; border-radius: 999px; background: var(--bg); font-size: 9px; font-weight: 900; line-height: 1.25; }
-    .lane.merged .merge-label { color: var(--green); } .lane.unmerged .merge-label { color: var(--amber); }
-    .counts { position: absolute; z-index: 2; top: calc(50% + 8px); left: 0; right: 0; color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
-    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--amber); border-radius: 10px; background: var(--amber-soft); color: #fde68a; }
+    html, body { margin: 0; min-width: 0; min-height: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); }
+    body { font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    button { font: inherit; touch-action: manipulation; }
+    button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; transform: translateY(-160%); border-radius: 8px; background: var(--text); color: var(--bg); }
+    .skip-link:focus { transform: translateY(0); }
+    .shell { container-type: inline-size; width: min(1180px, 100%); margin: 0 auto; padding: 20px; }
+    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .eyebrow { margin: 0 0 4px; color: var(--dev); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(24px, 4cqi, 34px); line-height: 1.15; letter-spacing: -.03em; }
+    .subhead { margin: 5px 0 0; color: var(--muted); font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+    .refresh { min-width: 104px; min-height: 44px; padding: 9px 14px; border: 1px solid var(--root); border-radius: 10px; background: var(--root-soft); color: var(--text); cursor: pointer; font-weight: 750; }
+    .refresh:hover { background: #154472; }
+    .refresh:disabled { cursor: wait; opacity: .62; }
+    .overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 18px 0 10px; }
+    .metric { min-width: 0; padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface); }
+    .metric strong { display: block; font-size: 19px; font-variant-numeric: tabular-nums; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 16px; }
+    .connection { margin: 0; color: var(--dev); font: 700 12px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .connection.offline { color: var(--open); }
+    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 14px; color: var(--muted); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--unknown); }
+    .dot.root { background: var(--root); } .dot.dev { background: var(--dev); }
+    .dot.open { background: var(--open); } .dot.dirty { background: var(--dirty); }
+    .map-frame { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #081525; }
+    .relationship-map { display: grid; min-width: 0; }
+    .rail-section { --rail-color: var(--root); position: relative; min-width: 0; padding: 18px 18px 22px; border-bottom: 1px solid var(--line-soft); }
+    .rail-section:last-child { border-bottom: 0; }
+    .rail-section.development { --rail-color: var(--dev); margin-left: clamp(18px, 5vw, 70px); border-left: 2px solid var(--dev); }
+    .integration-rail { display: grid; grid-template-columns: minmax(100px, .7fr) minmax(0, 2.5fr); align-items: center; gap: 12px; min-height: 48px; }
+    .rail-node { min-height: 44px; padding: 8px 12px; border: 1px solid var(--rail-color); border-radius: 999px; background: color-mix(in srgb, var(--rail-color) 16%, var(--surface)); color: var(--text); cursor: pointer; text-align: left; }
+    .rail-node strong { display: block; overflow-wrap: anywhere; }
+    .rail-node span { display: block; color: var(--muted); font: 11px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .rail-line { position: relative; height: 3px; border-radius: 99px; background: var(--rail-color); }
+    .rail-line::after { content: ""; position: absolute; top: -5px; right: 0; width: 11px; height: 11px; border: 3px solid var(--rail-color); border-radius: 50%; background: var(--bg); }
+    .rail-parent { margin: 3px 0 10px 112px; color: var(--muted); font-size: 12px; }
+    .groups { display: grid; gap: 12px; margin-top: 12px; padding-left: clamp(24px, 8vw, 112px); }
+    .fork-group { position: relative; min-width: 0; padding-left: 24px; }
+    .fork-group::before { content: ""; position: absolute; top: -14px; bottom: 16px; left: 5px; width: 2px; background: var(--rail-color); opacity: .7; }
+    .fork-group.unknown::before { background: repeating-linear-gradient(180deg, var(--unknown) 0 5px, transparent 5px 10px); }
+    .fork-group.terminal::before { bottom: 50%; }
+    .fork-station { position: relative; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--rail-color); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
+    .fork-station::before { content: ""; position: absolute; top: 50%; left: -24px; width: 23px; height: 2px; background: var(--rail-color); }
+    .fork-group.unknown .fork-station { border-style: dashed; border-color: var(--unknown); }
+    .station-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+    .station-title strong { overflow-wrap: anywhere; }
+    .station-meta { color: var(--muted); font: 11px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .branch-list { display: grid; gap: 8px; margin-top: 8px; }
+    .workspace-branch { display: grid; grid-template-columns: minmax(170px, 1.25fr) minmax(150px, 1fr) minmax(120px, .72fr); gap: 8px; min-width: 0; padding: 8px; border-left: 3px solid var(--branch); border-radius: 8px; background: rgba(13, 26, 45, .78); }
+    .workspace-branch.current { box-shadow: inset 0 0 0 1px var(--root); }
+    .workspace-button, .task-node { min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-strong); color: var(--text); cursor: pointer; text-align: left; }
+    .workspace-button:hover, .task-node:hover, .fork-station:hover, .rail-node:hover { border-color: var(--focus); }
+    .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 800; overflow-wrap: anywhere; }
+    .current-pill { padding: 1px 6px; border-radius: 999px; background: var(--root-soft); color: #cde7ff; font-size: 10px; letter-spacing: .05em; }
+    .workspace-short, .task-meta { display: block; margin-top: 3px; color: var(--muted); font: 11px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+    .dirty-mark { display: inline-block; margin-top: 3px; color: var(--dirty); font-size: 11px; font-weight: 800; }
+    .task-stack { display: grid; gap: 6px; min-width: 0; }
+    .task-node { border-color: var(--branch); background: var(--branch-soft); }
+    .task-node.idle { border-color: var(--dev); background: var(--dev-soft); }
+    .task-title { display: block; font-weight: 750; overflow-wrap: anywhere; }
+    .task-state { display: block; margin-top: 2px; color: #e3d7ff; font-size: 11px; font-weight: 750; text-transform: uppercase; }
+    .unlinked { min-height: 44px; padding: 8px 10px; border: 1px dashed var(--unknown); border-radius: 8px; color: var(--muted); }
+    .unlinked strong, .unlinked span { display: block; }
+    .unlinked span { font-size: 11px; }
+    .return-state { align-self: stretch; display: grid; align-content: center; min-height: 44px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--unknown); color: var(--unknown); font-size: 12px; font-weight: 800; }
+    .return-state.merged { border-color: var(--merged); color: var(--merged); background: var(--dev-soft); }
+    .return-state.unmerged { border-color: var(--open); color: var(--open); background: #382a10; }
+    .return-state.unknown { border-style: dashed; }
+    .counts { display: block; margin-top: 2px; color: var(--muted); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .selection-details { margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    .selection-details h2 { margin: 0 0 10px; font-size: 17px; }
+    .detail-empty { margin: 0; color: var(--muted); }
+    .detail-grid { display: grid; grid-template-columns: minmax(110px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 0; }
+    .detail-grid dt { color: var(--muted); }
+    .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+    .detail-grid code { user-select: text; font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .copy-hash { min-height: 44px; margin-top: 12px; padding: 8px 12px; border: 1px solid var(--branch); border-radius: 8px; background: var(--branch-soft); color: var(--text); cursor: pointer; }
+    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--open); border-radius: 10px; background: #382a10; color: #ffe3a3; }
     .warnings[hidden] { display: none; }
-    @container (max-width: 519px) {
-      .shell { padding: 12px; } .toolbar { align-items: flex-start; flex-direction: column; }
-      .legend { justify-content: flex-start; } .map-heading { display: none; }
-      .lane { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; }
-      .target-node, .workspace-node, .chat-stack, .return-edge { grid-column: 1; }
-      .target-node { justify-self: center; width: min(150px, 72%); }
-      .target-node::after { top: 100%; left: 50%; width: 2px; height: 10px; }
-      .target-right::after { top: auto; bottom: 100%; left: 50%; width: 2px; height: 10px; }
-      .return-edge { min-height: 56px; }
-      .return-edge .line { top: -8px; bottom: -8px; left: 50%; width: 3px; height: auto; }
-      .lane.merged .return-edge .line { right: auto; background: var(--green); }
-      .lane.unmerged .return-edge .line { right: auto; bottom: 24%; background: var(--amber); }
-      .lane.unmerged .return-edge .line::after { right: -4px; top: auto; bottom: -1px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--amber); border-bottom: 0; }
-      .lane.unknown .return-edge .line { right: auto; background: repeating-linear-gradient(180deg, var(--gray) 0 5px, transparent 5px 10px); }
-      .counts { top: calc(50% + 9px); }
+    .empty { margin: 0; padding: 20px; color: var(--muted); }
+    @container (max-width: 619px) {
+      .shell { padding: 12px; }
+      .masthead, .toolbar { align-items: flex-start; flex-direction: column; }
+      .refresh { width: 100%; }
+      .legend { justify-content: flex-start; }
+      .rail-section, .rail-section.development { margin-left: 0; padding: 14px 12px 18px; }
+      .integration-rail { grid-template-columns: minmax(0, 1fr); }
+      .rail-line { margin-left: 22px; width: 3px; height: 26px; }
+      .rail-line::after { top: auto; right: -5px; bottom: 0; }
+      .rail-parent, .groups { margin-left: 0; padding-left: 18px; }
+      .workspace-branch { grid-template-columns: minmax(0, 1fr); }
+      .detail-grid { grid-template-columns: minmax(0, 1fr); }
+      .detail-grid dd { margin-bottom: 6px; }
     }
-    @container (max-width: 350px) { .overview { grid-template-columns: 1fr; } .masthead { align-items: center; } }
+    @container (max-width: 360px) { .overview { grid-template-columns: minmax(0, 1fr); } }
+    @media (pointer: coarse) { button { min-height: 44px; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
   </style>
 </head>
@@ -110,22 +120,24 @@
   <div class="shell">
     <header class="masthead">
       <div><p class="eyebrow">Live local Git state</p><h1>Git Work Map</h1><p class="subhead" id="revision">Waiting for a valid snapshot</p></div>
-      <button class="refresh" id="refresh" type="button" aria-label="Refresh Git relationship map">Refresh</button>
+      <button class="refresh" id="refresh" type="button">Refresh all</button>
     </header>
     <div class="overview" aria-label="Relationship summary">
       <div class="metric"><strong id="metric-workspaces">0</strong><span>Workspaces</span></div>
-      <div class="metric"><strong id="metric-chats">0</strong><span>Linked chats</span></div>
+      <div class="metric"><strong id="metric-tasks">0</strong><span>Linked chats</span></div>
       <div class="metric"><strong id="metric-open">0</strong><span>Not merged</span></div>
     </div>
     <div class="toolbar">
       <p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p>
-      <div class="legend" aria-label="Map legend"><span><i class="dot merged"></i>Merged</span><span><i class="dot open"></i>Not merged</span><span><i class="dot agent"></i>Active Agent</span><span><i class="dot dirty"></i>Dirty</span></div>
+      <div class="legend" aria-label="Map legend"><span><i class="dot root"></i>Main rail</span><span><i class="dot dev"></i>Development rail</span><span><i class="dot open"></i>Not merged</span><span><i class="dot dirty"></i>Dirty</span></div>
     </div>
     <main id="dock-main" tabindex="-1">
       <section class="map-frame" aria-labelledby="map-title">
-        <h2 id="map-title" hidden>Workspace, Agent, branch, and merge relationships</h2>
-        <div class="map-heading" aria-hidden="true"><span>Base</span><span>Branch / workspace</span><span>Chat / Agent</span><span>Return</span><span>Target</span></div>
+        <h2 id="map-title" hidden>Workspace, task, branch, and merge relationships</h2>
         <div class="relationship-map" id="relationship-map"></div>
+      </section>
+      <section class="selection-details" id="selection-details" aria-labelledby="selection-title">
+        <h2 id="selection-title">Selection details</h2><p class="detail-empty">Select a common-base station, workspace, or task.</p>
       </section>
       <p class="warnings" id="warnings" role="status" hidden></p>
     </main>
@@ -133,36 +145,54 @@
   <script>
     (() => {
       "use strict";
-      const MAX_ROWS = 2048, MAX_TEXT = 16384;
+      const MAX_ROWS = 2048, MAX_TEXT = 16384, MAX_TAGS = 32;
+      const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map();
       const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
       const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
-      let nextRequestId = 1, renderedRevision = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream, selectedWorktreeId = null;
+      const allowedSources = new Set(["config", "local_dev", "local_develop", "remote_default", "local_main", "local_master"]);
+      let nextRequestId = 1, renderedRevision = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream;
+      let lastTaskInventorySync = null, requestedTaskInventorySync = null, refreshRequestTimer;
       const byId = (id) => document.getElementById(id);
       const boundedText = (value) => typeof value === "string" && value.length > 0 && value.length <= MAX_TEXT;
       const optionalText = (value) => value === null || value === undefined || boundedText(value);
+      const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
       const safeRouteId = (value) => value === null || value === undefined || /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$/.test(value);
       const safeCount = (value) => value === null || (Number.isSafeInteger(value) && value >= 0);
-      function validChat(chat) {
-        return chat && typeof chat === "object" && boundedText(chat.session_id) && boundedText(chat.display_title)
-          && boundedText(chat.actor_id) && boundedText(chat.host) && optionalText(chat.host_status)
-          && safeRouteId(chat.route_id) && allowedStatus.has(chat.status)
-          && allowedConfidence.has(chat.confidence) && boundedText(chat.last_event_at)
-          && typeof chat.capture_incomplete === "boolean"
-          && (chat.association_source === "presence_worktree_id" || chat.association_source === "codex_task_cwd");
+      function validTask(task) {
+        return task && typeof task === "object" && boundedText(task.session_id) && boundedText(task.display_title)
+          && boundedText(task.actor_id) && boundedText(task.host) && optionalText(task.host_status)
+          && safeRouteId(task.route_id) && allowedStatus.has(task.status) && allowedConfidence.has(task.confidence)
+          && boundedText(task.last_event_at) && typeof task.capture_incomplete === "boolean"
+          && (task.association_source === "presence_worktree_id" || task.association_source === "codex_task_cwd");
+      }
+      function validFork(fork) {
+        return fork && typeof fork === "object" && boundedText(fork.target_branch) && safeHash(fork.commit)
+          && Array.isArray(fork.tags) && fork.tags.length <= MAX_TAGS && fork.tags.every(boundedText)
+          && optionalText(fork.subject) && optionalText(fork.authored_at) && safeCount(fork.distance_to_target);
       }
       function validRelationship(value) {
         return value && typeof value === "object" && optionalText(value.base_target) && optionalText(value.merge_target)
           && (value.merged === null || typeof value.merged === "boolean") && safeCount(value.ahead) && safeCount(value.behind)
-          && typeof value.dirty === "boolean" && Number.isSafeInteger(value.changed_file_count) && value.changed_file_count >= 0;
+          && typeof value.dirty === "boolean" && Number.isSafeInteger(value.changed_file_count) && value.changed_file_count >= 0
+          && (value.fork_point === null || validFork(value.fork_point));
       }
       function validLane(lane) {
         return lane && typeof lane === "object" && /^wt-[0-9a-f]{64}$/.test(lane.worktree_id)
-          && boundedText(lane.workspace_path) && optionalText(lane.branch) && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(lane.head)
+          && boundedText(lane.workspace_path) && optionalText(lane.branch) && safeHash(lane.head)
           && typeof lane.is_current === "boolean" && validRelationship(lane.relationship)
-          && Array.isArray(lane.chats) && lane.chats.length <= MAX_ROWS && lane.chats.every(validChat);
+          && Array.isArray(lane.chats) && lane.chats.length <= MAX_ROWS && lane.chats.every(validTask);
+      }
+      function validRail(rail) {
+        return rail && typeof rail === "object" && boundedText(rail.name) && boundedText(rail.ref_name)
+          && safeHash(rail.head) && optionalText(rail.parent) && allowedSources.has(rail.source);
+      }
+      function validGroup(group) {
+        return group && typeof group === "object" && boundedText(group.target_branch)
+          && typeof group.terminal === "boolean" && (group.fork_point === null || validFork(group.fork_point))
+          && Array.isArray(group.lanes) && group.lanes.length <= MAX_ROWS && group.lanes.every(validLane);
       }
       function post(message) { window.parent.postMessage(message, "*"); }
       function callTool(name, args) {
@@ -172,82 +202,167 @@
       }
       function initializeMcp() {
         const id = nextRequestId++; pendingRequests.set(id, "ui/initialize");
-        post({ jsonrpc: "2.0", id, method: "ui/initialize", params: { protocolVersion: "2026-07-28", capabilities: {}, clientInfo: { name: "devmap-dock", version: "1" } } });
+        post({ jsonrpc: "2.0", id, method: "ui/initialize", params: { protocolVersion: "2026-07-28", capabilities: {}, clientInfo: { name: "devmap-dock", version: "2" } } });
       }
       function scheduleRefresh(delay = 2000) {
         clearTimeout(refreshTimer);
         if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_dock_snapshot", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
       }
       function acceptSnapshot(value) {
-        if (!value || value.schema_version !== "devmap/dock/1") return false;
+        if (!value || value.schema_version !== "devmap/dock/2") return false;
         if (!Number.isSafeInteger(value.revision) || value.revision < renderedRevision) return false;
         if (!/^sha256-[0-9a-f]{64}$/.test(value.repository_id) || !/^wt-[0-9a-f]{64}$/.test(value.current_worktree_id)) return false;
-        if (!Array.isArray(value.lanes) || value.lanes.length > MAX_ROWS || value.lanes.some((lane) => !validLane(lane))) return false;
+        if (!Array.isArray(value.integration_branches) || value.integration_branches.length > MAX_ROWS || value.integration_branches.some((rail) => !validRail(rail))) return false;
+        if (!Array.isArray(value.branch_groups) || value.branch_groups.length > MAX_ROWS || value.branch_groups.some((group) => !validGroup(group))) return false;
+        if (!optionalText(value.task_inventory_synced_at)) return false;
         if (!Array.isArray(value.warnings) || value.warnings.length > MAX_ROWS || value.warnings.some((warning) => !warning || !boundedText(warning.code) || !optionalText(warning.subject_id))) return false;
-        if (value.revision === renderedRevision) { lastValidAt = Date.now(); setOnline(); return true; }
-        renderedRevision = value.revision; lastValidAt = Date.now(); renderSnapshot(value); setOnline(); return true;
+        lastTaskInventorySync = value.task_inventory_synced_at || null;
+        const refreshCompleted = byId("refresh").disabled && lastTaskInventorySync !== requestedTaskInventorySync;
+        if (value.revision === renderedRevision) { lastValidAt = Date.now(); setOnline(); if (refreshCompleted) finishRefresh("Task names resynced"); return true; }
+        renderedRevision = value.revision; lastValidAt = Date.now(); renderSnapshot(value); setOnline(); if (refreshCompleted) finishRefresh("Task names resynced"); return true;
       }
+      function allLanes(value) { return value.branch_groups.flatMap((group) => group.lanes); }
       function renderSnapshot(value) {
-        const target = value.development_target?.name || "target unknown";
-        byId("revision").textContent = `Revision ${value.revision} · merge target ${target}`;
-        byId("metric-workspaces").textContent = String(value.lanes.length);
-        byId("metric-chats").textContent = String(value.lanes.reduce((sum, lane) => sum + lane.chats.length, 0));
-        byId("metric-open").textContent = String(value.lanes.filter((lane) => lane.relationship.merged === false).length);
+        const lanes = allLanes(value);
+        byId("revision").textContent = `Revision ${value.revision} · ${value.integration_branches.length} integration rail(s)`;
+        byId("metric-workspaces").textContent = String(lanes.length);
+        byId("metric-tasks").textContent = String(lanes.reduce((sum, lane) => sum + lane.chats.length, 0));
+        byId("metric-open").textContent = String(lanes.filter((lane) => lane.relationship.merged === false).length);
         const fragment = document.createDocumentFragment();
-        if (value.lanes.length === 0) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No local Git workspaces found"; fragment.append(empty); }
-        for (const lane of value.lanes) fragment.append(createLane(lane));
+        if (value.integration_branches.length === 0) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No integration branch could be resolved"; fragment.append(empty); }
+        for (const rail of value.integration_branches) fragment.append(createRail(rail, value.branch_groups));
+        const knownTargets = new Set(value.integration_branches.map((rail) => rail.name));
+        for (const group of value.branch_groups.filter((candidate) => !knownTargets.has(candidate.target_branch))) fragment.append(createDetachedGroup(group));
         byId("relationship-map").replaceChildren(fragment);
         const warning = byId("warnings"); warning.hidden = value.warnings.length === 0 && !value.truncated;
         warning.textContent = value.truncated ? `PARTIAL VIEW · ${value.warnings.length} integrity warning(s)` : `${value.warnings.length} integrity warning(s)`;
       }
-      function createLane(lane) {
+      function createRail(rail, groups) {
+        const section = document.createElement("section"); section.className = `rail-section ${rail.parent ? "development" : "root"}`;
+        const header = document.createElement("div"); header.className = "integration-rail";
+        const node = button("rail-node", `${rail.name} integration branch`, () => showRail(rail));
+        const name = document.createElement("strong"); name.textContent = rail.name;
+        const meta = document.createElement("span"); meta.textContent = `${rail.head.slice(0, 8)} · ${rail.parent ? `returns to ${rail.parent}` : "terminal"}`;
+        node.append(name, meta);
+        const line = document.createElement("span"); line.className = "rail-line"; line.setAttribute("aria-hidden", "true");
+        header.append(node, line); section.append(header);
+        if (rail.parent) { const parent = document.createElement("p"); parent.className = "rail-parent"; parent.textContent = `${rail.name} integrates into ${rail.parent}`; section.append(parent); }
+        const list = document.createElement("div"); list.className = "groups";
+        for (const group of groups.filter((candidate) => candidate.target_branch === rail.name)) list.append(createGroup(group));
+        section.append(list); return section;
+      }
+      function createDetachedGroup(group) {
+        const section = document.createElement("section"); section.className = "rail-section";
+        const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
+        const list = document.createElement("div"); list.className = "groups"; list.append(createGroup(group)); section.append(heading, list); return section;
+      }
+      function createGroup(group) {
+        const article = document.createElement("article"); article.className = `fork-group ${group.terminal ? "terminal" : group.fork_point ? "known" : "unknown"}`;
+        const stationLabel = group.terminal ? `${group.target_branch} branch head` : group.fork_point ? `Common base with ${group.target_branch}` : `Unknown base with ${group.target_branch}`;
+        const station = button("fork-station", stationLabel, () => showStation(group));
+        const title = document.createElement("span"); title.className = "station-title";
+        const strong = document.createElement("strong"); strong.textContent = stationLabel;
+        const count = document.createElement("span"); count.textContent = `${group.lanes.length} workspace${group.lanes.length === 1 ? "" : "s"}`;
+        title.append(strong, count);
+        const meta = document.createElement("span"); meta.className = "station-meta";
+        meta.textContent = group.fork_point ? `${group.fork_point.commit.slice(0, 8)} · ${group.fork_point.tags.length ? group.fork_point.tags.join(", ") : "No exact tag"}` : group.terminal ? "Integration terminal" : "Git ancestry unavailable";
+        station.append(title, meta);
+        const branches = document.createElement("div"); branches.className = "branch-list";
+        for (const lane of group.lanes) branches.append(createWorkspace(lane));
+        article.append(station, branches); return article;
+      }
+      function createWorkspace(lane) {
+        const row = document.createElement("div"); row.className = `workspace-branch${lane.is_current ? " current" : ""}`;
+        const workspace = button("workspace-button", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
+        const branch = document.createElement("span"); branch.className = "branch-name"; branch.textContent = lane.branch || "detached HEAD";
+        if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; branch.append(current); }
+        const path = document.createElement("span"); path.className = "workspace-short"; path.textContent = shortWorkspace(lane.workspace_path);
+        workspace.append(branch, path);
+        if (lane.relationship.dirty) { const dirty = document.createElement("span"); dirty.className = "dirty-mark"; dirty.textContent = `● DIRTY ${lane.relationship.changed_file_count}`; workspace.append(dirty); }
+        const tasks = document.createElement("div"); tasks.className = "task-stack";
+        if (lane.chats.length === 0) tasks.append(createUnlinkedTask()); else for (const chat of lane.chats) tasks.append(createTask(chat));
         const state = lane.relationship.merged === true ? "merged" : lane.relationship.merged === false ? "unmerged" : "unknown";
-        const article = document.createElement("article"); article.className = `lane ${state}${lane.is_current ? " current" : ""}`; article.dataset.worktreeId = lane.worktree_id;
-        const base = targetNode("target-left", lane.relationship.base_target || "unknown");
-        const workspace = document.createElement("button"); workspace.type = "button"; workspace.className = "node workspace-node"; workspace.dataset.worktreeId = lane.worktree_id;
-        workspace.setAttribute("aria-pressed", String(lane.worktree_id === selectedWorktreeId)); workspace.setAttribute("aria-label", `Select workspace ${lane.branch || "detached HEAD"}; ${mergeText(lane)}`); workspace.addEventListener("click", () => selectLane(lane));
-        const workspaceTop = document.createElement("span"); workspaceTop.className = "workspace-top";
-        const branch = document.createElement("span"); branch.className = "branch"; branch.textContent = lane.branch || "detached HEAD"; workspaceTop.append(branch);
-        if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; workspaceTop.append(current); }
-        const path = document.createElement("span"); path.className = "path"; path.textContent = lane.workspace_path; path.title = lane.workspace_path;
-        const meta = document.createElement("span"); meta.className = "workspace-meta"; meta.append(document.createTextNode(`HEAD ${lane.head.slice(0, 8)}`));
-        if (lane.relationship.dirty) { const dirty = document.createElement("span"); dirty.className = "dirty-mark"; dirty.textContent = `● DIRTY ${lane.relationship.changed_file_count}`; meta.append(dirty); } else meta.append(document.createTextNode("CLEAN"));
-        workspace.append(workspaceTop, path, meta);
-        const chats = document.createElement("div"); chats.className = "chat-stack";
-        if (lane.chats.length === 0) chats.append(createUnlinkedChat()); else for (const chat of lane.chats) chats.append(createChat(chat));
-        const edge = document.createElement("div"); edge.className = "return-edge"; edge.setAttribute("aria-label", mergeText(lane));
-        const line = document.createElement("span"); line.className = "line";
-        const label = document.createElement("span"); label.className = "merge-label"; label.textContent = state === "merged" ? "Merged into" : state === "unmerged" ? "Not merged" : "Merge unknown";
+        const returned = document.createElement("div"); returned.className = `return-state ${state}`;
+        returned.textContent = lane.relationship.merge_target === null ? "Terminal" : lane.relationship.merged === true ? `Merged → ${lane.relationship.merge_target}` : lane.relationship.merged === false ? `Not merged → ${lane.relationship.merge_target}` : `Unknown → ${lane.relationship.merge_target || "target"}`;
         const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = lane.relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${lane.relationship.ahead} · behind ${lane.relationship.behind}`;
-        edge.append(line, label, counts);
-        article.append(base, workspace, chats, edge, targetNode("target-right", lane.relationship.merge_target || "unknown")); return article;
+        returned.append(counts); row.append(workspace, tasks, returned); return row;
       }
-      function targetNode(position, text) { const node = document.createElement("div"); node.className = `node target-node ${position}`; node.textContent = text; node.title = text; return node; }
-      function createChat(chat) {
-        const node = document.createElement("div"); node.className = `node chat-node ${chat.status}`;
-        const title = document.createElement("span"); title.className = "chat-title";
-        const actor = document.createElement("strong"); actor.textContent = chat.display_title; actor.title = chat.display_title;
-        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = chat.host_status || chat.status; title.append(actor, status);
-        const session = document.createElement("span"); session.className = "chat-meta"; session.textContent = `${chat.host} · ${chat.session_id}`; session.title = chat.session_id; node.append(title, session);
-        if (chat.capture_incomplete) { const warning = document.createElement("span"); warning.className = "capture-warning"; warning.textContent = "CAPTURE INCOMPLETE"; node.append(warning); } return node;
+      function createTask(chat) {
+        const node = button(`task-node ${chat.status}`, `Select task ${chat.display_title}`, () => showTask(chat));
+        const title = document.createElement("span"); title.className = "task-title"; title.textContent = chat.display_title;
+        const state = document.createElement("span"); state.className = "task-state"; state.textContent = chat.host_status || chat.status;
+        const meta = document.createElement("span"); meta.className = "task-meta"; meta.textContent = chat.capture_incomplete ? "CAPTURE INCOMPLETE" : chat.host;
+        node.append(title, state, meta); return node;
       }
-      function createUnlinkedChat() {
-        const node = document.createElement("div"); node.className = "node chat-node unknown";
-        const title = document.createElement("span"); title.className = "chat-title";
-        const label = document.createElement("strong"); label.textContent = "No linked chat";
-        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = "UNINSTRUMENTED"; title.append(label, status); node.append(title); return node;
+      function createUnlinkedTask() {
+        const node = document.createElement("div"); node.className = "unlinked";
+        const title = document.createElement("strong"); title.textContent = "No linked chat";
+        const state = document.createElement("span"); state.textContent = "UNINSTRUMENTED";
+        node.append(title, state); return node;
       }
-      function mergeText(lane) {
-        const target = lane.relationship.merge_target || "unknown target";
-        if (lane.relationship.merged === true) return `Merged into ${target}`;
-        if (lane.relationship.merged === false) return `Not merged into ${target}; ahead ${lane.relationship.ahead}; behind ${lane.relationship.behind}`;
-        return `Merge relationship to ${target} is unknown`;
+      function button(className, label, handler) {
+        const node = document.createElement("button"); node.type = "button"; node.className = className; node.setAttribute("aria-label", label); node.addEventListener("click", handler); return node;
+      }
+      function shortWorkspace(path) { const parts = path.replaceAll("\\", "/").split("/").filter(Boolean); return parts.slice(-2).join("/") || path; }
+      function showRail(rail) {
+        showDetails(`${rail.name} integration branch`, [["Reference", rail.ref_name], ["HEAD", rail.head], ["Returns to", rail.parent || "Terminal"], ["Resolution", rail.source]], rail.head);
+      }
+      function showStation(group) {
+        if (!group.fork_point) {
+          showDetails(group.terminal ? `${group.target_branch} terminal` : `Unknown base with ${group.target_branch}`, [["Target", group.target_branch], ["State", group.terminal ? "Integration terminal" : "Git ancestry unavailable"], ["Workspaces", String(group.lanes.length)]]); return;
+        }
+        const fork = group.fork_point;
+        showDetails(`Common base with ${fork.target_branch}`, [["Full hash", fork.commit], ["Exact tags", fork.tags.length ? fork.tags.join(", ") : "No exact tag"], ["Subject", fork.subject || "Unavailable"], ["Authored", fork.authored_at || "Unavailable"], ["Distance to target", fork.distance_to_target === null ? "Unknown" : String(fork.distance_to_target)], ["Workspaces", String(group.lanes.length)]], fork.commit);
       }
       function selectLane(lane) {
-        selectedWorktreeId = lane.worktree_id;
-        document.querySelectorAll(".workspace-node").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.worktreeId === lane.worktree_id)));
+        const taskTitles = lane.chats.length ? lane.chats.map((chat) => chat.display_title).join(", ") : "No linked chat";
+        showDetails(lane.branch || "Detached workspace", [["Workspace", lane.workspace_path], ["HEAD", lane.head], ["Merge target", lane.relationship.merge_target || "Terminal"], ["Common base", lane.relationship.fork_point?.commit || "Unknown"], ["Ahead / behind", `${lane.relationship.ahead ?? "?"} / ${lane.relationship.behind ?? "?"}`], ["Merge state", lane.relationship.merged === true ? "Merged" : lane.relationship.merged === false ? "Not merged" : "Unknown"], ["Working tree", lane.relationship.dirty ? `DIRTY ${lane.relationship.changed_file_count}` : "Clean"], ["Tasks", taskTitles]], lane.head);
         const route = lane.chats.find((chat) => chat.route_id)?.route_id || "none";
         if (transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
+      }
+      function showTask(chat) {
+        showDetails(chat.display_title, [["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]]);
+      }
+      function showDetails(titleText, rows, copyValue) {
+        const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
+        const list = document.createElement("dl"); list.className = "detail-grid";
+        for (const [label, value] of rows) { const term = document.createElement("dt"); term.textContent = label; const detail = document.createElement("dd"); const code = document.createElement("code"); code.textContent = value; detail.append(code); list.append(term, detail); }
+        section.replaceChildren(title, list);
+        if (copyValue && safeHash(copyValue)) {
+          const copy = button("copy-hash", "Copy full hash", async () => {
+            try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyValue); copy.textContent = "Copied"; announce("Full hash copied"); }
+            catch (_) { copy.textContent = "Copy unavailable"; announce("Copy unavailable; select the full hash instead"); }
+          });
+          copy.textContent = "Copy hash"; section.append(copy);
+        }
+      }
+      function announce(text) { byId("connection").textContent = text; }
+      function finishRefresh(message) {
+        clearTimeout(refreshRequestTimer);
+        const refresh = byId("refresh"); refresh.disabled = false; refresh.textContent = "Refresh all";
+        announce(message);
+      }
+      async function gitOnlyRefresh() {
+        if (transport === "mcp") callTool("devmap_dock_snapshot", {}); else await fetchSnapshot();
+        finishRefresh("Git refreshed · task names not resynced · Ask Codex: Refresh DevMap");
+      }
+      async function requestFullRefresh() {
+        const refresh = byId("refresh");
+        if (refresh.disabled) return;
+        refresh.disabled = true; refresh.textContent = "Requesting Codex…";
+        requestedTaskInventorySync = lastTaskInventorySync;
+        try {
+          if (window.openai?.sendFollowUpMessage) {
+            await window.openai.sendFollowUpMessage({ prompt: REFRESH_PROMPT, title: "Refresh DevMap" });
+          } else if (transport === "mcp") {
+            const id = nextRequestId++; pendingRequests.set(id, "ui/message");
+            post({ jsonrpc: "2.0", id, method: "ui/message", params: { role: "user", content: [{ type: "text", text: REFRESH_PROMPT }] } });
+          } else {
+            await gitOnlyRefresh(); return;
+          }
+          announce("Codex refresh requested");
+          refreshRequestTimer = setTimeout(() => finishRefresh("No task changes reported"), 15000);
+        } catch (_) { await gitOnlyRefresh(); }
       }
       function setOnline() { const node = byId("connection"); node.className = "connection"; node.textContent = "LIVE · updated now"; scheduleAge(); }
       function setOffline() { const node = byId("connection"); node.className = "connection offline"; const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never"; node.textContent = `OFFLINE · last update ${age}`; scheduleAge(); }
@@ -264,13 +379,14 @@
         if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
         if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id); pendingRequests.delete(message.id);
           if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
+          else if (pending === "ui/message") { if (message.error) gitOnlyRefresh(); }
           else if (!acceptSnapshot(message.result?.structuredContent)) setOffline(); }
       });
       document.addEventListener("visibilitychange", () => {
         clearTimeout(refreshTimer); clearTimeout(ageTimer); if (eventStream) eventStream.close();
         if (document.visibilityState === "visible") { if (transport === "mcp") { callTool("devmap_dock_snapshot", {}); scheduleRefresh(); } else { fetchSnapshot(); connectEvents(); } scheduleAge(); }
       });
-      byId("refresh").addEventListener("click", () => { if (transport === "mcp") callTool("devmap_dock_snapshot", {}); else fetchSnapshot(); });
+      byId("refresh").addEventListener("click", requestFullRefresh);
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();
   </script>

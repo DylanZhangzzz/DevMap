@@ -39,6 +39,15 @@ fn http_body(response: &str) -> &str {
     response.split_once("\r\n\r\n").unwrap().1
 }
 
+fn browser_model(url: &str) -> Value {
+    let target = url.strip_prefix("http://").unwrap();
+    let (address, query) = target.split_once('/').unwrap();
+    let address: SocketAddr = address.parse().unwrap();
+    let response = http_get(address, &format!("/api/v1/dock/snapshot{query}"));
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    serde_json::from_str(http_body(&response)).unwrap()
+}
+
 fn run_stream(source: &std::path::Path, messages: &[Value]) -> Vec<Value> {
     let mut input = messages
         .iter()
@@ -168,7 +177,7 @@ fn dock_calls_are_read_only_closed_world_and_revisioned() {
     assert!(revisions.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(
         responses[1]["result"]["structuredContent"]["schema_version"],
-        "devmap/dock/1"
+        "devmap/dock/2"
     );
     assert!(responses[1]["result"].get("_meta").is_none());
     assert_eq!(
@@ -292,6 +301,130 @@ fn browser_dock_projects_exact_codex_task_titles_into_their_workspace() {
     assert_eq!(chats[0]["association_source"], "codex_task_cwd");
     assert!(!model.to_string().contains("不相关任务"));
     assert!(!model.to_string().contains("远端同路径任务"));
+}
+
+#[test]
+fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
+    let repo = support::committed_repo();
+    let task = json!({
+        "id": "01a00000-0000-7000-8000-000000000001",
+        "title": "Current task title",
+        "status": "active",
+        "cwd": repo.path().to_string_lossy(),
+        "updatedAt": 1_788_426_685_u64,
+        "hostId": "local",
+        "kind": "codex"
+    });
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let first = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": [task.clone()]}),
+        ))
+        .unwrap();
+    let url = first["result"]["structuredContent"]["url"]
+        .as_str()
+        .unwrap();
+    let supplied = browser_model(url);
+    let supplied_revision = supplied["revision"].as_u64().unwrap();
+    let supplied_sync = supplied["task_inventory_synced_at"].clone();
+    assert_eq!(
+        supplied["branch_groups"][0]["lanes"][0]["chats"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    runtime
+        .handle(&call(json!(3), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+    let retained = browser_model(url);
+    assert_eq!(retained["revision"], supplied_revision);
+    assert_eq!(retained["task_inventory_synced_at"], supplied_sync);
+    assert_eq!(
+        retained["branch_groups"][0]["lanes"][0]["chats"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    runtime
+        .handle(&call(
+            json!(4),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": [task]}),
+        ))
+        .unwrap();
+    let identical = browser_model(url);
+    assert_eq!(identical["revision"], supplied_revision);
+    assert_eq!(identical["task_inventory_synced_at"], supplied_sync);
+
+    runtime
+        .handle(&call(
+            json!(5),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": []}),
+        ))
+        .unwrap();
+    let cleared = browser_model(url);
+    assert!(cleared["revision"].as_u64().unwrap() > supplied_revision);
+    assert_ne!(cleared["task_inventory_synced_at"], supplied_sync);
+    assert!(
+        cleared["branch_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["lanes"].as_array().unwrap())
+            .all(|lane| lane["chats"].as_array().unwrap().is_empty())
+    );
+}
+
+#[test]
+fn starting_browser_with_empty_inventory_clears_retained_dock_tasks() {
+    let repo = support::committed_repo();
+    let task = json!({
+        "id": "01a00000-0000-7000-8000-000000000001",
+        "title": "Task that must be cleared",
+        "status": "active",
+        "cwd": repo.path().to_string_lossy(),
+        "updatedAt": 1_788_426_685_u64,
+        "hostId": "local",
+        "kind": "codex"
+    });
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    runtime
+        .handle(&call(
+            json!(2),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks": [task]}),
+        ))
+        .unwrap();
+
+    runtime
+        .handle(&call(
+            json!(3),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": []}),
+        ))
+        .unwrap();
+    let retained = runtime
+        .handle(&call(json!(4), DOCK_DATA_TOOL, json!({})))
+        .unwrap();
+    let model = &retained["result"]["structuredContent"];
+
+    assert!(
+        model["branch_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["lanes"].as_array().unwrap())
+            .all(|lane| lane["chats"].as_array().unwrap().is_empty())
+    );
 }
 
 #[test]

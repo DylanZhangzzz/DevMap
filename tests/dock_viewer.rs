@@ -4,9 +4,13 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
+use devmap::dock::ObservedTask;
 use devmap::error::DevMapError;
-use devmap::viewer::start_live_viewer;
+use devmap::presence::PresenceStatus;
+use devmap::viewer::{start_live_viewer, start_live_viewer_with_tasks};
 use serde_json::Value;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 fn request(address: SocketAddr, method: &str, target: &str) -> String {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
@@ -25,6 +29,66 @@ fn request(address: SocketAddr, method: &str, target: &str) -> String {
 
 fn body(response: &str) -> &str {
     response.split_once("\r\n\r\n").unwrap().1
+}
+
+fn observed_task(workspace: &std::path::Path, title: &str) -> ObservedTask {
+    ObservedTask {
+        session_id: "01a00000-0000-7000-8000-000000000001".into(),
+        display_title: title.into(),
+        host: "local".into(),
+        host_status: "active".into(),
+        workspace_path: workspace.to_string_lossy().into_owned(),
+        status: PresenceStatus::Working,
+        updated_at: "2026-09-03T10:00:00Z".into(),
+    }
+}
+
+#[test]
+fn viewer_applies_renamed_and_cleared_task_inventory() {
+    let repo = support::committed_repo();
+    let (handle, runtime) = start_live_viewer_with_tasks(
+        repo.path(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        vec![observed_task(repo.path(), "Old title")],
+    )
+    .unwrap();
+    let snapshot_path = format!("/api/v1/dock/snapshot?token={}", handle.token);
+    let original: Value =
+        serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
+    let original_revision = original["revision"].as_u64().unwrap();
+
+    runtime
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "New title")],
+            OffsetDateTime::parse("2026-09-03T10:02:00Z", &Rfc3339).unwrap(),
+        )
+        .unwrap();
+    let renamed: Value =
+        serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
+    assert!(renamed["revision"].as_u64().unwrap() > original_revision);
+    assert_eq!(
+        renamed["branch_groups"][0]["lanes"][0]["chats"][0]["display_title"],
+        "New title"
+    );
+
+    runtime
+        .replace_observed_tasks(
+            Vec::new(),
+            OffsetDateTime::parse("2026-09-03T10:03:00Z", &Rfc3339).unwrap(),
+        )
+        .unwrap();
+    let cleared: Value =
+        serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
+    assert!(
+        cleared["branch_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["lanes"].as_array().unwrap())
+            .all(|lane| lane["chats"].as_array().unwrap().is_empty())
+    );
+
+    runtime.shutdown().unwrap();
 }
 
 #[test]
@@ -63,7 +127,7 @@ fn viewer_is_loopback_token_protected_read_only_and_stoppable() {
     assert!(snapshot.contains("Content-Type: application/json"));
     assert!(snapshot.contains("Cache-Control: no-store"));
     let model: Value = serde_json::from_str(body(&snapshot)).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/1");
+    assert_eq!(model["schema_version"], "devmap/dock/2");
     let revision = model["revision"].as_u64().unwrap();
 
     let events = request(

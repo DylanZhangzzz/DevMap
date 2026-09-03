@@ -1,27 +1,30 @@
 use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 
 #[test]
-fn dock_asset_renders_each_lane_through_the_repeated_merge_target() {
+fn dock_asset_renders_shared_integration_rails_and_fork_stations() {
     let html = dock_html();
     for contract in [
         "relationship-map",
-        "target-left",
-        "workspace-node",
-        "chat-node",
-        "return-edge",
-        "target-right",
+        "integration-rail",
+        "fork-station",
+        "workspace-branch",
+        "task-node",
+        "selection-details",
+        "Copy hash",
+        "No exact tag",
     ] {
         assert!(
             html.contains(contract),
             "missing graph contract: {contract}"
         );
     }
-    assert!(html.contains("Merged into"));
+    assert!(html.contains("Merged →"));
     assert!(html.contains("Not merged"));
-    assert!(html.contains("No linked chat"));
+    assert!(html.contains("Unknown"));
     assert!(html.contains("ahead"));
     assert!(html.contains("behind"));
-    assert!(!html.contains("<details class=\"group\""));
+    assert!(!html.contains("target-left"));
+    assert!(!html.contains("target-right"));
 }
 
 #[test]
@@ -49,15 +52,15 @@ fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
     assert!(html.contains("aria-live=\"polite\""));
     assert!(html.contains("Workspaces"));
     assert!(html.contains("Linked chats"));
-    assert!(html.contains("Active Agent"));
+    assert!(html.contains("Development rail"));
     assert!(html.contains("UNINSTRUMENTED"));
-    assert!(html.contains(".lane.current"));
-    assert!(html.contains("Merge unknown"));
+    assert!(html.contains(".workspace-branch.current"));
+    assert!(html.contains("Unknown →"));
     assert!(html.contains("CAPTURE INCOMPLETE"));
     assert!(html.contains("OFFLINE · last update"));
     assert!(html.contains("Date.now() - lastValidAt > 6000"));
     assert!(html.contains("@container"));
-    assert!(html.contains("max-width: 519px"));
+    assert!(html.contains("max-width: 619px"));
     assert!(html.contains("prefers-reduced-motion"));
     assert!(html.contains(":focus-visible"));
     assert!(html.contains("visibilitychange"));
@@ -66,7 +69,7 @@ fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
 #[test]
 fn dock_asset_validates_untrusted_models_and_never_uses_html_injection() {
     let html = dock_html();
-    assert!(html.contains("devmap/dock/1"));
+    assert!(html.contains("devmap/dock/2"));
     assert!(html.contains("Number.isSafeInteger"));
     assert!(html.contains("safeRouteId"));
     assert!(html.contains("renderedRevision"));
@@ -95,4 +98,19 @@ fn dock_asset_accepts_exact_codex_task_links_and_renders_the_window_title() {
     assert!(html.contains("codex_task_cwd"));
     assert!(html.contains("chat.display_title"));
     assert!(html.contains("chat.host_status || chat.status"));
+}
+
+#[test]
+fn dock_refresh_requests_a_fresh_host_task_inventory() {
+    let html = dock_html();
+    assert!(html.contains("Refresh all"));
+    assert!(html.contains("Requesting Codex…"));
+    assert!(html.contains("sendFollowUpMessage"));
+    assert!(html.contains("method: \"ui/message\""));
+    assert!(html.contains("Git refreshed · task names not resynced"));
+    assert!(html.contains("Ask Codex: Refresh DevMap"));
+    assert!(html.contains(
+        "Refresh DevMap task inventory for the current local repository and update the open Dock."
+    ));
+    assert!(!html.contains("REFRESH_PROMPT = `"));
 }

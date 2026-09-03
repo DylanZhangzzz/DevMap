@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-03
 
-**Status:** Approved direction; pending written-spec review
+**Status:** Approved
 
 **Supersedes:** the flat per-worktree relationship layout in `2026-09-02-devmap-live-worktree-dock-design.md`
 

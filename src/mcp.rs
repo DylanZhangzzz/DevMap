@@ -711,7 +711,7 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
             .as_mut()
             .expect("Dock was initialized or returned an error above");
         if let Some(tasks) = observed_tasks
-            && let Err(error) = dock.set_observed_tasks(tasks, OffsetDateTime::now_utc())
+            && let Err(error) = dock.replace_observed_tasks(tasks, OffsetDateTime::now_utc())
         {
             return json_rpc_result(id, tool_error(error));
         }
@@ -742,14 +742,14 @@ fn start_or_reuse_browser_dock(
             .expect("healthy Viewer exists");
         let revision = if let Some(tasks) = observed_tasks {
             if let Some(dock) = runtime.dock.as_mut() {
-                dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?;
+                dock.replace_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?;
             }
             runtime
                 .browser_dock
                 .as_ref()
                 .expect("healthy Viewer exists")
                 .runtime
-                .set_observed_tasks(tasks, OffsetDateTime::now_utc())?
+                .replace_observed_tasks(tasks, OffsetDateTime::now_utc())?
         } else {
             runtime
                 .dock
@@ -761,23 +761,21 @@ fn start_or_reuse_browser_dock(
     }
     runtime.browser_dock = None;
 
-    let tasks = observed_tasks.unwrap_or_default();
-    let revision = if let Some(dock) = runtime.dock.as_mut() {
-        if tasks.is_empty() {
-            dock.refresh(OffsetDateTime::now_utc())?.revision
-        } else {
-            dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?
+    if runtime.dock.is_none() {
+        runtime.dock = Some(DockService::open(&runtime.workspace.root)?);
+    }
+    let dock = runtime
+        .dock
+        .as_mut()
+        .expect("Dock was initialized or returned an error above");
+    let revision = match observed_tasks {
+        Some(tasks) => {
+            dock.replace_observed_tasks(tasks, OffsetDateTime::now_utc())?
                 .revision
         }
-    } else {
-        let mut dock = DockService::open(&runtime.workspace.root)?;
-        if !tasks.is_empty() {
-            dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?;
-        }
-        let revision = dock.snapshot().revision;
-        runtime.dock = Some(dock);
-        revision
+        None => dock.refresh(OffsetDateTime::now_utc())?.revision,
     };
+    let tasks = dock.observed_tasks().to_vec();
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
     let (handle, viewer_runtime) =
         start_live_viewer_with_tasks(&runtime.workspace.root, bind, tasks)?;

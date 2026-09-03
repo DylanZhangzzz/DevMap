@@ -3,10 +3,126 @@ mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
-use devmap::dock::{DockReducer, DockService, NoRoutes};
+use devmap::dock::{DockReducer, DockService, NoRoutes, ObservedTask};
 use devmap::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
 use devmap::presence::{Confidence, PresenceStatus, StatusSource};
 use devmap::worktrees::repository_id;
+
+fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask {
+    ObservedTask {
+        session_id: "01a00000-0000-7000-8000-000000000001".into(),
+        display_title: title.into(),
+        host: "local".into(),
+        host_status: "active".into(),
+        workspace_path: workspace_path.to_string_lossy().into_owned(),
+        status: PresenceStatus::Working,
+        updated_at: "2026-09-03T10:00:00Z".into(),
+    }
+}
+
+#[test]
+fn replacing_inventory_updates_a_renamed_task_title() {
+    let repo = support::committed_repo();
+    let first_sync = time::OffsetDateTime::parse(
+        "2026-09-03T10:01:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let second_sync = time::OffsetDateTime::parse(
+        "2026-09-03T10:02:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let first_revision = service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Old title")], first_sync)
+        .unwrap()
+        .revision;
+
+    let renamed = service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "New title")], second_sync)
+        .unwrap();
+    let titles = renamed
+        .branch_groups
+        .iter()
+        .flat_map(|group| &group.lanes)
+        .flat_map(|lane| &lane.chats)
+        .map(|chat| chat.display_title.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(titles, ["New title"]);
+    assert_eq!(
+        renamed.task_inventory_synced_at.as_deref(),
+        Some("2026-09-03T10:02:00Z")
+    );
+    assert_eq!(renamed.revision, first_revision + 1);
+}
+
+#[test]
+fn reducer_groups_worktrees_at_the_same_exact_fork_point() {
+    let repo = support::committed_repo();
+    let dev = support::linked_worktree(repo.path(), "dev");
+    std::fs::write(dev.path().join("dev.txt"), "development\n").unwrap();
+    support::git(dev.path(), ["add", "dev.txt"]);
+    support::git(dev.path(), ["commit", "-m", "development base"]);
+    let shared_base = support::git(dev.path(), ["rev-parse", "HEAD"]);
+    let alpha = support::linked_worktree_from(repo.path(), "alpha", "dev");
+    let beta = support::linked_worktree_from(repo.path(), "beta", "dev");
+
+    let service = DockService::open(repo.path()).unwrap();
+    let groups = service
+        .snapshot()
+        .branch_groups
+        .iter()
+        .filter(|group| group.target_branch == "dev")
+        .collect::<Vec<_>>();
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].fork_point.as_ref().unwrap().commit, shared_base);
+    assert_eq!(
+        groups[0]
+            .lanes
+            .iter()
+            .filter_map(|lane| lane.branch.as_deref())
+            .collect::<Vec<_>>(),
+        ["alpha", "beta"]
+    );
+    assert_eq!(service.snapshot().integration_branches[1].name, "dev");
+
+    drop((alpha, beta, dev));
+}
+
+#[test]
+fn reducer_keeps_distinct_fork_points_in_history_order() {
+    let repo = support::committed_repo();
+    let dev = support::linked_worktree(repo.path(), "dev");
+    std::fs::write(dev.path().join("first.txt"), "first\n").unwrap();
+    support::git(dev.path(), ["add", "first.txt"]);
+    support::git(dev.path(), ["commit", "-m", "first development point"]);
+    let first_point = support::git(dev.path(), ["rev-parse", "HEAD"]);
+    let older = support::linked_worktree_from(repo.path(), "older-feature", "dev");
+    std::fs::write(dev.path().join("second.txt"), "second\n").unwrap();
+    support::git(dev.path(), ["add", "second.txt"]);
+    support::git(dev.path(), ["commit", "-m", "second development point"]);
+    let second_point = support::git(dev.path(), ["rev-parse", "HEAD"]);
+    let newer = support::linked_worktree_from(repo.path(), "newer-feature", "dev");
+    std::fs::write(dev.path().join("third.txt"), "third\n").unwrap();
+    support::git(dev.path(), ["add", "third.txt"]);
+    support::git(dev.path(), ["commit", "-m", "advance development"]);
+
+    let service = DockService::open(repo.path()).unwrap();
+    let commits = service
+        .snapshot()
+        .branch_groups
+        .iter()
+        .filter(|group| group.target_branch == "dev")
+        .filter_map(|group| group.fork_point.as_ref().map(|fork| fork.commit.as_str()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(commits, [first_point, second_point]);
+
+    drop((older, newer, dev));
+}
 
 #[test]
 fn reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane() {
@@ -342,7 +458,7 @@ fn agents_json_is_canonical_bounded_and_does_not_change_source_git_state() {
     );
     assert!(output.stdout.len() < 1024 * 1024);
     let model: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/1");
+    assert_eq!(model["schema_version"], "devmap/dock/2");
     assert_eq!(
         model["repository_id"],
         repository_id(

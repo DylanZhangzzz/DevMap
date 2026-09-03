@@ -1,6 +1,6 @@
 {
   "name": "devmap",
-  "version": "0.1.0+codex.20260903093407",
+  "version": "0.1.0+codex.20260903110126",
   "description": "Evidence-backed development maps and live local worktree presence.",
   "author": {
     "name": "Dylan Zhang"

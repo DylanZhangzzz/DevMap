@@ -60,7 +60,7 @@ impl ViewerRuntime {
         self.running.load(Ordering::Acquire)
     }
 
-    pub fn set_observed_tasks(
+    pub fn replace_observed_tasks(
         &self,
         tasks: Vec<ObservedTask>,
         now: OffsetDateTime,
@@ -69,7 +69,7 @@ impl ViewerRuntime {
             .state
             .lock()
             .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
-        state.dock.set_observed_tasks(tasks, now)?;
+        state.dock.replace_observed_tasks(tasks, now)?;
         state.last_refresh = Instant::now();
         Ok(state.revision())
     }
@@ -133,7 +133,7 @@ pub fn start_live_viewer_with_tasks(
     }
     let mut dock = DockService::open(source)?;
     if !observed_tasks.is_empty() {
-        dock.set_observed_tasks(observed_tasks, OffsetDateTime::now_utc())?;
+        dock.replace_observed_tasks(observed_tasks, OffsetDateTime::now_utc())?;
     }
     let server =
         Arc::new(Server::http(bind).map_err(|error| DevMapError::Viewer(error.to_string()))?);

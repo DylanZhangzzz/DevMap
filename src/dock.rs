@@ -11,14 +11,16 @@ use crate::cli::AgentsArgs;
 use crate::error::DevMapError;
 use crate::events::CaptureGrade;
 use crate::git::{SourceGitInspector, SourceWorkspace};
-use crate::git_relationship::{DevelopmentTarget, GitRelationship, GitRelationshipResolver};
+use crate::git_relationship::{
+    DevelopmentTarget, ForkPoint, GitRelationship, GitRelationshipResolver, IntegrationBranch,
+};
 use crate::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
 use crate::presence::{
     Confidence, PresenceLoadReport, PresenceRecord, PresenceStatus, PresenceStore, StatusSource,
 };
 use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 
-pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/1";
+pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/2";
 pub const MAX_DOCK_MODEL_BYTES: usize = 768 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -84,6 +86,14 @@ pub struct DockLane {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchGroup {
+    pub target_branch: String,
+    pub terminal: bool,
+    pub fork_point: Option<ForkPoint>,
+    pub lanes: Vec<DockLane>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockReadModel {
     pub schema_version: &'static str,
     pub repository_id: String,
@@ -91,6 +101,9 @@ pub struct DockReadModel {
     pub generated_at: String,
     pub current_worktree_id: String,
     pub development_target: Option<DevelopmentTarget>,
+    pub integration_branches: Vec<IntegrationBranch>,
+    pub branch_groups: Vec<BranchGroup>,
+    pub task_inventory_synced_at: Option<String>,
     pub lanes: Vec<DockLane>,
     pub current: Vec<DockEntry>,
     pub active: Vec<DockEntry>,
@@ -271,6 +284,7 @@ impl<R: RouteProvider> DockReducer<R> {
                             behind: None,
                             dirty: false,
                             changed_file_count: 0,
+                            fork_point: None,
                         }),
                     chats,
                 }
@@ -280,9 +294,12 @@ impl<R: RouteProvider> DockReducer<R> {
             right
                 .is_current
                 .cmp(&left.is_current)
+                .then_with(|| left.branch.cmp(&right.branch))
                 .then_with(|| left.workspace_path.cmp(&right.workspace_path))
                 .then_with(|| left.worktree_id.cmp(&right.worktree_id))
         });
+        let branch_groups =
+            branch_groups_from_lanes(&lanes, &relationship_report.integration_branches);
         warnings.sort_by(|left, right| {
             left.code
                 .cmp(&right.code)
@@ -316,6 +333,9 @@ impl<R: RouteProvider> DockReducer<R> {
             generated_at: now.format(&Rfc3339)?,
             current_worktree_id,
             development_target: relationship_report.target,
+            integration_branches: relationship_report.integration_branches,
+            branch_groups,
+            task_inventory_synced_at: None,
             lanes,
             current,
             active,
@@ -387,6 +407,9 @@ impl DockReadModel {
             repository_id: &'a str,
             current_worktree_id: &'a str,
             development_target: &'a Option<DevelopmentTarget>,
+            integration_branches: &'a [IntegrationBranch],
+            branch_groups: &'a [BranchGroup],
+            task_inventory_synced_at: &'a Option<String>,
             lanes: &'a [DockLane],
             current: &'a [DockEntry],
             active: &'a [DockEntry],
@@ -399,6 +422,9 @@ impl DockReadModel {
             repository_id: &self.repository_id,
             current_worktree_id: &self.current_worktree_id,
             development_target: &self.development_target,
+            integration_branches: &self.integration_branches,
+            branch_groups: &self.branch_groups,
+            task_inventory_synced_at: &self.task_inventory_synced_at,
             lanes: &self.lanes,
             current: &self.current,
             active: &self.active,
@@ -417,6 +443,7 @@ pub struct DockService {
     content_hash: Option<String>,
     snapshot: Option<DockReadModel>,
     observed_tasks: Vec<ObservedTask>,
+    task_inventory_synced_at: Option<String>,
 }
 
 impl DockService {
@@ -429,17 +456,35 @@ impl DockService {
             content_hash: None,
             snapshot: None,
             observed_tasks: Vec::new(),
+            task_inventory_synced_at: None,
         };
         service.refresh(OffsetDateTime::now_utc())?;
         Ok(service)
     }
 
-    pub fn set_observed_tasks(
+    pub fn replace_observed_tasks(
         &mut self,
-        tasks: Vec<ObservedTask>,
+        mut tasks: Vec<ObservedTask>,
         now: OffsetDateTime,
     ) -> Result<&DockReadModel, DevMapError> {
-        self.observed_tasks = tasks;
+        tasks.sort_by(|left, right| {
+            left.session_id
+                .cmp(&right.session_id)
+                .then_with(|| left.workspace_path.cmp(&right.workspace_path))
+                .then_with(|| left.display_title.cmp(&right.display_title))
+                .then_with(|| left.host_status.cmp(&right.host_status))
+                .then_with(|| left.updated_at.cmp(&right.updated_at))
+        });
+        if tasks
+            .windows(2)
+            .any(|pair| pair[0].session_id == pair[1].session_id)
+        {
+            return Err(DevMapError::InvalidDomain("codex_tasks.id"));
+        }
+        if self.observed_tasks != tasks {
+            self.observed_tasks = tasks;
+            self.task_inventory_synced_at = Some(now.format(&Rfc3339)?);
+        }
         self.refresh(now)
     }
 
@@ -466,6 +511,7 @@ impl DockService {
             now,
             &self.observed_tasks,
         )?;
+        next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
         let content_hash = next.content_hash()?;
         if self.content_hash.as_deref() != Some(&content_hash) {
             self.revision = self
@@ -483,6 +529,10 @@ impl DockService {
         self.snapshot
             .as_ref()
             .expect("DockService::open creates the initial snapshot")
+    }
+
+    pub fn observed_tasks(&self) -> &[ObservedTask] {
+        &self.observed_tasks
     }
 }
 
@@ -565,6 +615,76 @@ fn same_workspace_path(observed: &str, workspace: &Path) -> bool {
     }
 }
 
+fn branch_groups_from_lanes(
+    lanes: &[DockLane],
+    integration_branches: &[IntegrationBranch],
+) -> Vec<BranchGroup> {
+    let mut grouped = BTreeMap::<(String, Option<String>, bool), Vec<DockLane>>::new();
+    for lane in lanes {
+        let terminal = lane.relationship.merge_target.is_none();
+        let target_branch = lane
+            .relationship
+            .merge_target
+            .clone()
+            .or_else(|| lane.branch.clone())
+            .unwrap_or_else(|| "unknown".into());
+        let commit = lane
+            .relationship
+            .fork_point
+            .as_ref()
+            .map(|fork| fork.commit.clone());
+        grouped
+            .entry((target_branch, commit, terminal))
+            .or_default()
+            .push(lane.clone());
+    }
+    let rail_order = integration_branches
+        .iter()
+        .enumerate()
+        .map(|(index, branch)| (branch.name.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    let mut groups = grouped
+        .into_iter()
+        .map(|((target_branch, _, terminal), lanes)| BranchGroup {
+            target_branch,
+            terminal,
+            fork_point: lanes
+                .first()
+                .and_then(|lane| lane.relationship.fork_point.clone()),
+            lanes,
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        rail_order
+            .get(left.target_branch.as_str())
+            .unwrap_or(&usize::MAX)
+            .cmp(
+                rail_order
+                    .get(right.target_branch.as_str())
+                    .unwrap_or(&usize::MAX),
+            )
+            .then_with(|| {
+                right
+                    .fork_point
+                    .as_ref()
+                    .and_then(|fork| fork.distance_to_target)
+                    .cmp(
+                        &left
+                            .fork_point
+                            .as_ref()
+                            .and_then(|fork| fork.distance_to_target),
+                    )
+            })
+            .then_with(|| {
+                left.fork_point
+                    .as_ref()
+                    .map(|fork| fork.commit.as_str())
+                    .cmp(&right.fork_point.as_ref().map(|fork| fork.commit.as_str()))
+            })
+    });
+    groups
+}
+
 fn event_instant_from_text(value: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339).ok()
 }
@@ -638,9 +758,12 @@ fn bounded(value: &str, limit: usize) -> String {
 fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     const STRUCTURAL_RESERVE: usize = 32 * 1024;
     let available = MAX_DOCK_MODEL_BYTES.saturating_sub(STRUCTURAL_RESERVE);
-    let mut lane_remaining = available / 2;
-    let mut compatibility_remaining = available - lane_remaining;
+    let mut group_remaining = available * 45 / 100;
+    let mut lane_remaining = available * 25 / 100;
+    let mut compatibility_remaining = available - group_remaining - lane_remaining;
     let mut output_truncated = false;
+    output_truncated |=
+        retain_branch_groups_within_budget(&mut model.branch_groups, &mut group_remaining)?;
     output_truncated |= retain_lanes_within_budget(&mut model.lanes, &mut lane_remaining)?;
     output_truncated |= retain_within_budget(&mut model.current, &mut compatibility_remaining)?;
     output_truncated |= retain_within_budget(&mut model.active, &mut compatibility_remaining)?;
@@ -669,6 +792,72 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
         });
     }
     Ok(model)
+}
+
+fn retain_branch_groups_within_budget(
+    groups: &mut Vec<BranchGroup>,
+    remaining: &mut usize,
+) -> Result<bool, DevMapError> {
+    let original_groups = groups.len();
+    let original_lanes = groups.iter().map(|group| group.lanes.len()).sum::<usize>();
+    let original_chats = groups
+        .iter()
+        .flat_map(|group| &group.lanes)
+        .map(|lane| lane.chats.len())
+        .sum::<usize>();
+    let mut kept_groups = Vec::with_capacity(original_groups);
+    let mut deferred_chats = Vec::new();
+    for mut group in groups.drain(..) {
+        let lanes = std::mem::take(&mut group.lanes);
+        let group_size = canonical_json(&group)?.len().saturating_add(1);
+        if group_size > *remaining {
+            continue;
+        }
+        *remaining -= group_size;
+        for mut lane in lanes {
+            let chats = std::mem::take(&mut lane.chats);
+            let lane_size = canonical_json(&lane)?.len().saturating_add(1);
+            if lane_size <= *remaining {
+                *remaining -= lane_size;
+                let group_index = kept_groups.len();
+                let lane_index = group.lanes.len();
+                group.lanes.push(lane);
+                deferred_chats.push((group_index, lane_index, chats));
+            }
+        }
+        if !group.lanes.is_empty() {
+            kept_groups.push(group);
+        }
+    }
+    for (group_index, lane_index, chats) in deferred_chats {
+        let Some(lane) = kept_groups
+            .get_mut(group_index)
+            .and_then(|group| group.lanes.get_mut(lane_index))
+        else {
+            continue;
+        };
+        for chat in chats {
+            let size = canonical_json(&chat)?.len().saturating_add(1);
+            if size <= *remaining {
+                *remaining -= size;
+                lane.chats.push(chat);
+            }
+        }
+    }
+    let kept_lanes = kept_groups
+        .iter()
+        .map(|group| group.lanes.len())
+        .sum::<usize>();
+    let kept_chats = kept_groups
+        .iter()
+        .flat_map(|group| &group.lanes)
+        .map(|lane| lane.chats.len())
+        .sum::<usize>();
+    let truncated = kept_groups.len() != original_groups
+        || kept_lanes != original_lanes
+        || kept_chats != original_chats;
+    *groups = kept_groups;
+    Ok(truncated)
 }
 
 fn retain_within_budget<T: Serialize>(

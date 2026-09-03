@@ -138,6 +138,10 @@ pub fn committed_repo() -> TempDir {
 }
 
 pub fn linked_worktree(repo: &Path, branch: &str) -> TempDir {
+    linked_worktree_from(repo, branch, "HEAD")
+}
+
+pub fn linked_worktree_from(repo: &Path, branch: &str, start_point: &str) -> TempDir {
     let directory = tempfile::tempdir().expect("create linked worktree directory");
     git(
         repo,
@@ -147,6 +151,7 @@ pub fn linked_worktree(repo: &Path, branch: &str) -> TempDir {
             "-b",
             branch,
             directory.path().to_str().expect("worktree path is UTF-8"),
+            start_point,
         ],
     );
     directory
