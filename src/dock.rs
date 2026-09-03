@@ -45,8 +45,10 @@ pub struct DockEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockChat {
     pub session_id: String,
+    pub display_title: String,
     pub actor_id: String,
     pub host: String,
+    pub host_status: Option<String>,
     pub route_id: Option<String>,
     pub status: PresenceStatus,
     pub status_source: StatusSource,
@@ -57,6 +59,17 @@ pub struct DockChat {
     pub gap_count: u32,
     pub capture_incomplete: bool,
     pub association_source: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedTask {
+    pub session_id: String,
+    pub display_title: String,
+    pub host: String,
+    pub host_status: String,
+    pub workspace_path: String,
+    pub status: PresenceStatus,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -121,6 +134,18 @@ impl<R: RouteProvider> DockReducer<R> {
         presence: PresenceLoadReport,
         journals: BTreeMap<String, JournalSummary>,
         now: OffsetDateTime,
+    ) -> Result<DockReadModel, DevMapError> {
+        self.reduce_with_tasks(workspace, worktrees, presence, journals, now, &[])
+    }
+
+    pub fn reduce_with_tasks(
+        &self,
+        workspace: &SourceWorkspace,
+        worktrees: Vec<WorktreeDescriptor>,
+        presence: PresenceLoadReport,
+        journals: BTreeMap<String, JournalSummary>,
+        now: OffsetDateTime,
+        observed_tasks: &[ObservedTask],
     ) -> Result<DockReadModel, DevMapError> {
         let repository_id = repository_id(workspace);
         let current_worktree_id = worktrees
@@ -197,36 +222,58 @@ impl<R: RouteProvider> DockReducer<R> {
         entries.sort_by(compare_entries);
         let mut lanes = worktrees
             .iter()
-            .map(|worktree| DockLane {
-                worktree_id: worktree.worktree_id.clone(),
-                workspace_path: worktree.root.to_string_lossy().into_owned(),
-                is_current: worktree.is_current,
-                branch: worktree.branch.clone(),
-                head: worktree.head.clone(),
-                relationship: relationship_report
-                    .by_worktree_id
-                    .get(&worktree.worktree_id)
-                    .cloned()
-                    .unwrap_or(GitRelationship {
-                        base_target: relationship_report
-                            .target
-                            .as_ref()
-                            .map(|target| target.name.clone()),
-                        merge_target: relationship_report
-                            .target
-                            .as_ref()
-                            .map(|target| target.name.clone()),
-                        merged: None,
-                        ahead: None,
-                        behind: None,
-                        dirty: false,
-                        changed_file_count: 0,
-                    }),
-                chats: entries
+            .map(|worktree| {
+                let mut chats = entries
                     .iter()
                     .filter(|entry| entry.worktree_id == worktree.worktree_id)
                     .filter_map(chat_from_entry)
-                    .collect(),
+                    .collect::<Vec<_>>();
+                for task in observed_tasks
+                    .iter()
+                    .filter(|task| same_workspace_path(&task.workspace_path, &worktree.root))
+                {
+                    if let Some(chat) = chats
+                        .iter_mut()
+                        .find(|chat| chat.session_id == task.session_id)
+                    {
+                        chat.display_title = task.display_title.clone();
+                        chat.host_status = Some(task.host_status.clone());
+                    } else {
+                        chats.push(chat_from_observed_task(task));
+                    }
+                }
+                chats.sort_by(|left, right| {
+                    event_instant_from_text(&right.last_event_at)
+                        .cmp(&event_instant_from_text(&left.last_event_at))
+                        .then_with(|| left.session_id.cmp(&right.session_id))
+                });
+                DockLane {
+                    worktree_id: worktree.worktree_id.clone(),
+                    workspace_path: worktree.root.to_string_lossy().into_owned(),
+                    is_current: worktree.is_current,
+                    branch: worktree.branch.clone(),
+                    head: worktree.head.clone(),
+                    relationship: relationship_report
+                        .by_worktree_id
+                        .get(&worktree.worktree_id)
+                        .cloned()
+                        .unwrap_or(GitRelationship {
+                            base_target: relationship_report
+                                .target
+                                .as_ref()
+                                .map(|target| target.name.clone()),
+                            merge_target: relationship_report
+                                .target
+                                .as_ref()
+                                .map(|target| target.name.clone()),
+                            merged: None,
+                            ahead: None,
+                            behind: None,
+                            dirty: false,
+                            changed_file_count: 0,
+                        }),
+                    chats,
+                }
             })
             .collect::<Vec<_>>();
         lanes.sort_by(|left, right| {
@@ -369,6 +416,7 @@ pub struct DockService {
     revision: u64,
     content_hash: Option<String>,
     snapshot: Option<DockReadModel>,
+    observed_tasks: Vec<ObservedTask>,
 }
 
 impl DockService {
@@ -380,9 +428,19 @@ impl DockService {
             revision: 0,
             content_hash: None,
             snapshot: None,
+            observed_tasks: Vec::new(),
         };
         service.refresh(OffsetDateTime::now_utc())?;
         Ok(service)
+    }
+
+    pub fn set_observed_tasks(
+        &mut self,
+        tasks: Vec<ObservedTask>,
+        now: OffsetDateTime,
+    ) -> Result<&DockReadModel, DevMapError> {
+        self.observed_tasks = tasks;
+        self.refresh(now)
     }
 
     pub fn refresh(&mut self, now: OffsetDateTime) -> Result<&DockReadModel, DevMapError> {
@@ -400,9 +458,14 @@ impl DockService {
             .map(|record| record.session_id.clone())
             .collect::<BTreeSet<_>>();
         let journals = summarize_existing_sessions(&self.workspace, &sessions);
-        let mut next = self
-            .reducer
-            .reduce(&self.workspace, worktrees, presence, journals, now)?;
+        let mut next = self.reducer.reduce_with_tasks(
+            &self.workspace,
+            worktrees,
+            presence,
+            journals,
+            now,
+            &self.observed_tasks,
+        )?;
         let content_hash = next.content_hash()?;
         if self.content_hash.as_deref() != Some(&content_hash) {
             self.revision = self
@@ -450,10 +513,13 @@ fn compare_entries(left: &DockEntry, right: &DockEntry) -> std::cmp::Ordering {
 }
 
 fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
+    let actor_id = entry.actor_id.clone()?;
     Some(DockChat {
         session_id: entry.session_id.clone()?,
-        actor_id: entry.actor_id.clone()?,
+        display_title: actor_id.clone(),
+        actor_id,
         host: entry.host.clone()?,
+        host_status: None,
         route_id: entry.route_id.clone(),
         status: entry.status,
         status_source: entry.status_source,
@@ -465,6 +531,42 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
         capture_incomplete: entry.capture_incomplete,
         association_source: "presence_worktree_id",
     })
+}
+
+fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
+    DockChat {
+        session_id: task.session_id.clone(),
+        display_title: task.display_title.clone(),
+        actor_id: "codex".into(),
+        host: task.host.clone(),
+        host_status: Some(task.host_status.clone()),
+        route_id: None,
+        status: task.status,
+        status_source: StatusSource::GitOnly,
+        confidence: Confidence::Observed,
+        capture_grade: CaptureGrade::D,
+        last_event_at: task.updated_at.clone(),
+        blocker_count: 0,
+        gap_count: 0,
+        capture_incomplete: true,
+        association_source: "codex_task_cwd",
+    }
+}
+
+fn same_workspace_path(observed: &str, workspace: &Path) -> bool {
+    let observed = std::fs::canonicalize(observed).unwrap_or_else(|_| observed.into());
+    let workspace = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
+    if cfg!(windows) {
+        observed
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&workspace.to_string_lossy())
+    } else {
+        observed == workspace
+    }
+}
+
+fn event_instant_from_text(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
 fn event_instant(entry: &DockEntry) -> Option<OffsetDateTime> {

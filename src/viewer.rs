@@ -11,7 +11,7 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::CommandOutput;
 use crate::canonical::canonical_json;
-use crate::dock::DockService;
+use crate::dock::{DockService, ObservedTask};
 use crate::dock_asset::dock_html;
 use crate::error::DevMapError;
 
@@ -29,6 +29,7 @@ pub struct ViewerRuntime {
     server: Option<Arc<Server>>,
     address: SocketAddr,
     worker: Option<JoinHandle<Result<(), DevMapError>>>,
+    state: Arc<Mutex<ViewerState>>,
 }
 
 struct ViewerState {
@@ -57,6 +58,20 @@ impl ViewerRuntime {
 
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::Acquire)
+    }
+
+    pub fn set_observed_tasks(
+        &self,
+        tasks: Vec<ObservedTask>,
+        now: OffsetDateTime,
+    ) -> Result<u64, DevMapError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
+        state.dock.set_observed_tasks(tasks, now)?;
+        state.last_refresh = Instant::now();
+        Ok(state.revision())
     }
 
     fn wait(mut self) -> Result<(), DevMapError> {
@@ -105,10 +120,21 @@ pub fn start_live_viewer(
     source: &Path,
     bind: SocketAddr,
 ) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
+    start_live_viewer_with_tasks(source, bind, Vec::new())
+}
+
+pub fn start_live_viewer_with_tasks(
+    source: &Path,
+    bind: SocketAddr,
+    observed_tasks: Vec<ObservedTask>,
+) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
     if !bind.ip().is_loopback() {
         return Err(DevMapError::NonLoopbackViewerBind(bind));
     }
-    let dock = DockService::open(source)?;
+    let mut dock = DockService::open(source)?;
+    if !observed_tasks.is_empty() {
+        dock.set_observed_tasks(observed_tasks, OffsetDateTime::now_utc())?;
+    }
     let server =
         Arc::new(Server::http(bind).map_err(|error| DevMapError::Viewer(error.to_string()))?);
     let address = server
@@ -126,10 +152,11 @@ pub fn start_live_viewer(
         dock,
         last_refresh: Instant::now(),
     }));
+    let worker_state = Arc::clone(&state);
     let worker = thread::Builder::new()
         .name("devmap-live-viewer".into())
         .spawn(move || {
-            let result = serve(worker_server, worker_shutdown, state, worker_token);
+            let result = serve(worker_server, worker_shutdown, worker_state, worker_token);
             worker_running.store(false, Ordering::Release);
             result
         })?;
@@ -142,6 +169,7 @@ pub fn start_live_viewer(
             server: Some(server),
             address,
             worker: Some(worker),
+            state,
         },
     ))
 }

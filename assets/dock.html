@@ -69,9 +69,9 @@
     .chat-node.idle { border-color: var(--cyan); background: var(--cyan-soft); color: #cffafe; }
     .chat-node.waiting { border-color: var(--blue); background: var(--blue-soft); color: #dbeafe; }
     .chat-node.stale { border-color: var(--amber); background: var(--amber-soft); color: #fde68a; }
-    .chat-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
-    .chat-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chat-status { flex: none; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .chat-title { display: grid; gap: 4px; min-width: 0; }
+    .chat-title strong { min-width: 0; overflow-wrap: anywhere; }
+    .chat-status { justify-self: start; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
     .chat-meta { display: block; margin-top: 3px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 9px; opacity: .82; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .capture-warning { display: inline-block; margin-top: 5px; color: var(--red); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
     .return-edge { position: relative; z-index: 1; align-self: center; min-height: 54px; color: var(--muted); text-align: center; }
@@ -146,10 +146,12 @@
       const safeRouteId = (value) => value === null || value === undefined || /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$/.test(value);
       const safeCount = (value) => value === null || (Number.isSafeInteger(value) && value >= 0);
       function validChat(chat) {
-        return chat && typeof chat === "object" && boundedText(chat.session_id) && boundedText(chat.actor_id)
-          && boundedText(chat.host) && safeRouteId(chat.route_id) && allowedStatus.has(chat.status)
+        return chat && typeof chat === "object" && boundedText(chat.session_id) && boundedText(chat.display_title)
+          && boundedText(chat.actor_id) && boundedText(chat.host) && optionalText(chat.host_status)
+          && safeRouteId(chat.route_id) && allowedStatus.has(chat.status)
           && allowedConfidence.has(chat.confidence) && boundedText(chat.last_event_at)
-          && typeof chat.capture_incomplete === "boolean" && chat.association_source === "presence_worktree_id";
+          && typeof chat.capture_incomplete === "boolean"
+          && (chat.association_source === "presence_worktree_id" || chat.association_source === "codex_task_cwd");
       }
       function validRelationship(value) {
         return value && typeof value === "object" && optionalText(value.base_target) && optionalText(value.merge_target)
@@ -224,8 +226,8 @@
       function createChat(chat) {
         const node = document.createElement("div"); node.className = `node chat-node ${chat.status}`;
         const title = document.createElement("span"); title.className = "chat-title";
-        const actor = document.createElement("strong"); actor.textContent = chat.actor_id; actor.title = chat.actor_id;
-        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = chat.status; title.append(actor, status);
+        const actor = document.createElement("strong"); actor.textContent = chat.display_title; actor.title = chat.display_title;
+        const status = document.createElement("span"); status.className = "chat-status"; status.textContent = chat.host_status || chat.status; title.append(actor, status);
         const session = document.createElement("span"); session.className = "chat-meta"; session.textContent = `${chat.host} · ${chat.session_id}`; session.title = chat.session_id; node.append(title, session);
         if (chat.capture_incomplete) { const warning = document.createElement("span"); warning.className = "capture-warning"; warning.textContent = "CAPTURE INCOMPLETE"; node.append(warning); } return node;
       }

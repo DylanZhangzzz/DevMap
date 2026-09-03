@@ -1,6 +1,6 @@
 {
   "name": "devmap",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260903093407",
   "description": "Evidence-backed development maps and live local worktree presence.",
   "author": {
     "name": "Dylan Zhang"
@@ -12,7 +12,10 @@
     "longDescription": "DevMap adds a read-only Git relationship map and evidence capture tools over host-managed STDIO.",
     "developerName": "Dylan Zhang",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Read"],
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
     "defaultPrompt": "Open the DevMap Git relationship map on the right."
   },
   "mcpServers": "./.mcp.json"

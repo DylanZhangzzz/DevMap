@@ -88,3 +88,11 @@ fn selection_context_contains_only_portable_route_identity() {
     assert!(!html.contains("DevMap selection: session_id="));
     assert!(!html.contains("DevMap selection: path="));
 }
+
+#[test]
+fn dock_asset_accepts_exact_codex_task_links_and_renders_the_window_title() {
+    let html = dock_html();
+    assert!(html.contains("codex_task_cwd"));
+    assert!(html.contains("chat.display_title"));
+    assert!(html.contains("chat.host_status || chat.status"));
+}

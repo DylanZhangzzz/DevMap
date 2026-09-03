@@ -8,14 +8,14 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
 use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
-use crate::dock::{DockReadModel, DockService};
+use crate::dock::{DockReadModel, DockService, ObservedTask};
 use crate::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 use crate::error::DevMapError;
 use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
-use crate::presence::{PresenceSignal, PresenceStore};
-use crate::viewer::{ViewerHandle, ViewerRuntime, start_live_viewer};
+use crate::presence::{PresenceSignal, PresenceStatus, PresenceStore};
+use crate::viewer::{ViewerHandle, ViewerRuntime, start_live_viewer_with_tasks};
 
 pub const DOCK_DATA_TOOL: &str = "devmap_dock_snapshot";
 pub const DOCK_RENDER_TOOL: &str = "devmap_open_dock";
@@ -665,10 +665,14 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
     }
 
     if name == DOCK_BROWSER_TOOL {
-        if let Err(error) = ensure_fields(&arguments, &[]) {
+        if let Err(error) = ensure_fields(&arguments, &["codex_tasks"]) {
             return json_rpc_result(id, tool_error(error));
         }
-        return match start_or_reuse_browser_dock(runtime) {
+        let observed_tasks = match parse_codex_tasks(&arguments) {
+            Ok(tasks) => tasks,
+            Err(error) => return json_rpc_result(id, tool_error(error)),
+        };
+        return match start_or_reuse_browser_dock(runtime, observed_tasks) {
             Ok((url, revision, reused)) => json_rpc_result(
                 id,
                 json!({
@@ -689,9 +693,13 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
     }
 
     if matches!(name, DOCK_DATA_TOOL | DOCK_RENDER_TOOL) {
-        if let Err(error) = ensure_fields(&arguments, &[]) {
+        if let Err(error) = ensure_fields(&arguments, &["codex_tasks"]) {
             return json_rpc_result(id, tool_error(error));
         }
+        let observed_tasks = match parse_codex_tasks(&arguments) {
+            Ok(tasks) => tasks,
+            Err(error) => return json_rpc_result(id, tool_error(error)),
+        };
         if runtime.dock.is_none() {
             match DockService::open(&runtime.workspace.root) {
                 Ok(service) => runtime.dock = Some(service),
@@ -702,6 +710,11 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
             .dock
             .as_mut()
             .expect("Dock was initialized or returned an error above");
+        if let Some(tasks) = observed_tasks
+            && let Err(error) = dock.set_observed_tasks(tasks, OffsetDateTime::now_utc())
+        {
+            return json_rpc_result(id, tool_error(error));
+        }
         return match dock.refresh(OffsetDateTime::now_utc()) {
             Ok(model) => json_rpc_result(id, dock_tool_result(model, name == DOCK_RENDER_TOOL)),
             Err(error) => json_rpc_result(id, tool_error(error)),
@@ -716,6 +729,7 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
 
 fn start_or_reuse_browser_dock(
     runtime: &mut McpRuntime,
+    observed_tasks: Option<Vec<ObservedTask>>,
 ) -> Result<(String, u64, bool), DevMapError> {
     if runtime
         .browser_dock
@@ -726,25 +740,47 @@ fn start_or_reuse_browser_dock(
             .browser_dock
             .as_ref()
             .expect("healthy Viewer exists");
-        let revision = runtime
-            .dock
-            .as_ref()
-            .map(|service| service.snapshot().revision)
-            .unwrap_or(1);
+        let revision = if let Some(tasks) = observed_tasks {
+            if let Some(dock) = runtime.dock.as_mut() {
+                dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?;
+            }
+            runtime
+                .browser_dock
+                .as_ref()
+                .expect("healthy Viewer exists")
+                .runtime
+                .set_observed_tasks(tasks, OffsetDateTime::now_utc())?
+        } else {
+            runtime
+                .dock
+                .as_ref()
+                .map(|service| service.snapshot().revision)
+                .unwrap_or(1)
+        };
         return Ok((dock.handle.url(), revision, true));
     }
     runtime.browser_dock = None;
 
+    let tasks = observed_tasks.unwrap_or_default();
     let revision = if let Some(dock) = runtime.dock.as_mut() {
-        dock.refresh(OffsetDateTime::now_utc())?.revision
+        if tasks.is_empty() {
+            dock.refresh(OffsetDateTime::now_utc())?.revision
+        } else {
+            dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?
+                .revision
+        }
     } else {
-        let dock = DockService::open(&runtime.workspace.root)?;
+        let mut dock = DockService::open(&runtime.workspace.root)?;
+        if !tasks.is_empty() {
+            dock.set_observed_tasks(tasks.clone(), OffsetDateTime::now_utc())?;
+        }
         let revision = dock.snapshot().revision;
         runtime.dock = Some(dock);
         revision
     };
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-    let (handle, viewer_runtime) = start_live_viewer(&runtime.workspace.root, bind)?;
+    let (handle, viewer_runtime) =
+        start_live_viewer_with_tasks(&runtime.workspace.root, bind, tasks)?;
     let url = handle.url();
     runtime.browser_dock = Some(BrowserDock {
         handle,
@@ -752,6 +788,87 @@ fn start_or_reuse_browser_dock(
     });
     runtime.audit.tcp_listeners_opened = runtime.audit.tcp_listeners_opened.saturating_add(1);
     Ok((url, revision, false))
+}
+
+fn parse_codex_tasks(
+    arguments: &Map<String, Value>,
+) -> Result<Option<Vec<ObservedTask>>, DevMapError> {
+    let Some(value) = arguments.get("codex_tasks") else {
+        return Ok(None);
+    };
+    let rows = value
+        .as_array()
+        .ok_or(DevMapError::InvalidDomain("codex_tasks"))?;
+    if rows.len() > MAX_SEMANTIC_ARRAY_ITEMS {
+        return Err(DevMapError::ResourceLimit {
+            resource: "codex_tasks",
+            limit: MAX_SEMANTIC_ARRAY_ITEMS,
+        });
+    }
+    let mut tasks = Vec::with_capacity(rows.len());
+    for row in rows {
+        let row = row
+            .as_object()
+            .ok_or(DevMapError::InvalidDomain("codex_tasks"))?;
+        ensure_fields(
+            row,
+            &[
+                "id",
+                "title",
+                "status",
+                "cwd",
+                "updatedAt",
+                "hostId",
+                "kind",
+            ],
+        )?;
+        if required_string(row, "kind")? != "codex" {
+            return Err(DevMapError::InvalidDomain("codex_tasks.kind"));
+        }
+        let host = required_string(row, "hostId")?;
+        if host != "local" {
+            continue;
+        }
+        let host_status = required_string(row, "status")?;
+        let status = match host_status.as_str() {
+            "active" => PresenceStatus::Working,
+            "idle" => PresenceStatus::Idle,
+            _ => return Err(DevMapError::InvalidDomain("codex_tasks.status")),
+        };
+        let session_id = required_string(row, "id")?;
+        if session_id.len() > MAX_IDENTIFIER_BYTES
+            || !session_id
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        {
+            return Err(DevMapError::InvalidDomain("codex_tasks.id"));
+        }
+        let updated_at = row
+            .get("updatedAt")
+            .and_then(Value::as_u64)
+            .ok_or(DevMapError::InvalidDomain("codex_tasks.updatedAt"))?;
+        let unix_seconds = if updated_at > 10_000_000_000 {
+            updated_at / 1_000
+        } else {
+            updated_at
+        };
+        let updated_at = OffsetDateTime::from_unix_timestamp(
+            i64::try_from(unix_seconds)
+                .map_err(|_| DevMapError::InvalidDomain("codex_tasks.updatedAt"))?,
+        )
+        .map_err(|_| DevMapError::InvalidDomain("codex_tasks.updatedAt"))?
+        .format(&Rfc3339)?;
+        tasks.push(ObservedTask {
+            session_id,
+            display_title: required_string(row, "title")?,
+            host,
+            host_status,
+            workspace_path: required_string(row, "cwd")?,
+            status,
+            updated_at,
+        });
+    }
+    Ok(Some(tasks))
 }
 
 fn call_tool(
@@ -1120,7 +1237,27 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
         },
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "codex_tasks": {
+                    "type": "array",
+                    "maxItems": MAX_SEMANTIC_ARRAY_ITEMS,
+                    "description": "Optional active or idle Codex task metadata. DevMap associates each task only when cwd exactly matches a local worktree.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1, "maxLength": MAX_IDENTIFIER_BYTES},
+                            "title": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
+                            "status": {"type": "string", "enum": ["active", "idle"]},
+                            "cwd": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
+                            "updatedAt": {"type": "integer", "minimum": 0},
+                            "hostId": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
+                            "kind": {"type": "string", "const": "codex"}
+                        },
+                        "required": ["id", "title", "status", "cwd", "updatedAt", "hostId", "kind"],
+                        "additionalProperties": false
+                    }
+                }
+            },
             "additionalProperties": false
         },
         "annotations": {

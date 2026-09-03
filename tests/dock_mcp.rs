@@ -1,7 +1,7 @@
 mod support;
 
-use std::io::Cursor;
-use std::net::TcpStream;
+use std::io::{Cursor, Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI};
@@ -20,6 +20,23 @@ fn call(id: Value, name: &str, arguments: Value) -> Value {
         "tools/call",
         json!({"name": name, "arguments": arguments}),
     )
+}
+
+fn http_get(address: SocketAddr, target: &str) -> String {
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+    write!(
+        stream,
+        "GET {target} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    stream.flush().unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+
+fn http_body(response: &str) -> &str {
+    response.split_once("\r\n\r\n").unwrap().1
 }
 
 fn run_stream(source: &std::path::Path, messages: &[Value]) -> Vec<Value> {
@@ -212,6 +229,69 @@ fn browser_tool_is_the_only_dock_tool_that_opens_and_reuses_a_listener() {
             .unwrap()
             .contains("token=")
     );
+}
+
+#[test]
+fn browser_dock_projects_exact_codex_task_titles_into_their_workspace() {
+    let repo = support::committed_repo();
+    let unrelated = tempfile::tempdir().unwrap();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let response = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_BROWSER_TOOL,
+            json!({
+                "codex_tasks": [
+                    {
+                        "id": "01a00000-0000-7000-8000-000000000001",
+                        "title": "修复 DevMap 对话窗口名",
+                        "status": "active",
+                        "cwd": repo.path().to_string_lossy(),
+                        "updatedAt": 1_788_426_685_u64,
+                        "hostId": "local",
+                        "kind": "codex"
+                    },
+                    {
+                        "id": "01a00000-0000-7000-8000-000000000002",
+                        "title": "不相关任务",
+                        "status": "idle",
+                        "cwd": unrelated.path().to_string_lossy(),
+                        "updatedAt": 1_788_426_000_u64,
+                        "hostId": "local",
+                        "kind": "codex"
+                    },
+                    {
+                        "id": "01a00000-0000-7000-8000-000000000003",
+                        "title": "远端同路径任务",
+                        "status": "active",
+                        "cwd": repo.path().to_string_lossy(),
+                        "updatedAt": 1_788_426_500_u64,
+                        "hostId": "remote-host",
+                        "kind": "codex"
+                    }
+                ]
+            }),
+        ))
+        .unwrap();
+
+    assert_ne!(response["result"]["isError"], true);
+    let url = response["result"]["structuredContent"]["url"]
+        .as_str()
+        .unwrap();
+    let target = url.strip_prefix("http://").unwrap();
+    let (address, query) = target.split_once('/').unwrap();
+    let address: SocketAddr = address.parse().unwrap();
+    let response = http_get(address, &format!("/api/v1/dock/snapshot{query}"));
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let model: Value = serde_json::from_str(http_body(&response)).unwrap();
+    let chats = model["lanes"][0]["chats"].as_array().unwrap();
+    assert_eq!(chats.len(), 1);
+    assert_eq!(chats[0]["display_title"], "修复 DevMap 对话窗口名");
+    assert_eq!(chats[0]["host_status"], "active");
+    assert_eq!(chats[0]["association_source"], "codex_task_cwd");
+    assert!(!model.to_string().contains("不相关任务"));
+    assert!(!model.to_string().contains("远端同路径任务"));
 }
 
 #[test]
