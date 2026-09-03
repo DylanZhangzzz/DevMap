@@ -28,6 +28,69 @@ fn dock_asset_renders_shared_integration_rails_and_fork_stations() {
 }
 
 #[test]
+fn dock_asset_renders_parallel_branch_rails_with_progressive_density() {
+    let html = dock_html();
+    for contract in [
+        "topology-canvas",
+        "branch-rails",
+        "branch-rail",
+        "fork-node",
+        "worktree-stop",
+        "agent-summary",
+        "density-switch",
+        "data-density=\"map\"",
+        "aria-pressed",
+        "MAP",
+        "READ",
+        "FULL",
+        "integration-rail",
+        "task-node",
+        "return-state",
+        "selection-details",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing Rail View contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn dock_asset_exposes_bounded_branch_disclosure_without_dropping_status_text() {
+    let html = dock_html();
+    for contract in [
+        "collapsed-branches",
+        "merged / inactive branches",
+        "Merged →",
+        "Not merged →",
+        "Unknown →",
+        "DIRTY",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing branch disclosure contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn dock_asset_uses_neutral_surfaces_and_small_area_semantic_colors() {
+    let html = dock_html();
+    for token in [
+        "--bg-canvas",
+        "--surface-raised",
+        "--accent",
+        "--success",
+        "--warning",
+        "--danger",
+    ] {
+        assert!(html.contains(token), "missing color-system token: {token}");
+    }
+    assert!(!html.contains("--branch-soft"));
+    assert!(!html.contains("--dev-soft"));
+}
+
+#[test]
 fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     let html = dock_html();
     assert_eq!(DOCK_RESOURCE_URI, "ui://devmap/dock/v1.html");
