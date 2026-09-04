@@ -239,7 +239,10 @@ fn dock_task_navigation_uses_only_a_validated_codex_thread_id() {
         "sendFollowUpMessage",
         "method: \"ui/message\"",
     ] {
-        assert!(html.contains(contract), "missing navigation contract: {contract}");
+        assert!(
+            html.contains(contract),
+            "missing navigation contract: {contract}"
+        );
     }
     assert!(!html.contains("Open the local Codex task with title"));
     assert!(!html.contains("codex://"));
@@ -270,7 +273,10 @@ fn dock_task_navigation_recovers_when_portable_bridge_does_not_reply() {
         "finishTaskNavigationRequest(message.id, message.error ? \"Codex task could not be opened\" : \"Opening Codex task…\")",
         "if (pendingRequests.has(message.id))",
     ] {
-        assert!(html.contains(contract), "missing navigation recovery contract: {contract}");
+        assert!(
+            html.contains(contract),
+            "missing navigation recovery contract: {contract}"
+        );
     }
 }
 
