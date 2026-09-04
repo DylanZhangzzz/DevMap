@@ -569,6 +569,39 @@
         eventStream.addEventListener("dock", (event) => { try { if (!acceptSnapshot(JSON.parse(event.data))) setOffline(); } catch (_) { setOffline(); } });
         eventStream.addEventListener("error", () => { if (!lastValidAt || Date.now() - lastValidAt > 6000) setOffline(); });
       }
+      function installPanControls(viewport) {
+        let pointer = null;
+        const stopPointer = () => { pointer = null; viewport.classList.remove("is-panning"); };
+        viewport.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || event.target.closest("button, a, input, textarea, select, [data-no-pan]")) return;
+          pointer = { id: event.pointerId, x: event.clientX, scrollLeft: viewport.scrollLeft };
+          viewport.setPointerCapture(event.pointerId); viewport.classList.add("is-panning");
+        });
+        viewport.addEventListener("pointermove", (event) => {
+          if (!pointer || pointer.id !== event.pointerId) return;
+          viewport.scrollLeft = pointer.scrollLeft - (event.clientX - pointer.x);
+        });
+        viewport.addEventListener("pointerup", stopPointer);
+        viewport.addEventListener("pointercancel", stopPointer);
+        viewport.addEventListener("lostpointercapture", stopPointer);
+        viewport.addEventListener("wheel", (event) => {
+          if (!event.shiftKey || event.deltaY === 0) return;
+          const maximum = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+          const next = Math.max(0, Math.min(maximum, viewport.scrollLeft + event.deltaY));
+          if (next === viewport.scrollLeft) return;
+          event.preventDefault(); viewport.scrollLeft = next;
+        }, { passive: false });
+        viewport.addEventListener("keydown", (event) => {
+          if (event.target !== viewport) return;
+          const page = Math.max(160, Math.round(viewport.clientWidth * .72));
+          const destination = event.key === "ArrowLeft" ? viewport.scrollLeft - page
+            : event.key === "ArrowRight" ? viewport.scrollLeft + page
+              : event.key === "Home" ? 0 : event.key === "End" ? viewport.scrollWidth : null;
+          if (destination === null) return;
+          event.preventDefault();
+          viewport.scrollTo({ left: destination, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        });
+      }
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return; const message = event.data; if (message?.jsonrpc !== "2.0") return;
         if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
@@ -583,6 +616,7 @@
       });
       byId("refresh").addEventListener("click", requestFullRefresh);
       for (const control of byId("density-switch").querySelectorAll("[data-density-value]")) control.addEventListener("click", () => setDensity(control.dataset.densityValue));
+      installPanControls(byId("topology-viewport"));
       setDensity("map", false);
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();

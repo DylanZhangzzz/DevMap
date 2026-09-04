@@ -298,3 +298,22 @@ fn dock_asset_uses_a_sticky_worktree_index_and_scoped_horizontal_viewport() {
     assert!(html.contains(".worktree-identity"));
     assert!(html.contains("position: sticky"));
 }
+
+#[test]
+fn dock_asset_supports_safe_horizontal_pan_inputs() {
+    let html = dock_html();
+    for contract in [
+        "function installPanControls",
+        "pointerdown",
+        "setPointerCapture",
+        "event.shiftKey",
+        r#"event.target.closest("button, a, input, textarea, select, [data-no-pan]")"#,
+        "ArrowLeft",
+        "ArrowRight",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing horizontal pan interaction contract: {contract}"
+        );
+    }
+}
