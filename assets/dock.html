@@ -86,7 +86,7 @@
     .workspace-branch.current .worktree-stop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .worktree-stop, .task-node { position: relative; z-index: 2; min-width: 0; min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
     .worktree-stop { grid-area: identity; align-self: center; justify-self: stretch; width: auto; margin-left: 0; }
-    .worktree-identity { position: sticky; left: 18px; z-index: 6; margin-right: 10px; background: var(--surface); }
+    .worktree-identity { position: sticky; left: 0; z-index: 6; width: calc(100% + 18px); margin-left: -18px; margin-right: 10px; padding-left: 26px; background: var(--surface); box-shadow: 10px 0 14px var(--bg-canvas); }
     .worktree-stop:hover, .task-node:hover, .fork-node:hover, .rail-node:hover { border-color: var(--accent); }
     .worktree-stop[aria-current="true"], .task-node[aria-current="true"] { border-color: var(--accent); background: var(--surface-raised); box-shadow: 0 0 0 2px var(--accent-soft); }
     .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 10px; font-weight: 780; overflow-wrap: anywhere; }

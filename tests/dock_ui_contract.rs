@@ -317,3 +317,11 @@ fn dock_asset_supports_safe_horizontal_pan_inputs() {
         );
     }
 }
+
+#[test]
+fn dock_asset_sticky_worktree_identity_masks_scrolled_content() {
+    let html = dock_html();
+    assert!(html.contains(".worktree-identity"));
+    assert!(html.contains("margin-left: -18px"));
+    assert!(html.contains("width: calc(100% + 18px)"));
+}
