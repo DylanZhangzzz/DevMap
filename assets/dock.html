@@ -138,21 +138,16 @@
     .empty { margin: 0; padding: 20px; color: var(--muted); }
     @container (max-width: 619px) {
       .shell { padding: 12px; }
+      .map-frame { --identity-width: 214px; --target-width: 130px; }
       .masthead { align-items: flex-start; flex-direction: column; }
       .masthead-actions { width: 100%; justify-content: space-between; }
       .map-toolbar { grid-template-columns: minmax(0, 1fr); }
       .toolbar-side, .legend { justify-content: flex-start; }
       .rail-section { padding: 14px 12px 18px; }
-      .topology-grid-labels { display: none; }
-      .integration-rail { grid-template-columns: minmax(0, 1fr); }
-      .rail-line { margin-left: 22px; width: 3px; height: 24px; }
-      .timeline-station { display: none; }
-      .timeline-head { top: auto; right: auto; bottom: -2px; left: 50%; min-width: 38px; min-height: 19px; transform: translate(-50%, 50%); }
       .rail-parent, .branch-rails { margin-left: 0; }
-      .fork-group::before { top: -8px; bottom: 24px; left: 6px; background: var(--line); }
-      .fork-node { justify-self: start; margin-left: 0; transform: none; }
       .branch-rail { grid-template-columns: var(--identity-width) minmax(560px, 1fr) var(--target-width); grid-template-areas: "identity track return" "identity tasks return"; gap: 7px 12px; }
       .worktree-stop { grid-area: identity; width: auto; margin-left: 0; }
+      .worktree-identity { width: calc(100% + 12px); margin-left: -12px; padding-left: 20px; }
       .agent-summary, .task-stack { justify-self: stretch; width: auto; }
       .detail-grid { grid-template-columns: minmax(0, 1fr); }
       .detail-grid dd { margin-bottom: 6px; }
