@@ -65,6 +65,7 @@
     .rail-node strong { display: block; overflow-wrap: anywhere; }
     .rail-node span { display: block; color: var(--muted); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .rail-line, .worktree-stage { display: grid; grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr)); }
+    .rail-line, .worktree-stage { padding-right: var(--target-width); }
     .rail-line { position: relative; height: 2px; border-radius: 99px; background: var(--rail-color); }
     .timeline-station, .fork-group { grid-column: span var(--station-span); }
     .timeline-station { position: relative; inset: auto; z-index: 2; justify-self: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: none; border: 0; background: transparent; cursor: pointer; }
@@ -72,7 +73,7 @@
     .timeline-station:hover::after, .timeline-station:focus-visible::after { box-shadow: 0 0 0 4px var(--accent-soft); }
     .timeline-head { position: absolute; top: 50%; right: -1px; display: grid; place-items: center; min-width: 47px; min-height: 22px; padding: 0 10px; transform: translateY(-50%); border-radius: 999px; background: var(--rail-color); color: var(--surface); font: 800 9px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .rail-parent { margin: 4px 0 4px calc(var(--identity-width) + 18px); color: var(--faint); font: 9px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .worktree-stage { position: relative; gap: 0; margin-top: 4px; margin-left: calc(var(--identity-width) + 18px); padding-right: var(--target-width); min-width: 0; }
+    .worktree-stage { position: relative; gap: 0; margin-top: 4px; margin-left: calc(var(--identity-width) + 18px); min-width: 0; }
     .fork-group { position: relative; display: grid; align-content: start; gap: 1px; min-width: 0; padding: 5px 0 2px; }
     .fork-group::before { content: ""; position: absolute; top: -9px; width: 2px; height: 38px; transform: translateX(-50%); border-radius: 99px; background: var(--accent); }
     .fork-group::before { left: 50%; }
@@ -259,7 +260,7 @@
         if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_dock_snapshot", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
       }
       function acceptSnapshot(value) {
-        if (!value || value.schema_version !== "devmap/dock/2") return false;
+        if (!value || value.schema_version !== "devmap/dock/3") return false;
         if (!Number.isSafeInteger(value.revision) || value.revision < renderedRevision) return false;
         if (!/^sha256-[0-9a-f]{64}$/.test(value.repository_id) || !/^wt-[0-9a-f]{64}$/.test(value.current_worktree_id)) return false;
         if (!Array.isArray(value.integration_branches) || value.integration_branches.length > MAX_ROWS || value.integration_branches.some((rail) => !validRail(rail))) return false;
@@ -297,6 +298,17 @@
           if (a[index] > b[index]) return 1;
         }
         return 0;
+      }
+      function laneHasLiveConversation(lane) {
+        return lane.chats.some((chat) => {
+          const category = conversationCategory(chat);
+          return category === "active" || category === "idle";
+        });
+      }
+      function defaultVisibleLaneIds(ordered) {
+        const live = ordered.filter(laneHasLiveConversation);
+        const bounded = ordered.filter((lane) => !laneHasLiveConversation(lane)).slice(0, MAX_VISIBLE_BRANCHES);
+        return new Set([...live, ...bounded].map((lane) => lane.worktree_id));
       }
       function topologyWidth(groups) {
         const worktrees = Math.max(1, groups.reduce((sum, group) => sum + group.lanes.length, 0));
@@ -342,11 +354,11 @@
         header.append(node, line); section.append(labels, header);
         if (rail.parent) { const parent = document.createElement("p"); parent.className = "rail-parent"; parent.textContent = `${rail.name} integrates into ${rail.parent}`; section.append(parent); }
         const ordered = matching.flatMap((group) => group.lanes).sort(compareRanks);
-        const visibleIds = new Set(ordered.slice(0, MAX_VISIBLE_BRANCHES).map((lane) => lane.worktree_id));
+        const visibleIds = defaultVisibleLaneIds(ordered);
         const expanded = expandedTargets.has(rail.name);
         const list = document.createElement("div"); list.className = "worktree-stage";
         for (const group of matching) list.append(createGroup(group, visibleIds, expanded, Math.max(1, group.lanes.length)));
-        const hiddenCount = Math.max(0, ordered.length - MAX_VISIBLE_BRANCHES);
+        const hiddenCount = ordered.length - visibleIds.size;
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, rail.name, hiddenCount));
           disclosure.setAttribute("aria-expanded", String(expanded));
@@ -361,10 +373,10 @@
         section.style.setProperty("--station-count", String(stationCount));
         const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
         const ordered = [...group.lanes].sort(compareRanks);
-        const visibleIds = new Set(ordered.slice(0, MAX_VISIBLE_BRANCHES).map((lane) => lane.worktree_id));
+        const visibleIds = defaultVisibleLaneIds(ordered);
         const expanded = expandedTargets.has(group.target_branch);
         const list = document.createElement("div"); list.className = "worktree-stage"; list.append(createGroup(group, visibleIds, expanded, stationCount));
-        const hiddenCount = Math.max(0, ordered.length - MAX_VISIBLE_BRANCHES);
+        const hiddenCount = ordered.length - visibleIds.size;
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, group.target_branch, hiddenCount));
           disclosure.setAttribute("aria-expanded", String(expanded));

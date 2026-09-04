@@ -195,7 +195,8 @@ fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
 #[test]
 fn dock_asset_validates_untrusted_models_and_never_uses_html_injection() {
     let html = dock_html();
-    assert!(html.contains("devmap/dock/2"));
+    assert!(html.contains(r#"value.schema_version !== "devmap/dock/3""#));
+    assert!(!html.contains("devmap/dock/2"));
     assert!(html.contains("Number.isSafeInteger"));
     assert!(html.contains("safeRouteId"));
     assert!(html.contains("renderedRevision"));
@@ -393,4 +394,34 @@ fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
     assert!(!html.contains("function alignAllRailGeometry"));
     assert!(!html.contains("getBoundingClientRect()"));
     assert!(!html.contains("--fork-x"));
+}
+
+#[test]
+fn dock_asset_keeps_live_worktrees_outside_the_history_disclosure_limit() {
+    let html = dock_html();
+    for contract in [
+        "function laneHasLiveConversation",
+        r#"category === "active" || category === "idle""#,
+        "function defaultVisibleLaneIds",
+        "const live = ordered.filter(laneHasLiveConversation)",
+        "const bounded = ordered.filter((lane) => !laneHasLiveConversation(lane)).slice(0, MAX_VISIBLE_BRANCHES)",
+        "const hiddenCount = ordered.length - visibleIds.size",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing live-worktree visibility contract: {contract}"
+        );
+    }
+    assert!(!html.contains("ordered.slice(0, MAX_VISIBLE_BRANCHES)"));
+}
+
+#[test]
+fn dock_asset_uses_identical_rail_and_stage_track_widths() {
+    let html = dock_html();
+    assert!(html.contains(".rail-line, .worktree-stage { padding-right: var(--target-width); }"));
+    assert_eq!(
+        html.matches("padding-right: var(--target-width)").count(),
+        1
+    );
+    assert!(html.contains(".timeline-head { position: absolute; top: 50%; right: -1px;"));
 }
