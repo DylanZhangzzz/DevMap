@@ -6,107 +6,123 @@
   <title>DevMap Git Work Map</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #090d12; --bg-canvas: #0c1219; --surface: #111820; --surface-raised: #16212d;
-      --line: #2b3745; --line-soft: #1d2834; --text: #edf3fa; --muted: #91a2b5; --faint: #657589;
-      --accent: #5aa7ff; --accent-soft: #102a44; --success: #45c88f; --warning: #e5ad54;
-      --danger: #f06d7e; --unknown: #7d8da0; --focus: #9bcaff;
+      color-scheme: light;
+      --bg: #f4f5f7; --bg-canvas: #fafbfc; --surface: #ffffff; --surface-raised: #f5f8fc;
+      --line: #d9dde3; --line-soft: #e9ebef; --text: #202124; --muted: #6f747c; --faint: #9aa0a8;
+      --main-rail: #202124; --accent: #1677ff; --accent-soft: #eaf3ff; --success: #20b26b; --warning: #d99013;
+      --danger: #d92d54; --unknown: #89919b; --focus: #1677ff;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-width: 0; min-height: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); }
-    body { font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
     button { font: inherit; touch-action: manipulation; }
     button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
     [hidden] { display: none !important; }
     .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; transform: translateY(-160%); border-radius: 8px; background: var(--text); color: var(--bg); }
     .skip-link:focus { transform: translateY(0); }
-    .shell { container-type: inline-size; width: min(1180px, 100%); margin: 0 auto; padding: 20px; }
-    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: clamp(24px, 4cqi, 34px); line-height: 1.15; letter-spacing: -.03em; }
+    .shell { container-type: inline-size; width: min(980px, 100%); margin: 0 auto; padding: 24px; }
+    .masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 4px 14px; }
+    .eyebrow { margin: 0 0 2px; color: var(--text); font-size: 17px; font-weight: 800; letter-spacing: -.015em; text-transform: none; }
+    h1 { margin: 0; font-size: 14px; line-height: 1.25; letter-spacing: -.01em; }
     .subhead { margin: 5px 0 0; color: var(--muted); font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .refresh { min-width: 104px; min-height: 44px; padding: 9px 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); color: var(--text); cursor: pointer; font-weight: 750; }
-    .refresh:hover { background: var(--surface-raised); }
+    .masthead-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+    .refresh { min-width: 82px; min-height: 34px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700; box-shadow: 0 1px 2px rgb(32 33 36 / 6%); }
+    .refresh:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
     .refresh:disabled { cursor: wait; opacity: .62; }
-    .overview { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 14px 0 10px; }
-    .metric { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 14px; border-right: 1px solid var(--line); background: var(--bg); }
+    .overview { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 0; }
+    .metric { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 14px; border-right: 1px solid var(--line); background: transparent; }
     .metric:first-child { padding-left: 0; }
     .metric:last-child { border-right: 0; }
     .metric strong { font-size: 14px; font-variant-numeric: tabular-nums; }
     .metric span { color: var(--muted); font-size: 10px; }
-    .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 10px 0 14px; }
     .toolbar-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 14px; }
-    .connection { margin: 0; color: var(--success); font: 700 11px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .connection { margin: 0; color: var(--success); font: 700 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .connection.offline { color: var(--warning); }
-    .density-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+    .density-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #f1f3f5; box-shadow: inset 0 1px 2px rgb(32 33 36 / 4%); }
     .density-button { min-height: 32px; padding: 5px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font: 750 10px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .density-button[aria-pressed="true"] { background: var(--surface-raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
-    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 12px; color: var(--muted); font-size: 11px; }
+    .density-button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgb(32 33 36 / 12%), inset 0 0 0 1px var(--line); }
+    .legend { display: none; flex-wrap: wrap; justify-content: flex-end; gap: 8px 12px; color: var(--muted); font-size: 11px; }
+    html[data-density="full"] .legend { display: flex; }
     .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
-    .dot.root { background: var(--accent); } .dot.dev { background: var(--text); }
+    .dot.root { background: var(--main-rail); } .dot.dev { background: var(--accent); }
     .dot.open { background: var(--warning); } .dot.dirty { background: var(--danger); }
-    .map-frame { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg-canvas); }
-    .topology-canvas { display: grid; min-width: 0; }
-    .rail-section { --rail-color: var(--accent); position: relative; min-width: 0; padding: 16px 16px 20px; border-bottom: 1px solid var(--line-soft); }
+    .map-frame { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 10px 28px rgb(32 33 36 / 7%); }
+    .map-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); background: var(--surface); }
+    .map-title-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; min-width: 0; }
+    .topology-canvas { display: grid; min-width: 0; background: var(--bg-canvas); }
+    .rail-section { --rail-color: var(--main-rail); position: relative; min-width: 0; padding: 18px 18px 24px; border-bottom: 1px solid var(--line-soft); background: var(--bg-canvas); }
     .rail-section:last-child { border-bottom: 0; }
-    .rail-section.development { --rail-color: var(--text); }
-    .integration-rail { display: grid; grid-template-columns: minmax(118px, .55fr) minmax(120px, 2.45fr); align-items: center; gap: 12px; min-height: 48px; }
-    .rail-node { min-height: 42px; padding: 7px 12px; border: 1px solid var(--rail-color); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
-    .rail-node[aria-current="true"] { background: var(--surface-raised); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .rail-section.development { --rail-color: var(--accent); }
+    .topology-grid-labels { display: grid; grid-template-columns: 150px minmax(150px, 1fr) 132px 116px; gap: 12px; margin: 0 0 8px; color: var(--faint); font: 700 8px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; letter-spacing: .08em; }
+    .topology-grid-labels span:last-child { text-align: right; }
+    .integration-rail { display: grid; grid-template-columns: 150px minmax(240px, 1fr); align-items: center; gap: 18px; min-height: 48px; }
+    .rail-node { min-height: 42px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 3px rgb(32 33 36 / 7%); }
+    .rail-node[aria-current="true"] { border-color: var(--rail-color); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
     .rail-node strong { display: block; overflow-wrap: anywhere; }
     .rail-node span { display: block; color: var(--muted); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .rail-line { position: relative; height: 3px; border-radius: 99px; background: var(--rail-color); }
-    .rail-line::after { content: ""; position: absolute; top: -5px; right: 0; width: 11px; height: 11px; border: 3px solid var(--rail-color); border-radius: 50%; background: var(--bg-canvas); }
-    .rail-parent { margin: 2px 0 8px 132px; color: var(--faint); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .branch-rails { position: relative; display: grid; gap: 12px; margin-top: 10px; padding-left: clamp(42px, 5vw, 68px); }
-    .branch-rails::before { content: ""; position: absolute; top: -10px; bottom: 20px; left: clamp(16px, 2.3vw, 30px); width: 1px; background: var(--line); }
-    .fork-group { position: relative; display: grid; gap: 7px; min-width: 0; }
-    .fork-node { position: relative; justify-self: start; min-height: 30px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-canvas); color: var(--muted); cursor: pointer; text-align: left; font: 650 10px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .fork-node::before { content: ""; position: absolute; top: 50%; right: 100%; width: clamp(12px, 2.7vw, 38px); height: 1px; background: var(--line); }
+    .timeline-station { position: absolute; top: 50%; left: var(--station); z-index: 2; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: translate(-50%, -50%); border: 0; background: transparent; cursor: pointer; }
+    .timeline-station::after { content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); border: 3px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
+    .timeline-station:hover::after, .timeline-station:focus-visible::after { box-shadow: 0 0 0 4px var(--accent-soft); }
+    .timeline-head { position: absolute; top: 50%; right: -1px; display: grid; place-items: center; min-width: 47px; min-height: 22px; padding: 0 10px; transform: translateY(-50%); border-radius: 999px; background: var(--rail-color); color: var(--surface); font: 800 9px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .rail-parent { margin: 4px 0 4px 168px; color: var(--faint); font: 9px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .branch-rails { position: relative; display: grid; gap: 2px; margin: 4px 0 0 168px; min-width: 0; }
+    .fork-group { position: relative; display: grid; gap: 1px; min-width: 0; padding: 5px 0 2px; }
+    .fork-group::before { content: ""; position: absolute; top: -9px; bottom: 26px; left: var(--station); width: 1px; background: color-mix(in srgb, var(--accent) 62%, transparent); }
+    .fork-node { position: relative; z-index: 2; justify-self: start; min-height: 18px; margin-left: var(--station); padding: 1px 5px; transform: translateX(-50%); border: 0; border-radius: 4px; background: var(--bg-canvas); color: var(--faint); cursor: pointer; text-align: center; font: 650 8px/1.15 ui-monospace, "Cascadia Code", Consolas, monospace; box-shadow: none; }
     .fork-group.unknown .fork-node { border-style: dashed; color: var(--unknown); }
-    .fork-node[aria-current="true"] { border-color: var(--accent); color: var(--text); }
-    .station-title { display: inline-flex; align-items: center; gap: 7px; }
+    .fork-node[aria-current="true"] { color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .station-title { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
     .station-title strong { color: var(--text); font-family: inherit; }
     .station-count { color: var(--faint); }
-    .station-meta { margin-left: 7px; color: var(--faint); }
-    .branch-list { display: grid; gap: 7px; min-width: 0; }
-    .branch-rail { display: grid; grid-template-columns: minmax(170px, 1.05fr) minmax(84px, .72fr) minmax(120px, .85fr) minmax(116px, .65fr); grid-template-areas: "stop path activity return"; align-items: center; gap: 10px; min-width: 0; padding: 7px 0; }
+    .station-meta { display: none; }
+    .branch-list { display: grid; gap: 2px; min-width: 0; }
+    .branch-rail { position: relative; display: grid; grid-template-columns: minmax(300px, 1fr) minmax(116px, .24fr); grid-template-areas: "track return" "tasks return"; align-items: center; column-gap: 14px; row-gap: 3px; min-width: 0; min-height: 50px; padding: 2px 0; }
     .workspace-branch.current { position: relative; }
-    .workspace-branch.current::before { content: ""; position: absolute; inset: 1px -7px; z-index: 0; border: 1px solid var(--accent); border-radius: 12px; pointer-events: none; }
-    .worktree-stop, .task-node { position: relative; z-index: 1; min-width: 0; min-height: 42px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
-    .worktree-stop { grid-area: stop; }
+    .workspace-branch.current .worktree-stop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .worktree-stop, .task-node { position: relative; z-index: 2; min-width: 0; min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
+    .worktree-stop { grid-area: track; align-self: center; justify-self: start; width: min(226px, 42%); margin-left: clamp(4px, calc(var(--station) + 10px), 54%); }
     .worktree-stop:hover, .task-node:hover, .fork-node:hover, .rail-node:hover { border-color: var(--accent); }
     .worktree-stop[aria-current="true"], .task-node[aria-current="true"] { border-color: var(--accent); background: var(--surface-raised); box-shadow: 0 0 0 2px var(--accent-soft); }
-    .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; font-weight: 780; overflow-wrap: anywhere; }
+    .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 10px; font-weight: 780; overflow-wrap: anywhere; }
     .current-pill { padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 9px; letter-spacing: .05em; }
     .workspace-short, .task-meta { display: block; margin-top: 3px; color: var(--muted); font: 10px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
     .dirty-mark { display: inline-block; margin-top: 3px; color: var(--danger); font-size: 10px; font-weight: 800; }
-    .rail-path { grid-area: path; position: relative; height: 3px; border-radius: 99px; background: var(--accent); }
+    .rail-path { grid-area: track; position: absolute; left: var(--station); right: 0; top: 50%; z-index: 1; height: 2px; border-radius: 99px; background: var(--accent); }
     .rail-path::before, .rail-path::after { content: ""; position: absolute; top: -4px; width: 9px; height: 9px; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg-canvas); }
     .rail-path::before { left: 0; } .rail-path::after { right: 0; }
-    .agent-summary { grid-area: activity; display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted); font-size: 11px; }
+    .agent-summary { grid-area: track; z-index: 2; display: flex; align-items: center; justify-self: end; gap: 6px; min-width: 0; margin-right: 12px; padding: 3px 6px; background: var(--bg-canvas); color: var(--muted); font-size: 9px; }
     .agent-summary::before { content: ""; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
     .agent-summary.active::before { background: var(--accent); }
-    .task-stack { grid-area: activity; display: grid; gap: 5px; min-width: 0; }
-    .task-node { min-height: 38px; padding: 6px 8px; }
-    .task-title { display: block; font-size: 11px; font-weight: 720; overflow-wrap: anywhere; }
-    .task-state { display: block; margin-top: 2px; color: var(--accent); font-size: 9px; font-weight: 750; text-transform: uppercase; }
-    .task-node.idle .task-state { color: var(--muted); }
+    .task-stack, .conversation-track { grid-area: tasks; z-index: 3; display: flex; align-items: stretch; justify-self: start; width: min(468px, 72%); gap: 6px; min-width: 0; margin-left: clamp(4px, calc(var(--station) + 10px), 38%); }
+    .task-node, .conversation-node { flex: 0 0 226px; min-width: 0; min-height: 44px; padding: 7px 9px; }
+    .task-title, .conversation-title { display: block; font-size: 11px; font-weight: 760; overflow-wrap: anywhere; }
+    .conversation-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; margin-top: 3px; }
+    .agent-identity { color: var(--text); font: 700 9px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .task-state, .conversation-state { color: var(--accent); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .task-node.idle .task-state, .conversation-node.idle .conversation-state, .conversation-node.completed .conversation-state, .conversation-node.stale .conversation-state { color: var(--muted); }
+    .conversation-context, .conversation-audit { display: block; margin-top: 3px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+    .historical-conversations { flex: 0 0 auto; min-height: 44px; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 10px; }
+    .historical-conversations:hover { border-color: var(--accent); color: var(--text); }
     .unlinked { min-height: 38px; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
     .unlinked strong, .unlinked span { display: block; }
     .unlinked strong { font-size: 11px; } .unlinked span { font-size: 9px; }
-    html[data-density="map"] .task-stack { display: none; }
+    html[data-density="map"] .workspace-short, html[data-density="map"] .conversation-context, html[data-density="map"] .conversation-audit { display: none; }
+    html[data-density="read"] .conversation-audit { display: none; }
+    html[data-density="read"] .branch-rail, html[data-density="full"] .branch-rail { min-height: 94px; }
     html[data-density="read"] .agent-summary, html[data-density="full"] .agent-summary { display: none; }
     html[data-density="read"] .task-meta { display: none; }
-    .return-state { grid-area: return; align-self: stretch; display: grid; align-content: center; min-height: 38px; padding: 5px 8px; border-left: 2px solid var(--unknown); color: var(--unknown); font-size: 10px; font-weight: 800; }
-    .return-state.merged { border-color: var(--success); color: var(--success); }
-    .return-state.unmerged { border-color: var(--warning); color: var(--warning); }
-    .return-state.unknown { border-style: dashed; }
+    .return-state { grid-area: return; position: relative; z-index: 2; align-self: center; display: grid; align-content: center; min-height: 30px; padding: 3px 0 3px 8px; border: 0; color: var(--unknown); font-size: 9px; font-weight: 800; background: var(--bg-canvas); }
+    .return-state::before { content: ""; position: absolute; top: 50%; right: 100%; width: 24px; border-top: 2px dashed var(--unknown); }
+    .return-state.merged { color: #12804b; background: var(--bg-canvas); }
+    .return-state.merged::before { border-color: var(--success); border-style: solid; }
+    .return-state.merged::after { content: ""; position: absolute; right: calc(100% + 22px); bottom: 50%; width: 18px; height: 30px; border-top: 2px solid var(--success); border-right: 2px solid var(--success); border-radius: 0 15px 0 0; }
+    .return-state.unmerged { color: #9a620a; background: var(--bg-canvas); }
     .counts { display: block; margin-top: 2px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .collapsed-branches { justify-self: start; min-height: 38px; margin: 2px 0 0; padding: 7px 11px; border: 1px dashed var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; }
     .collapsed-branches:hover { border-color: var(--accent); color: var(--text); }
-    .selection-details { margin: 0; padding: 16px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: var(--surface); box-shadow: none; }
+    .selection-details { margin: 0; padding: 16px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: var(--surface); box-shadow: inset 0 1px 0 rgb(255 255 255 / 75%); }
     .selection-details h2 { margin: 0 0 10px; font-size: 16px; }
     .detail-empty { margin: 0; color: var(--muted); }
     .detail-grid { display: grid; grid-template-columns: minmax(110px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 0; }
@@ -114,25 +130,30 @@
     .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
     .detail-grid code { user-select: text; font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .copy-hash { min-height: 44px; margin-top: 12px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); color: var(--text); cursor: pointer; }
-    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--warning); border-radius: 10px; background: var(--surface); color: var(--warning); }
+    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--warning); border-radius: 10px; background: #fff9ec; color: #8c5a08; }
     .empty { margin: 0; padding: 20px; color: var(--muted); }
     @container (max-width: 619px) {
       .shell { padding: 12px; }
       .masthead { align-items: flex-start; flex-direction: column; }
-      .refresh { width: 100%; }
-      .toolbar { grid-template-columns: minmax(0, 1fr); }
+      .masthead-actions { width: 100%; justify-content: space-between; }
+      .map-toolbar { grid-template-columns: minmax(0, 1fr); }
       .toolbar-side, .legend { justify-content: flex-start; }
       .rail-section { padding: 14px 12px 18px; }
+      .topology-grid-labels { display: none; }
       .integration-rail { grid-template-columns: minmax(0, 1fr); }
       .rail-line { margin-left: 22px; width: 3px; height: 24px; }
-      .rail-line::after { top: auto; right: -5px; bottom: 0; }
+      .timeline-station { display: none; }
+      .timeline-head { top: auto; right: auto; bottom: -2px; left: 50%; min-width: 38px; min-height: 19px; transform: translate(-50%, 50%); }
       .rail-parent, .branch-rails { margin-left: 0; padding-left: 18px; }
-      .branch-rails::before { left: 6px; }
-      .fork-node::before { width: 12px; }
+      .fork-group::before { top: -8px; bottom: 24px; left: 6px; background: var(--line); }
+      .fork-node { justify-self: start; margin-left: 0; transform: none; }
       .branch-rail { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stop" "path" "activity" "return"; gap: 7px; }
-      .rail-path { margin-left: 20px; width: 3px; height: 24px; }
+      .worktree-stop { grid-area: stop; width: 100%; margin-left: 0; }
+      .rail-path { grid-area: path; position: relative; inset: auto; margin-left: 20px; width: 3px; height: 24px; }
       .rail-path::before { top: 0; left: -4px; } .rail-path::after { top: auto; right: auto; bottom: 0; left: -4px; }
-      .return-state { min-height: 34px; }
+      .agent-summary, .task-stack { grid-area: activity; justify-self: stretch; width: auto; margin: 0; }
+      .return-state { grid-area: return; min-height: 34px; padding-left: 8px; }
+      .return-state::before, .return-state::after { display: none; }
       .detail-grid { grid-template-columns: minmax(0, 1fr); }
       .detail-grid dd { margin-bottom: 6px; }
     }
@@ -145,28 +166,29 @@
   <a class="skip-link" href="#dock-main">Skip to Git relationship map</a>
   <div class="shell">
     <header class="masthead">
-      <div><p class="eyebrow">DevMap · Rail View</p><h1>Repository topology</h1><p class="subhead" id="revision">Waiting for a valid snapshot</p></div>
-      <button class="refresh" id="refresh" type="button">Refresh all</button>
+      <div><p class="eyebrow">DevMap · Rail View</p><p class="subhead" id="revision">Waiting for a valid snapshot</p></div>
+      <div class="masthead-actions"><p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p><button class="refresh" id="refresh" type="button">Refresh all</button></div>
     </header>
-    <div class="overview" aria-label="Relationship summary">
-      <div class="metric"><strong id="metric-workspaces">0</strong><span>Workspaces</span></div>
-      <div class="metric"><strong id="metric-tasks">0</strong><span>Linked chats</span></div>
-      <div class="metric"><strong id="metric-open">0</strong><span>Not merged</span></div>
-    </div>
-    <div class="toolbar">
-      <p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p>
-      <div class="toolbar-side">
-        <div class="density-switch" id="density-switch" aria-label="Detail density">
-          <button class="density-button" type="button" data-density-value="map" aria-label="MAP density" aria-pressed="true">MAP</button>
-          <button class="density-button" type="button" data-density-value="read" aria-label="READ density" aria-pressed="false">READ</button>
-          <button class="density-button" type="button" data-density-value="full" aria-label="FULL density" aria-pressed="false">FULL</button>
-        </div>
-        <div class="legend" aria-label="Map legend"><span><i class="dot root"></i>Main rail</span><span><i class="dot dev"></i>Development rail</span><span><i class="dot open"></i>Not merged</span><span><i class="dot dirty"></i>Dirty</span></div>
-      </div>
-    </div>
     <main id="dock-main" tabindex="-1">
       <section class="map-frame" aria-labelledby="map-title">
-        <h2 id="map-title" hidden>Workspace, task, branch, and merge relationships</h2>
+        <div class="map-toolbar">
+          <div class="map-title-group">
+            <h1 id="map-title">Repository topology</h1>
+            <div class="overview" aria-label="Relationship summary">
+              <div class="metric"><strong id="metric-workspaces">0</strong><span>Workspaces</span></div>
+              <div class="metric"><strong id="metric-tasks">0</strong><span>Linked chats</span></div>
+              <div class="metric"><strong id="metric-open">0</strong><span>Not merged</span></div>
+            </div>
+          </div>
+          <div class="toolbar-side">
+            <div class="density-switch" id="density-switch" aria-label="Detail density">
+              <button class="density-button" type="button" data-density-value="map" aria-label="MAP density" aria-pressed="true">MAP</button>
+              <button class="density-button" type="button" data-density-value="read" aria-label="READ density" aria-pressed="false">READ</button>
+              <button class="density-button" type="button" data-density-value="full" aria-label="FULL density" aria-pressed="false">FULL</button>
+            </div>
+            <div class="legend" aria-label="Map legend"><span><i class="dot root"></i>Main rail</span><span><i class="dot dev"></i>Development rail</span><span><i class="dot open"></i>Not merged</span><span><i class="dot dirty"></i>Dirty</span></div>
+          </div>
+        </div>
         <div class="relationship-map topology-canvas" id="relationship-map"></div>
         <section class="selection-details" id="selection-details" aria-labelledby="selection-title">
           <h2 id="selection-title">Selection details</h2><p class="detail-empty">Select a common-base station, workspace, or task.</p>
@@ -179,6 +201,7 @@
     (() => {
       "use strict";
       const MAX_ROWS = 2048, MAX_TEXT = 16384, MAX_TAGS = 32, MAX_VISIBLE_BRANCHES = 6;
+      const MAX_RECENT_INACTIVE = 3;
       const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
@@ -189,6 +212,8 @@
       let nextRequestId = 1, renderedRevision = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream;
       let lastTaskInventorySync = null, requestedTaskInventorySync = null, refreshRequestTimer;
       const expandedTargets = new Set();
+      const expandedConversationHistory = new Set();
+      const activeConversationStates = new Set(["starting", "working", "waiting", "active"]);
       const byId = (id) => document.getElementById(id);
       const boundedText = (value) => typeof value === "string" && value.length > 0 && value.length <= MAX_TEXT;
       const optionalText = (value) => value === null || value === undefined || boundedText(value);
@@ -256,7 +281,13 @@
         renderedRevision = value.revision; lastValidAt = Date.now(); renderSnapshot(value); setOnline(); if (refreshCompleted) finishRefresh("Task names resynced"); return true;
       }
       function allLanes(value) { return value.branch_groups.flatMap((group) => group.lanes); }
-      function activeTaskCount(lane) { return lane.chats.filter((task) => ["starting", "working", "waiting"].includes(task.status)).length; }
+      function effectiveConversationState(chat) { return (chat.host_status || chat.status).toLowerCase(); }
+      function conversationInstant(chat) { const instant = Date.parse(chat.last_event_at); return Number.isFinite(instant) ? instant : 0; }
+      function compareConversations(left, right) {
+        const bucket = (chat) => activeConversationStates.has(effectiveConversationState(chat)) ? 0 : effectiveConversationState(chat) === "idle" ? 1 : 2;
+        return bucket(left) - bucket(right) || conversationInstant(right) - conversationInstant(left) || left.session_id.localeCompare(right.session_id);
+      }
+      function activeTaskCount(lane) { return lane.chats.filter((task) => activeConversationStates.has(effectiveConversationState(task))).length; }
       function rankLane(lane) {
         return [lane.is_current ? 0 : 1, lane.relationship.dirty ? 0 : 1, lane.relationship.merged === false ? 0 : 1, activeTaskCount(lane) > 0 ? 0 : 1, lane.branch || "", lane.workspace_path, lane.worktree_id];
       }
@@ -267,6 +298,10 @@
           if (a[index] > b[index]) return 1;
         }
         return 0;
+      }
+      function stationPercent(index, total) {
+        if (total <= 1) return 24;
+        return 12 + (index / (total - 1)) * 54;
       }
       function renderSnapshot(value) {
         const lanes = allLanes(value);
@@ -285,20 +320,30 @@
       }
       function createRail(rail, groups) {
         const section = document.createElement("section"); section.className = `rail-section ${rail.parent ? "development" : "root"}`;
+        const matching = groups.filter((candidate) => candidate.target_branch === rail.name);
+        const stations = new Map(matching.map((group, index) => [group, stationPercent(index, matching.length)]));
+        const labels = document.createElement("div"); labels.className = "topology-grid-labels"; labels.setAttribute("aria-hidden", "true");
+        for (const label of ["BASE", "BRANCH RAILS", "ACTIVITY", "TARGET"]) { const item = document.createElement("span"); item.textContent = label; labels.append(item); }
         const header = document.createElement("div"); header.className = "integration-rail";
         const node = graphButton("rail-node", `${rail.name} integration branch`, () => showRail(rail));
         const name = document.createElement("strong"); name.textContent = rail.name;
         const meta = document.createElement("span"); meta.textContent = `${rail.head.slice(0, 8)} · ${rail.parent ? `returns to ${rail.parent}` : "terminal"}`;
         node.append(name, meta);
-        const line = document.createElement("span"); line.className = "rail-line"; line.setAttribute("aria-hidden", "true");
-        header.append(node, line); section.append(header);
+        const line = document.createElement("div"); line.className = "rail-line";
+        for (const group of matching) {
+          const station = graphButton("timeline-station", `Open ${group.terminal ? rail.name + " branch head" : group.fork_point ? "fork " + group.fork_point.commit.slice(0, 8) : "unknown fork"}`, () => showStation(group));
+          station.style.setProperty("--station", `${stations.get(group)}%`);
+          line.append(station);
+        }
+        const head = document.createElement("span"); head.className = "timeline-head"; head.textContent = "HEAD";
+        line.append(head);
+        header.append(node, line); section.append(labels, header);
         if (rail.parent) { const parent = document.createElement("p"); parent.className = "rail-parent"; parent.textContent = `${rail.name} integrates into ${rail.parent}`; section.append(parent); }
-        const matching = groups.filter((candidate) => candidate.target_branch === rail.name);
         const ordered = matching.flatMap((group) => group.lanes).sort(compareRanks);
         const visibleIds = new Set(ordered.slice(0, MAX_VISIBLE_BRANCHES).map((lane) => lane.worktree_id));
         const expanded = expandedTargets.has(rail.name);
         const list = document.createElement("div"); list.className = "branch-rails";
-        for (const group of matching) list.append(createGroup(group, visibleIds, expanded));
+        for (const group of matching) list.append(createGroup(group, visibleIds, expanded, stations.get(group)));
         const hiddenCount = Math.max(0, ordered.length - MAX_VISIBLE_BRANCHES);
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, rail.name, hiddenCount));
@@ -324,8 +369,9 @@
         }
         section.append(heading, list); return section;
       }
-      function createGroup(group, visibleIds, expanded) {
+      function createGroup(group, visibleIds, expanded, stationPosition = 18) {
         const article = document.createElement("article"); article.className = `fork-group ${group.terminal ? "terminal" : group.fork_point ? "known" : "unknown"}`;
+        article.style.setProperty("--station", `${stationPosition}%`);
         const collapsedOnly = group.lanes.every((lane) => !visibleIds.has(lane.worktree_id));
         if (collapsedOnly) { article.dataset.collapsedCluster = "true"; article.hidden = !expanded; }
         const stationLabel = group.terminal ? `${group.target_branch} branch head` : group.fork_point ? `Fork ${group.fork_point.commit.slice(0, 8)}` : `Unknown base with ${group.target_branch}`;
@@ -344,20 +390,19 @@
       function createBranchRail(lane, visible, expanded) {
         const row = document.createElement("div"); row.className = `branch-rail workspace-branch${lane.is_current ? " current" : ""}`;
         if (!visible) { row.dataset.collapsedBranch = "true"; row.hidden = !expanded; }
-        const workspace = graphButton("worktree-stop workspace-button", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
+        const workspace = graphButton("worktree-stop workspace-button worktree-identity", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
         const branch = document.createElement("span"); branch.className = "branch-name"; branch.textContent = lane.branch || "detached HEAD";
         if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; branch.append(current); }
         const path = document.createElement("span"); path.className = "workspace-short"; path.textContent = shortWorkspace(lane.workspace_path);
         workspace.append(branch, path);
         if (lane.relationship.dirty) { const dirty = document.createElement("span"); dirty.className = "dirty-mark"; dirty.textContent = `● DIRTY ${lane.relationship.changed_file_count}`; workspace.append(dirty); }
-        const railPath = document.createElement("span"); railPath.className = "rail-path"; railPath.setAttribute("aria-hidden", "true");
+        const railPath = document.createElement("span"); railPath.className = "rail-path branch-track"; railPath.setAttribute("aria-hidden", "true");
         const active = activeTaskCount(lane);
         const summary = document.createElement("span"); summary.className = `agent-summary${active > 0 ? " active" : ""}`;
         summary.textContent = lane.chats.length === 0 ? "No linked chat" : `${lane.chats.length} agent${lane.chats.length === 1 ? "" : "s"}${active > 0 ? ` · ${active} active` : " · idle"}`;
-        const tasks = document.createElement("div"); tasks.className = "task-stack";
-        if (lane.chats.length === 0) tasks.append(createUnlinkedTask()); else for (const chat of lane.chats) tasks.append(createTask(chat));
+        const tasks = createConversationTrack(lane);
         const state = lane.relationship.merged === true ? "merged" : lane.relationship.merged === false ? "unmerged" : "unknown";
-        const returned = document.createElement("div"); returned.className = `return-state ${state}`;
+        const returned = document.createElement("div"); returned.className = `return-state return-edge ${state}`;
         returned.textContent = lane.relationship.merge_target === null ? "Terminal" : lane.relationship.merged === true ? `Merged → ${lane.relationship.merge_target}` : lane.relationship.merged === false ? `Not merged → ${lane.relationship.merge_target}` : `Unknown → ${lane.relationship.merge_target || "target"}`;
         const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = lane.relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${lane.relationship.ahead} · behind ${lane.relationship.behind}`;
         returned.append(counts); row.append(workspace, railPath, summary, tasks, returned); return row;
@@ -371,12 +416,54 @@
         disclosure.textContent = expanding ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
         announce(expanding ? "Showing all branches" : "Inactive branches collapsed");
       }
+      function createConversationTrack(lane) {
+        const track = document.createElement("div"); track.className = "task-stack conversation-track";
+        if (lane.chats.length === 0) { track.append(createUnlinkedTask()); return track; }
+        const ordered = [...lane.chats].sort(compareConversations);
+        const active = ordered.filter((chat) => activeConversationStates.has(effectiveConversationState(chat)));
+        const inactive = ordered.filter((chat) => !activeConversationStates.has(effectiveConversationState(chat)));
+        const recent = inactive.slice(0, MAX_RECENT_INACTIVE);
+        const historical = inactive.slice(MAX_RECENT_INACTIVE);
+        for (const chat of [...active, ...recent]) track.append(createTask(chat));
+        if (historical.length === 0) return track;
+        const historyNodes = historical.map(createTask);
+        const disclosure = button("historical-conversations", `Show ${historical.length} historical conversations`, () => {
+          const expanding = !expandedConversationHistory.has(lane.worktree_id);
+          if (expanding) {
+            expandedConversationHistory.add(lane.worktree_id);
+            for (const node of historyNodes) track.insertBefore(node, disclosure);
+          } else {
+            expandedConversationHistory.delete(lane.worktree_id);
+            for (const node of historyNodes) node.remove();
+          }
+          disclosure.setAttribute("aria-expanded", String(expanding));
+          disclosure.textContent = expanding ? "Collapse history" : `+${historical.length} historical conversations`;
+          announce(expanding ? "Historical conversations expanded" : "Historical conversations collapsed");
+        });
+        const expanded = expandedConversationHistory.has(lane.worktree_id);
+        disclosure.setAttribute("aria-expanded", String(expanded));
+        disclosure.textContent = expanded ? "Collapse history" : `+${historical.length} historical conversations`;
+        if (expanded) for (const node of historyNodes) track.append(node);
+        track.append(disclosure); return track;
+      }
+      function relativeActivity(timestamp) {
+        const elapsed = Math.max(0, Date.now() - conversationInstant({ last_event_at: timestamp }));
+        if (elapsed < 60_000) return "now";
+        if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
+        if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
+        return `${Math.floor(elapsed / 86_400_000)}d ago`;
+      }
       function createTask(chat) {
-        const node = button(`task-node ${chat.status}`, `Select task ${chat.display_title}`, () => showTask(chat));
-        const title = document.createElement("span"); title.className = "task-title"; title.textContent = chat.display_title;
-        const state = document.createElement("span"); state.className = "task-state"; state.textContent = chat.host_status || chat.status;
-        const meta = document.createElement("span"); meta.className = "task-meta"; meta.textContent = chat.capture_incomplete ? "CAPTURE INCOMPLETE" : chat.host;
-        node.append(title, state, meta); return node;
+        const stateValue = effectiveConversationState(chat);
+        const node = button(`task-node conversation-node ${stateValue}`, `Select conversation ${chat.display_title}`, () => showTask(chat));
+        const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
+        const facts = document.createElement("span"); facts.className = "conversation-facts";
+        const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
+        const state = document.createElement("span"); state.className = "task-state conversation-state"; state.textContent = chat.host_status || chat.status;
+        facts.append(agent, state);
+        const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
+        const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
+        node.append(title, facts, context, audit); return node;
       }
       function createUnlinkedTask() {
         const node = document.createElement("div"); node.className = "unlinked";

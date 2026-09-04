@@ -91,6 +91,69 @@ fn dock_asset_uses_neutral_surfaces_and_small_area_semantic_colors() {
 }
 
 #[test]
+fn dock_asset_matches_the_approved_light_rail_view_theme() {
+    let html = dock_html();
+    for contract in [
+        "color-scheme: light",
+        "--bg: #f4f5f7",
+        "--surface: #ffffff",
+        "--text: #202124",
+        "--main-rail: #202124",
+        "--accent: #1677ff",
+        "--danger: #d92d54",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing light Rail View theme contract: {contract}"
+        );
+    }
+    assert!(!html.contains("color-scheme: dark"));
+    assert!(!html.contains("--bg: #090d12"));
+}
+
+#[test]
+fn dock_asset_places_branch_lanes_on_one_shared_commit_timeline() {
+    let html = dock_html();
+    for contract in [
+        "topology-grid-labels",
+        "timeline-station",
+        ".timeline-station::after",
+        "timeline-head",
+        "branch-track",
+        "return-edge",
+        "stationPercent",
+        r#"style.setProperty("--station","#,
+        r#"html[data-density="map"] .workspace-short"#,
+        r#"html[data-density="full"] .legend"#,
+        r#"html[data-density="read"] .branch-rail"#,
+        r#"html[data-density="full"] .branch-rail"#,
+        ".workspace-branch.current .worktree-stop",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing shared timeline contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn dock_asset_keeps_topology_title_and_density_controls_inside_the_map_shell() {
+    let html = dock_html();
+    let map_shell = html
+        .find("<section class=\"map-frame\"")
+        .expect("map shell must exist");
+    let title = html
+        .find("<h1 id=\"map-title\">Repository topology</h1>")
+        .expect("topology title must exist");
+    let canvas = html
+        .find("<div class=\"relationship-map topology-canvas\"")
+        .expect("topology canvas must exist");
+    assert!(map_shell < title && title < canvas);
+    assert!(html.contains("map-toolbar"));
+    assert!(html.contains("masthead-actions"));
+}
+
+#[test]
 fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     let html = dock_html();
     assert_eq!(DOCK_RESOURCE_URI, "ui://devmap/dock/v1.html");
@@ -176,4 +239,41 @@ fn dock_refresh_requests_a_fresh_host_task_inventory() {
         "Refresh DevMap task inventory for the current local repository and update the open Dock."
     ));
     assert!(!html.contains("REFRESH_PROMPT = `"));
+}
+
+#[test]
+fn dock_asset_keeps_worktrees_primary_and_conversations_visible_in_every_density() {
+    let html = dock_html();
+    for contract in [
+        "worktree-identity",
+        "conversation-track",
+        "conversation-node",
+        "conversation-title",
+        "agent-identity",
+        "conversation-state",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing conversation hierarchy contract: {contract}"
+        );
+    }
+    assert!(!html.contains(
+        r#"html[data-density="map"] .conversation-track { display: none"#
+    ));
+}
+
+#[test]
+fn dock_asset_orders_and_bounds_historical_conversations() {
+    let html = dock_html();
+    for contract in [
+        "function compareConversations",
+        "const MAX_RECENT_INACTIVE = 3",
+        "historical-conversations",
+        "historical conversations",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing bounded conversation history contract: {contract}"
+        );
+    }
 }
