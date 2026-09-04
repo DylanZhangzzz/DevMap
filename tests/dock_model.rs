@@ -169,9 +169,17 @@ fn reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane() {
     assert_eq!(lane.chats[0].codex_thread_id, None);
     assert_eq!(lane.chats[0].association_source, "presence_worktree_id");
     let serialized = serde_json::to_value(&model).unwrap();
+    let serialized_chat = serialized["lanes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|lane| lane["chats"].as_array().unwrap())
+        .find(|chat| chat["session_id"] == "active-session")
+        .and_then(serde_json::Value::as_object)
+        .unwrap();
     assert_eq!(
-        serialized["lanes"][0]["chats"][0]["codex_thread_id"],
-        serde_json::Value::Null
+        serialized_chat.get("codex_thread_id"),
+        Some(&serde_json::Value::Null)
     );
     assert_eq!(lane.relationship.merge_target.as_deref(), Some("main"));
     assert_eq!(lane.relationship.merged, Some(true));
