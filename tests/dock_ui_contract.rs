@@ -146,7 +146,7 @@ fn dock_asset_keeps_topology_title_and_density_controls_inside_the_map_shell() {
         .find("<h1 id=\"map-title\">Repository topology</h1>")
         .expect("topology title must exist");
     let canvas = html
-        .find("<div class=\"relationship-map topology-canvas\"")
+        .find("<div class=\"relationship-map topology-canvas topology-surface\"")
         .expect("topology canvas must exist");
     assert!(map_shell < title && title < canvas);
     assert!(html.contains("map-toolbar"));
@@ -276,4 +276,25 @@ fn dock_asset_orders_and_bounds_historical_conversations() {
             "missing bounded conversation history contract: {contract}"
         );
     }
+}
+
+#[test]
+fn dock_asset_uses_a_sticky_worktree_index_and_scoped_horizontal_viewport() {
+    let html = dock_html();
+    for contract in [
+        "topology-viewport",
+        "topology-surface",
+        "scrollbar-gutter: stable",
+        "function topologyWidth",
+        "--topology-width",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing panoramic topology contract: {contract}"
+        );
+    }
+    assert!(html.contains(".topology-viewport"));
+    assert!(html.contains("overflow-x: auto"));
+    assert!(html.contains(".worktree-identity"));
+    assert!(html.contains("position: sticky"));
 }
