@@ -1240,7 +1240,7 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                 "codex_tasks": {
                     "type": "array",
                     "maxItems": MAX_SEMANTIC_ARRAY_ITEMS,
-                    "description": "Optional active or idle Codex task metadata. DevMap associates each task only when cwd exactly matches a local worktree.",
+                    "description": "Optional active, idle, or notLoaded Codex task metadata. DevMap associates each task only when cwd exactly matches a local worktree.",
                     "items": {
                         "type": "object",
                         "properties": {

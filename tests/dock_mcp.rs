@@ -314,7 +314,10 @@ fn browser_dock_projects_exact_codex_task_titles_into_their_workspace() {
     let model: Value = serde_json::from_str(http_body(&response)).unwrap();
     let chats = model["lanes"][0]["chats"].as_array().unwrap();
     assert_eq!(chats.len(), 3);
-    assert_eq!(chats[0]["codex_thread_id"], "01a00000-0000-7000-8000-000000000001");
+    assert_eq!(
+        chats[0]["codex_thread_id"],
+        "01a00000-0000-7000-8000-000000000001"
+    );
     assert_eq!(chats[0]["display_title"], "修复 DevMap 对话窗口名");
     assert_eq!(chats[0]["host_status"], "active");
     assert!(chats.iter().any(|chat| {
@@ -332,26 +335,30 @@ fn codex_task_inventory_rejects_unsupported_status() {
     let repo = support::committed_repo();
     let mut runtime = McpRuntime::open(repo.path()).unwrap();
     runtime.handle(&initialize()).unwrap();
-    let response = runtime.handle(&call(
-        json!(2),
-        DOCK_DATA_TOOL,
-        json!({
-            "codex_tasks": [{
-                "id": "01a00000-0000-7000-8000-000000000004",
-                "title": "Completed task",
-                "status": "completed",
-                "cwd": repo.path().to_string_lossy(),
-                "updatedAt": 1_788_425_000_u64,
-                "hostId": "local",
-                "kind": "codex"
-            }]
-        }),
-    )).unwrap();
+    let response = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_DATA_TOOL,
+            json!({
+                "codex_tasks": [{
+                    "id": "01a00000-0000-7000-8000-000000000004",
+                    "title": "Completed task",
+                    "status": "completed",
+                    "cwd": repo.path().to_string_lossy(),
+                    "updatedAt": 1_788_425_000_u64,
+                    "hostId": "local",
+                    "kind": "codex"
+                }]
+            }),
+        ))
+        .unwrap();
     assert_eq!(response["result"]["isError"], true);
-    assert!(response["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap()
-        .contains("codex_tasks.status"));
+    assert!(
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("codex_tasks.status")
+    );
 }
 
 #[test]

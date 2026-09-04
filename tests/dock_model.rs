@@ -69,7 +69,12 @@ fn host_observed_tasks_keep_verified_codex_navigation_identity() {
         )
         .unwrap();
 
-    let chat = model.lanes.iter().flat_map(|lane| &lane.chats).next().unwrap();
+    let chat = model
+        .lanes
+        .iter()
+        .flat_map(|lane| &lane.chats)
+        .next()
+        .unwrap();
     assert_eq!(
         chat.codex_thread_id.as_deref(),
         Some("01a00000-0000-7000-8000-000000000001")
@@ -163,6 +168,11 @@ fn reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane() {
     assert_eq!(lane.chats[0].session_id, "active-session");
     assert_eq!(lane.chats[0].codex_thread_id, None);
     assert_eq!(lane.chats[0].association_source, "presence_worktree_id");
+    let serialized = serde_json::to_value(&model).unwrap();
+    assert_eq!(
+        serialized["lanes"][0]["chats"][0]["codex_thread_id"],
+        serde_json::Value::Null
+    );
     assert_eq!(lane.relationship.merge_target.as_deref(), Some("main"));
     assert_eq!(lane.relationship.merged, Some(true));
 }
