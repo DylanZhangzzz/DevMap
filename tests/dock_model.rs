@@ -59,6 +59,24 @@ fn replacing_inventory_updates_a_renamed_task_title() {
 }
 
 #[test]
+fn host_observed_tasks_keep_verified_codex_navigation_identity() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let model = service
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Open me")],
+            time::OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+
+    let chat = model.lanes.iter().flat_map(|lane| &lane.chats).next().unwrap();
+    assert_eq!(
+        chat.codex_thread_id.as_deref(),
+        Some("01a00000-0000-7000-8000-000000000001")
+    );
+}
+
+#[test]
 fn reducer_groups_worktrees_at_the_same_exact_fork_point() {
     let repo = support::committed_repo();
     let dev = support::linked_worktree(repo.path(), "dev");
@@ -143,6 +161,7 @@ fn reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane() {
         .find(|lane| !lane.chats.is_empty())
         .unwrap();
     assert_eq!(lane.chats[0].session_id, "active-session");
+    assert_eq!(lane.chats[0].codex_thread_id, None);
     assert_eq!(lane.chats[0].association_source, "presence_worktree_id");
     assert_eq!(lane.relationship.merge_target.as_deref(), Some("main"));
     assert_eq!(lane.relationship.merged, Some(true));
@@ -458,7 +477,7 @@ fn agents_json_is_canonical_bounded_and_does_not_change_source_git_state() {
     );
     assert!(output.stdout.len() < 1024 * 1024);
     let model: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/2");
+    assert_eq!(model["schema_version"], "devmap/dock/3");
     assert_eq!(
         model["repository_id"],
         repository_id(

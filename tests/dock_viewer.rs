@@ -127,7 +127,7 @@ fn viewer_is_loopback_token_protected_read_only_and_stoppable() {
     assert!(snapshot.contains("Content-Type: application/json"));
     assert!(snapshot.contains("Cache-Control: no-store"));
     let model: Value = serde_json::from_str(body(&snapshot)).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/2");
+    assert_eq!(model["schema_version"], "devmap/dock/3");
     let revision = model["revision"].as_u64().unwrap();
 
     let events = request(

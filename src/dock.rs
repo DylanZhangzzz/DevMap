@@ -20,7 +20,7 @@ use crate::presence::{
 };
 use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 
-pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/2";
+pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/3";
 pub const MAX_DOCK_MODEL_BYTES: usize = 768 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -47,6 +47,7 @@ pub struct DockEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockChat {
     pub session_id: String,
+    pub codex_thread_id: Option<String>,
     pub display_title: String,
     pub actor_id: String,
     pub host: String,
@@ -566,6 +567,7 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
     let actor_id = entry.actor_id.clone()?;
     Some(DockChat {
         session_id: entry.session_id.clone()?,
+        codex_thread_id: None,
         display_title: actor_id.clone(),
         actor_id,
         host: entry.host.clone()?,
@@ -586,6 +588,7 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
 fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
     DockChat {
         session_id: task.session_id.clone(),
+        codex_thread_id: Some(task.session_id.clone()),
         display_title: task.display_title.clone(),
         actor_id: "codex".into(),
         host: task.host.clone(),

@@ -177,7 +177,7 @@ fn dock_calls_are_read_only_closed_world_and_revisioned() {
     assert!(revisions.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(
         responses[1]["result"]["structuredContent"]["schema_version"],
-        "devmap/dock/2"
+        "devmap/dock/3"
     );
     assert!(responses[1]["result"].get("_meta").is_none());
     assert_eq!(
