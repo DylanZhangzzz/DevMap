@@ -325,3 +325,10 @@ fn dock_asset_sticky_worktree_identity_masks_scrolled_content() {
     assert!(html.contains("margin-left: -18px"));
     assert!(html.contains("width: calc(100% + 18px)"));
 }
+
+#[test]
+fn dock_asset_renders_one_quiet_empty_conversation_state() {
+    let html = dock_html();
+    assert!(html.contains("summary.hidden = lane.chats.length === 0"));
+    assert!(html.contains("No linked conversation"));
+}

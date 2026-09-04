@@ -408,7 +408,8 @@
         const railPath = document.createElement("span"); railPath.className = "rail-path branch-track"; railPath.setAttribute("aria-hidden", "true");
         const active = activeTaskCount(lane);
         const summary = document.createElement("span"); summary.className = `agent-summary${active > 0 ? " active" : ""}`;
-        summary.textContent = lane.chats.length === 0 ? "No linked chat" : `${lane.chats.length} agent${lane.chats.length === 1 ? "" : "s"}${active > 0 ? ` · ${active} active` : " · idle"}`;
+        summary.hidden = lane.chats.length === 0;
+        summary.textContent = `${lane.chats.length} agent${lane.chats.length === 1 ? "" : "s"}${active > 0 ? ` · ${active} active` : " · idle"}`;
         const tasks = createConversationTrack(lane);
         const state = lane.relationship.merged === true ? "merged" : lane.relationship.merged === false ? "unmerged" : "unknown";
         const returned = document.createElement("div"); returned.className = `return-state return-edge ${state}`;
@@ -476,7 +477,7 @@
       }
       function createUnlinkedTask() {
         const node = document.createElement("div"); node.className = "unlinked";
-        const title = document.createElement("strong"); title.textContent = "No linked chat";
+        const title = document.createElement("strong"); title.textContent = "No linked conversation";
         const state = document.createElement("span"); state.textContent = "UNINSTRUMENTED";
         node.append(title, state); return node;
       }
@@ -510,7 +511,7 @@
         showDetails(`Common base with ${fork.target_branch}`, [["Full hash", fork.commit], ["Exact tags", fork.tags.length ? fork.tags.join(", ") : "No exact tag"], ["Subject", fork.subject || "Unavailable"], ["Authored", fork.authored_at || "Unavailable"], ["Distance to target", fork.distance_to_target === null ? "Unknown" : String(fork.distance_to_target)], ["Workspaces", String(group.lanes.length)]], fork.commit);
       }
       function selectLane(lane) {
-        const taskTitles = lane.chats.length ? lane.chats.map((chat) => chat.display_title).join(", ") : "No linked chat";
+        const taskTitles = lane.chats.length ? lane.chats.map((chat) => chat.display_title).join(", ") : "No linked conversation";
         showDetails(lane.branch || "Detached workspace", [["Workspace", lane.workspace_path], ["HEAD", lane.head], ["Merge target", lane.relationship.merge_target || "Terminal"], ["Common base", lane.relationship.fork_point?.commit || "Unknown"], ["Ahead / behind", `${lane.relationship.ahead ?? "?"} / ${lane.relationship.behind ?? "?"}`], ["Merge state", lane.relationship.merged === true ? "Merged" : lane.relationship.merged === false ? "Not merged" : "Unknown"], ["Working tree", lane.relationship.dirty ? `DIRTY ${lane.relationship.changed_file_count}` : "Clean"], ["Tasks", taskTitles]], lane.head);
         const route = lane.chats.find((chat) => chat.route_id)?.route_id || "none";
         if (transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
