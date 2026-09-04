@@ -228,6 +228,33 @@ fn dock_asset_accepts_exact_codex_task_links_and_renders_the_window_title() {
 }
 
 #[test]
+fn dock_task_navigation_uses_only_a_validated_codex_thread_id() {
+    let html = dock_html();
+    for contract in [
+        "safeCodexThreadId",
+        "codex_thread_id",
+        "requestTaskNavigation",
+        "Open the local Codex task with id",
+        "Open this task from Codex",
+        "sendFollowUpMessage",
+        "method: \"ui/message\"",
+    ] {
+        assert!(html.contains(contract), "missing navigation contract: {contract}");
+    }
+    assert!(!html.contains("Open the local Codex task with title"));
+    assert!(!html.contains("codex://"));
+}
+
+#[test]
+fn dock_task_navigation_does_not_turn_presence_only_records_into_links() {
+    let html = dock_html();
+    assert!(html.contains("if (!chat.codex_thread_id)"));
+    assert!(html.contains("node.dataset.navigable"));
+    assert!(html.contains("agent-task-node ${category} ${stateValue}`"));
+    assert!(html.contains("graphButton("));
+}
+
+#[test]
 fn dock_refresh_requests_a_fresh_host_task_inventory() {
     let html = dock_html();
     assert!(html.contains("Refresh all"));

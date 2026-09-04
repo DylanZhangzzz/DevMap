@@ -198,6 +198,7 @@
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map();
+      const pendingNavigationNodes = new Map();
       const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
       const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
       const allowedSources = new Set(["config", "local_dev", "local_develop", "remote_default", "local_main", "local_master"]);
@@ -211,11 +212,13 @@
       const optionalText = (value) => value === null || value === undefined || boundedText(value);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
       const safeRouteId = (value) => value === null || value === undefined || /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$/.test(value);
+      const safeCodexThreadId = (value) => value === null || value === undefined
+        || (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9-]{0,255}$/.test(value));
       const safeCount = (value) => value === null || (Number.isSafeInteger(value) && value >= 0);
       function validTask(task) {
         return task && typeof task === "object" && boundedText(task.session_id) && boundedText(task.display_title)
           && boundedText(task.actor_id) && boundedText(task.host) && optionalText(task.host_status)
-          && safeRouteId(task.route_id) && allowedStatus.has(task.status) && allowedConfidence.has(task.confidence)
+          && safeRouteId(task.route_id) && safeCodexThreadId(task.codex_thread_id) && allowedStatus.has(task.status) && allowedConfidence.has(task.confidence)
           && boundedText(task.last_event_at) && typeof task.capture_incomplete === "boolean"
           && (task.association_source === "presence_worktree_id" || task.association_source === "codex_task_cwd");
       }
@@ -492,7 +495,13 @@
       function createTask(chat) {
         const stateValue = effectiveConversationState(chat);
         const category = conversationCategory(chat);
-        const node = button(`task-node conversation-node agent-task-node ${category} ${stateValue}`, `Select conversation ${chat.display_title}`, () => showTask(chat));
+        let node;
+        node = graphButton(
+          `task-node conversation-node agent-task-node ${category} ${stateValue}`,
+          chat.codex_thread_id ? `Open Codex task: ${chat.display_title}` : `Inspect conversation: ${chat.display_title}`,
+          () => requestTaskNavigation(chat, node),
+        );
+        node.dataset.navigable = String(Boolean(chat.codex_thread_id));
         const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
         const facts = document.createElement("span"); facts.className = "conversation-facts";
         const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
@@ -501,6 +510,45 @@
         const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
         const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
         node.append(title, facts, context, audit); return node;
+      }
+      async function requestTaskNavigation(chat, node) {
+        showTask(chat);
+        if (!chat.codex_thread_id) {
+          announce("Conversation details selected · no verified Codex task link");
+          return;
+        }
+        const threadId = chat.codex_thread_id;
+        if (!safeCodexThreadId(threadId)) {
+          announce("Task link rejected");
+          return;
+        }
+        const prompt = `Open the local Codex task with id ${threadId}.`;
+        node.disabled = true;
+        node.setAttribute("aria-busy", "true");
+        let waitsForPortableResponse = false;
+        try {
+          if (window.openai?.sendFollowUpMessage) {
+            await window.openai.sendFollowUpMessage({ prompt, scrollToBottom: false });
+          } else if (transport === "mcp") {
+            const id = nextRequestId++;
+            pendingRequests.set(id, "task-navigation");
+            pendingNavigationNodes.set(id, node);
+            waitsForPortableResponse = true;
+            post({ jsonrpc: "2.0", id, method: "ui/message", params: { role: "user", content: [{ type: "text", text: prompt }] } });
+          } else {
+            announce("Open this task from Codex");
+            return;
+          }
+          announce("Opening Codex task…");
+        } catch (_) {
+          announce("Codex task could not be opened");
+        } finally {
+          if (!waitsForPortableResponse) releaseNavigationNode(node);
+        }
+      }
+      function releaseNavigationNode(node) {
+        node.disabled = false;
+        node.removeAttribute("aria-busy");
       }
       function createUnlinkedTask() {
         const node = document.createElement("div"); node.className = "unlinked";
@@ -635,6 +683,13 @@
         if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
         if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id); pendingRequests.delete(message.id);
           if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
+          else if (pending === "task-navigation") {
+            const node = pendingNavigationNodes.get(message.id);
+            pendingNavigationNodes.delete(message.id);
+            if (node) releaseNavigationNode(node);
+            announce(message.error ? "Codex task could not be opened" : "Opening Codex task…");
+            return;
+          }
           else if (pending === "ui/message") { if (message.error) gitOnlyRefresh(); }
           else if (!acceptSnapshot(message.result?.structuredContent)) setOffline(); }
       });
