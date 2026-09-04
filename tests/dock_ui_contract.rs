@@ -123,7 +123,7 @@ fn dock_asset_places_branch_lanes_on_one_shared_commit_timeline() {
         "agent-roster",
         "return-edge",
         "--station-count",
-        "--station-span",
+        "worktree-station",
         r#"html[data-density="map"] .workspace-short"#,
         r#"html[data-density="full"] .legend"#,
         ".workspace-branch.current .worktree-stop",
@@ -342,14 +342,14 @@ fn dock_asset_nests_vertical_agent_rosters_under_horizontal_worktree_stations() 
         "agent-roster",
         "agent-task-node",
         "--station-count",
-        "--station-span",
+        "worktree-station",
     ] {
         assert!(
             html.contains(contract),
             "missing roster contract: {contract}"
         );
     }
-    assert!(html.contains("branches.append(createWorktreeCluster"));
+    assert!(html.contains("list.append(createWorktreeCluster"));
     assert!(!html.contains("createConversationTrack"));
 }
 
@@ -433,10 +433,9 @@ fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
     let html = dock_html();
     for contract in [
         "--station-count",
-        "--station-span",
         "grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr))",
-        "grid-column: span var(--station-span)",
-        ".fork-group::before { left: 50%; }",
+        "timeline-station worktree-station",
+        "worktree-fork-meta",
     ] {
         assert!(
             html.contains(contract),
@@ -447,6 +446,8 @@ fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
     assert!(!html.contains("function alignAllRailGeometry"));
     assert!(!html.contains("getBoundingClientRect()"));
     assert!(!html.contains("--fork-x"));
+    assert!(!html.contains("--station-span"));
+    assert!(!html.contains("fork-group"));
 }
 
 #[test]
@@ -477,4 +478,53 @@ fn dock_asset_uses_identical_rail_and_stage_track_widths() {
         1
     );
     assert!(html.contains(".timeline-head { position: absolute; top: 50%; right: -1px;"));
+}
+
+#[test]
+fn dock_asset_builds_stations_and_clusters_from_one_ordered_lane_sequence() {
+    let html = dock_html();
+    for contract in [
+        "function orderedRailEntries",
+        "const entries = orderedRailEntries(matching)",
+        "const ordered = entries.map(({ lane }) => lane)",
+        "line.append(createWorktreeStation(entry.lane",
+        "list.append(createWorktreeCluster(entry.lane, entry.group",
+        "const stationCount = Math.max(1, entries.length)",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing flattened worktree station contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn dock_asset_labels_each_station_by_worktree_and_keeps_fork_metadata_per_lane() {
+    let html = dock_html();
+    for contract in [
+        "function worktreeStationLabel",
+        "timeline-station worktree-station",
+        "function createForkAnnotation",
+        "worktree-fork-meta",
+        "createForkAnnotation(group)",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing worktree-owned station contract: {contract}"
+        );
+    }
+    assert!(html.contains("lane.branch || \"detached HEAD\""));
+    assert!(html.contains("justify-self: center; align-self: center;"));
+}
+
+#[test]
+fn dock_asset_uses_content_led_desktop_height_with_a_narrow_viewport_bound() {
+    let html = dock_html();
+    assert!(html.contains(
+        ".topology-viewport { position: relative; width: 100%; height: auto; min-height: 320px;"
+    ));
+    assert!(
+        html.contains(".topology-viewport { max-height: min(72vh, 720px); overflow-y: auto; }")
+    );
+    assert!(!html.contains("height: min(68vh, 720px)"));
 }

@@ -50,7 +50,7 @@
     .map-frame { --identity-width: 250px; --target-width: 142px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 10px 28px rgb(32 33 36 / 7%); }
     .map-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); background: var(--surface); }
     .map-title-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; min-width: 0; }
-    .topology-viewport { position: relative; width: 100%; height: min(68vh, 720px); min-height: 420px; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior-inline: contain; background: var(--bg-canvas); cursor: grab; }
+    .topology-viewport { position: relative; width: 100%; height: auto; min-height: 320px; overflow-x: auto; overflow-y: visible; scrollbar-gutter: stable; overscroll-behavior-inline: contain; background: var(--bg-canvas); cursor: grab; }
     .topology-viewport:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
     .topology-viewport.is-panning { cursor: grabbing; user-select: none; }
     .topology-canvas, .topology-surface { display: grid; width: var(--topology-width, 1080px); min-width: var(--topology-width, 1080px); background: var(--bg-canvas); }
@@ -67,25 +67,16 @@
     .rail-line, .worktree-stage { display: grid; grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr)); }
     .rail-line, .worktree-stage { padding-right: var(--target-width); }
     .rail-line { position: relative; height: 2px; border-radius: 99px; background: var(--rail-color); }
-    .timeline-station, .fork-group { grid-column: span var(--station-span); }
-    .timeline-station { position: relative; inset: auto; z-index: 2; justify-self: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: none; border: 0; background: transparent; cursor: pointer; }
+    .timeline-station { position: relative; inset: auto; z-index: 2; justify-self: center; align-self: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: none; border: 0; background: transparent; cursor: pointer; }
     .timeline-station::after { content: ""; position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
     .timeline-station:hover::after, .timeline-station:focus-visible::after { box-shadow: 0 0 0 4px var(--accent-soft); }
     .timeline-head { position: absolute; top: 50%; right: -1px; display: grid; place-items: center; min-width: 47px; min-height: 22px; padding: 0 10px; transform: translateY(-50%); border-radius: 999px; background: var(--rail-color); color: var(--surface); font: 800 9px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .rail-parent { margin: 4px 0 4px calc(var(--identity-width) + 18px); color: var(--faint); font: 9px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .worktree-stage { position: relative; gap: 0; margin-top: 4px; margin-left: calc(var(--identity-width) + 18px); min-width: 0; }
-    .fork-group { position: relative; display: grid; align-content: start; gap: 1px; min-width: 0; padding: 5px 0 2px; }
-    .fork-group::before { content: ""; position: absolute; top: -9px; width: 2px; height: 38px; transform: translateX(-50%); border-radius: 99px; background: var(--accent); }
-    .fork-group::before { left: 50%; }
     .fork-node { position: relative; z-index: 2; justify-self: center; min-height: 18px; margin: 0; padding: 1px 5px; transform: none; border: 0; border-radius: 4px; background: var(--bg-canvas); color: var(--faint); cursor: pointer; text-align: center; font: 650 8px/1.15 ui-monospace, "Cascadia Code", Consolas, monospace; box-shadow: none; }
-    .fork-group.unknown .fork-node { border-style: dashed; color: var(--unknown); }
     .fork-node[aria-current="true"] { color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-    .station-title { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
-    .station-title strong { color: var(--text); font-family: inherit; }
-    .station-count { color: var(--faint); }
-    .station-meta { display: none; }
-    .branch-list { display: grid; grid-template-columns: repeat(var(--station-span), 272px); align-items: start; justify-content: center; gap: 20px; min-width: 0; }
-    .worktree-cluster { position: relative; display: grid; grid-template-rows: auto auto auto auto; align-content: start; width: 272px; min-width: 272px; }
+    .worktree-fork-meta { width: max-content; max-width: 100%; margin-bottom: 3px; overflow-wrap: anywhere; }
+    .worktree-cluster { position: relative; display: grid; grid-template-rows: auto auto auto auto auto auto; align-content: start; justify-self: center; width: 272px; min-width: 272px; }
     .worktree-stem { justify-self: center; width: 2px; height: 28px; background: var(--accent); }
     .workspace-branch.current { position: relative; }
     .workspace-branch.current .worktree-stop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -144,6 +135,7 @@
       .toolbar-side, .legend { justify-content: flex-start; }
       .rail-section { padding: 14px 12px 18px; }
       .rail-parent { margin-left: 0; }
+      .topology-viewport { max-height: min(72vh, 720px); overflow-y: auto; }
       .detail-grid { grid-template-columns: minmax(0, 1fr); }
       .detail-grid dd { margin-bottom: 6px; }
     }
@@ -315,6 +307,10 @@
         const bounded = ordered.filter((lane) => !laneHasLiveConversation(lane)).slice(0, MAX_VISIBLE_BRANCHES);
         return new Set([...live, ...bounded].map((lane) => lane.worktree_id));
       }
+      function orderedRailEntries(groups) {
+        return groups.flatMap((group) => group.lanes.map((lane) => ({ group, lane })))
+          .sort((left, right) => compareRanks(left.lane, right.lane));
+      }
       function topologyWidth(groups) {
         const worktrees = Math.max(1, groups.reduce((sum, group) => sum + group.lanes.length, 0));
         return Math.min(6400, Math.max(1320, 520 + worktrees * 320));
@@ -339,7 +335,11 @@
       function createRail(rail, groups) {
         const section = document.createElement("section"); section.className = `rail-section ${rail.parent ? "development" : "root"}`;
         const matching = groups.filter((candidate) => candidate.target_branch === rail.name);
-        const stationCount = Math.max(1, matching.reduce((sum, group) => sum + Math.max(1, group.lanes.length), 0));
+        const entries = orderedRailEntries(matching);
+        const ordered = entries.map(({ lane }) => lane);
+        const visibleIds = defaultVisibleLaneIds(ordered);
+        const expanded = expandedTargets.has(rail.name);
+        const stationCount = Math.max(1, entries.length);
         section.style.setProperty("--station-count", String(stationCount));
         const labels = document.createElement("div"); labels.className = "topology-grid-labels"; labels.setAttribute("aria-hidden", "true");
         for (const label of ["BASE", "BRANCH RAILS", "ACTIVITY", "TARGET"]) { const item = document.createElement("span"); item.textContent = label; labels.append(item); }
@@ -349,20 +349,13 @@
         const meta = document.createElement("span"); meta.textContent = `${rail.head.slice(0, 8)} · ${rail.parent ? `returns to ${rail.parent}` : "terminal"}`;
         node.append(name, meta);
         const line = document.createElement("div"); line.className = "rail-line";
-        for (const group of matching) {
-          const station = graphButton("timeline-station", stationLabel(group), () => showStation(group));
-          station.style.setProperty("--station-span", String(Math.max(1, group.lanes.length)));
-          line.append(station);
-        }
+        for (const entry of entries) line.append(createWorktreeStation(entry.lane, visibleIds.has(entry.lane.worktree_id), expanded));
         const head = document.createElement("span"); head.className = "timeline-head"; head.textContent = "HEAD";
         line.append(head);
         header.append(node, line); section.append(labels, header);
         if (rail.parent) { const parent = document.createElement("p"); parent.className = "rail-parent"; parent.textContent = `${rail.name} integrates into ${rail.parent}`; section.append(parent); }
-        const ordered = matching.flatMap((group) => group.lanes).sort(compareRanks);
-        const visibleIds = defaultVisibleLaneIds(ordered);
-        const expanded = expandedTargets.has(rail.name);
         const list = document.createElement("div"); list.className = "worktree-stage";
-        for (const group of matching) list.append(createGroup(group, visibleIds, expanded, Math.max(1, group.lanes.length)));
+        for (const entry of entries) list.append(createWorktreeCluster(entry.lane, entry.group, visibleIds.has(entry.lane.worktree_id), expanded));
         const hiddenCount = ordered.length - visibleIds.size;
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, rail.name, hiddenCount));
@@ -374,13 +367,23 @@
       }
       function createDetachedGroup(group) {
         const section = document.createElement("section"); section.className = "rail-section";
-        const stationCount = Math.max(1, group.lanes.length);
-        section.style.setProperty("--station-count", String(stationCount));
-        const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
-        const ordered = [...group.lanes].sort(compareRanks);
+        const entries = orderedRailEntries([group]);
+        const ordered = entries.map(({ lane }) => lane);
         const visibleIds = defaultVisibleLaneIds(ordered);
         const expanded = expandedTargets.has(group.target_branch);
-        const list = document.createElement("div"); list.className = "worktree-stage"; list.append(createGroup(group, visibleIds, expanded, stationCount));
+        const stationCount = Math.max(1, entries.length);
+        section.style.setProperty("--station-count", String(stationCount));
+        const header = document.createElement("div"); header.className = "integration-rail";
+        const node = graphButton("rail-node", `Unresolved integration target ${group.target_branch}`, () => showStation(group));
+        const name = document.createElement("strong"); name.textContent = group.target_branch;
+        const meta = document.createElement("span"); meta.textContent = "Git ancestry unavailable";
+        node.append(name, meta);
+        const line = document.createElement("div"); line.className = "rail-line";
+        for (const entry of entries) line.append(createWorktreeStation(entry.lane, visibleIds.has(entry.lane.worktree_id), expanded));
+        header.append(node, line);
+        const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
+        const list = document.createElement("div"); list.className = "worktree-stage";
+        for (const entry of entries) list.append(createWorktreeCluster(entry.lane, entry.group, visibleIds.has(entry.lane.worktree_id), expanded));
         const hiddenCount = ordered.length - visibleIds.size;
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, group.target_branch, hiddenCount));
@@ -388,7 +391,7 @@
           disclosure.textContent = expanded ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
           list.append(disclosure);
         }
-        section.append(heading, list); return section;
+        section.append(header, heading, list); return section;
       }
       function stationLabel(group) {
         return group.terminal
@@ -397,35 +400,30 @@
             ? `Fork ${group.fork_point.commit.slice(0, 8)}`
             : `Unknown base with ${group.target_branch}`;
       }
-      function createGroup(group, visibleIds, expanded, stationSpan) {
-        const article = document.createElement("article"); article.className = `fork-group ${group.terminal ? "terminal" : group.fork_point ? "known" : "unknown"}`;
-        article.style.setProperty("--station-span", String(stationSpan));
-        const collapsedOnly = group.lanes.every((lane) => !visibleIds.has(lane.worktree_id));
-        if (collapsedOnly) { article.dataset.collapsedCluster = "true"; article.hidden = !expanded; }
-        const branches = document.createElement("div"); branches.className = "branch-list";
-        for (const lane of group.lanes) branches.append(createWorktreeCluster(lane, visibleIds.has(lane.worktree_id), expanded));
-        article.append(createForkButton(group), branches); return article;
+      function worktreeStationLabel(lane) {
+        return `Select worktree station ${lane.branch || "detached HEAD"}`;
       }
-      function createForkButton(group) {
+      function createWorktreeStation(lane, visible, expanded) {
+        const station = graphButton("timeline-station worktree-station", worktreeStationLabel(lane), () => selectLane(lane));
+        if (!visible) { station.dataset.collapsedBranch = "true"; station.hidden = !expanded; }
+        return station;
+      }
+      function createForkAnnotation(group) {
         const label = stationLabel(group);
-        const station = graphButton("fork-node fork-station", label, () => showStation(group));
-        const title = document.createElement("span"); title.className = "station-title";
-        const strong = document.createElement("strong"); strong.textContent = label;
-        const count = document.createElement("span"); count.className = "station-count"; count.textContent = `${group.lanes.length} worktree${group.lanes.length === 1 ? "" : "s"}`;
-        title.append(strong, count);
-        const meta = document.createElement("span"); meta.className = "station-meta";
-        meta.textContent = group.fork_point ? `${group.target_branch} · ${group.fork_point.tags.length ? group.fork_point.tags.join(", ") : "No exact tag"}` : group.terminal ? "Integration terminal" : "Git ancestry unavailable";
-        station.append(title, meta); return station;
+        const annotation = graphButton("fork-node fork-station worktree-fork-meta", `Inspect ancestry: ${label}`, () => showStation(group));
+        annotation.textContent = group.fork_point ? `${label} · ${group.fork_point.tags.length ? group.fork_point.tags.join(", ") : "No exact tag"}` : group.terminal ? "Integration terminal" : "Git ancestry unavailable";
+        return annotation;
       }
-      function createWorktreeCluster(lane, visible, expanded) {
+      function createWorktreeCluster(lane, group, visible, expanded) {
         const cluster = document.createElement("article"); cluster.className = `worktree-cluster workspace-branch${lane.is_current ? " current" : ""}`;
         if (!visible) { cluster.dataset.collapsedBranch = "true"; cluster.hidden = !expanded; }
         const stem = document.createElement("span"); stem.className = "worktree-stem"; stem.setAttribute("aria-hidden", "true");
+        const fork = createForkAnnotation(group);
         const workspace = createWorktreeButton(lane);
         const state = createWorktreeState(lane.relationship);
         const roster = createAgentRoster(lane);
         const returned = createReturnState(lane.relationship);
-        cluster.append(stem, workspace, state, roster, returned); return cluster;
+        cluster.append(stem, fork, workspace, state, roster, returned); return cluster;
       }
       function createWorktreeButton(lane) {
         const workspace = graphButton("worktree-stop workspace-button worktree-identity", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
@@ -450,7 +448,6 @@
         const expanding = !expandedTargets.has(target);
         if (expanding) expandedTargets.add(target); else expandedTargets.delete(target);
         for (const row of section.querySelectorAll("[data-collapsed-branch]")) row.hidden = !expanding;
-        for (const cluster of section.querySelectorAll("[data-collapsed-cluster]")) cluster.hidden = !expanding;
         disclosure.setAttribute("aria-expanded", String(expanding));
         disclosure.textContent = expanding ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
         announce(expanding ? "Showing all branches" : "Inactive branches collapsed");
