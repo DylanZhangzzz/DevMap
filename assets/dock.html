@@ -194,11 +194,13 @@
       "use strict";
       const MAX_ROWS = 2048, MAX_TEXT = 16384, MAX_TAGS = 32, MAX_VISIBLE_BRANCHES = 6;
       const MAX_RECENT_HISTORY = 3;
+      const NAVIGATION_RESPONSE_TIMEOUT_MS = 15000;
       const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map();
       const pendingNavigationNodes = new Map();
+      const pendingNavigationTimeouts = new Map();
       const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
       const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
       const allowedSources = new Set(["config", "local_dev", "local_develop", "remote_default", "local_main", "local_master"]);
@@ -526,13 +528,16 @@
         node.disabled = true;
         node.setAttribute("aria-busy", "true");
         let waitsForPortableResponse = false;
+        let navigationRequestId = null;
         try {
           if (window.openai?.sendFollowUpMessage) {
             await window.openai.sendFollowUpMessage({ prompt, scrollToBottom: false });
           } else if (transport === "mcp") {
             const id = nextRequestId++;
+            navigationRequestId = id;
             pendingRequests.set(id, "task-navigation");
             pendingNavigationNodes.set(id, node);
+            pendingNavigationTimeouts.set(id, setTimeout(() => finishTaskNavigationRequest(id, "Codex task could not be opened"), NAVIGATION_RESPONSE_TIMEOUT_MS));
             waitsForPortableResponse = true;
             post({ jsonrpc: "2.0", id, method: "ui/message", params: { role: "user", content: [{ type: "text", text: prompt }] } });
           } else {
@@ -541,10 +546,21 @@
           }
           announce("Opening Codex task…");
         } catch (_) {
-          announce("Codex task could not be opened");
+          if (navigationRequestId !== null) finishTaskNavigationRequest(navigationRequestId, "Codex task could not be opened");
+          else announce("Codex task could not be opened");
         } finally {
           if (!waitsForPortableResponse) releaseNavigationNode(node);
         }
+      }
+      function finishTaskNavigationRequest(id, message) {
+        const timeout = pendingNavigationTimeouts.get(id);
+        if (timeout !== undefined) clearTimeout(timeout);
+        pendingNavigationTimeouts.delete(id);
+        pendingRequests.delete(id);
+        const node = pendingNavigationNodes.get(id);
+        pendingNavigationNodes.delete(id);
+        if (node) releaseNavigationNode(node);
+        announce(message);
       }
       function releaseNavigationNode(node) {
         node.disabled = false;
@@ -681,17 +697,16 @@
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return; const message = event.data; if (message?.jsonrpc !== "2.0") return;
         if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
-        if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id); pendingRequests.delete(message.id);
-          if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
-          else if (pending === "task-navigation") {
-            const node = pendingNavigationNodes.get(message.id);
-            pendingNavigationNodes.delete(message.id);
-            if (node) releaseNavigationNode(node);
-            announce(message.error ? "Codex task could not be opened" : "Opening Codex task…");
+        if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id);
+          if (pending === "task-navigation") {
+            finishTaskNavigationRequest(message.id, message.error ? "Codex task could not be opened" : "Opening Codex task…");
             return;
           }
+          pendingRequests.delete(message.id);
+          if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
           else if (pending === "ui/message") { if (message.error) gitOnlyRefresh(); }
-          else if (!acceptSnapshot(message.result?.structuredContent)) setOffline(); }
+          else if (!acceptSnapshot(message.result?.structuredContent)) setOffline();
+        }
       });
       document.addEventListener("visibilitychange", () => {
         clearTimeout(refreshTimer); clearTimeout(ageTimer); if (eventStream) eventStream.close();

@@ -255,6 +255,26 @@ fn dock_task_navigation_does_not_turn_presence_only_records_into_links() {
 }
 
 #[test]
+fn dock_task_navigation_recovers_when_portable_bridge_does_not_reply() {
+    let html = dock_html();
+    for contract in [
+        "NAVIGATION_RESPONSE_TIMEOUT_MS",
+        "pendingNavigationTimeouts",
+        "function finishTaskNavigationRequest",
+        "setTimeout(() => finishTaskNavigationRequest(id, \"Codex task could not be opened\")",
+        "pendingRequests.delete(id)",
+        "pendingNavigationNodes.delete(id)",
+        "clearTimeout(timeout)",
+        "let navigationRequestId = null",
+        "if (navigationRequestId !== null) finishTaskNavigationRequest",
+        "finishTaskNavigationRequest(message.id, message.error ? \"Codex task could not be opened\" : \"Opening Codex task…\")",
+        "if (pendingRequests.has(message.id))",
+    ] {
+        assert!(html.contains(contract), "missing navigation recovery contract: {contract}");
+    }
+}
+
+#[test]
 fn dock_refresh_requests_a_fresh_host_task_inventory() {
     let html = dock_html();
     assert!(html.contains("Refresh all"));
