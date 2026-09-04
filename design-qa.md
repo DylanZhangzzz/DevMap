@@ -13,14 +13,17 @@
 - Rail geometry after correction, iteration 6: `.superpowers/brainstorm/product-design/line-quality-after.jpg`
 - Final combined comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-after.png`
 - Focused rail comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-detail.png`
+- User-rejected shared-fork layout, iteration 7 before: `.superpowers/brainstorm/product-design/task-roster-before.png`
+- Worktree-owned station layout, iteration 7 final: `.superpowers/brainstorm/product-design/task-roster-final.png`
+- Direct rejected/final comparison, iteration 7: `.superpowers/brainstorm/product-design/comparison-task-roster-final.png`
 - Source pixels: 748 × 794. The source includes its design-host header and surrounding canvas.
-- Implementation pixels: 1,264 × 710 at the Codex in-app Browser's current desktop viewport and device scale.
-- Comparison normalization: source retained at 748 × 794; implementation content cropped from x=164 to x=1,085 and normalized to 748 × 577 beside the source. The comparison is for palette, typography, node treatment, and rail styling rather than a pixel-identical content layout because the source and live repository contain different worktree data.
-- State: real local repository, light theme, MAP density, six worktrees, and one live Codex task supplied from the local active/idle task inventory.
+- Final implementation pixels: 830 × 780 at the Codex in-app Browser desktop viewport. Browser device scale was not exposed; no density resampling was applied.
+- Iteration 7 comparison pixels: 1,684 × 588. The rejected 762 × 499 capture and final 830 × 780 capture were placed together at native readable scale and cropped only to the shared topology region. The source mock remains the palette, typography, node-treatment, and rail-style reference; the rejected/final pair is the direct structural comparison because the live repository data differs from the synthetic source.
+- State: real local repository, light theme, MAP density, collapsed history disclosure, seven worktrees, and 12 linked Codex tasks (1 active, 1 idle, 10 history).
 
 ## Findings
 
-No actionable P0/P1/P2 differences remain after the structure pass. The final comparison shows a single shared main timeline, spaced fork stations, branch lanes that start from those stations, compact rail-attached worktree nodes, graphical return edges, an in-canvas title/control bar, and the attached selection inspector.
+No actionable P0/P1/P2 differences remain after the worktree-ownership pass. The final comparison shows a single shared main timeline with one station per worktree, fork metadata attached to each lane rather than owning the lane group, vertical task/Agent stacks directly below each worktree, graphical return edges, an in-canvas title/control bar, and scoped horizontal navigation.
 
 ### P3 follow-up polish
 
@@ -42,16 +45,16 @@ No actionable P0/P1/P2 differences remain after the structure pass. The final co
 - The legend is progressively disclosed in FULL only, keeping MAP and READ focused on topology.
 - FULL mode reports no geometric overlap between `.worktree-stop` and `.task-stack` in any branch lane.
 - Selecting a worktree sets `aria-current="true"` and updates the detail title to the selected branch.
-- The final desktop viewport reports `scrollWidth === clientWidth` (1,265 px), so the topology does not create document-level horizontal overflow.
-- The scoped topology viewport reports 1,750 px of content inside a 1,200 px viewport. Its native bottom scrollbar remains visible without widening the document.
-- Pointer drag moved the viewport from 0 px to approximately 411 px, and the `is-panning` state cleared on release. Keyboard End moved it to approximately 546 px of a 550 px maximum; Home returned it to the start.
-- All six sticky worktree identities remained at the same 25 px left position while the activity and target columns scrolled behind their opaque mask.
-- At a 420 px Browser viewport, the document remained 405 px wide while the scoped topology viewport retained 1,750 px of scrollable content and a 1,494 × 3 px visible branch rail.
-- Shift+wheel translation is covered by the interaction contract and guarded at scroll boundaries; the Browser automation surface could not synthesize the combined modifier-wheel gesture for an independent runtime measurement.
-- Main station, fork label, and branch origin were measured on all five visible fork groups. Their maximum horizontal spread fell from 36.41 px before the shared-coordinate fix to 0.39 px after it.
-- READ and FULL retained the same 0.39 px maximum alignment spread. At a 420 px Browser viewport, the spread remained 0.13 px while document overflow remained zero.
+- The current document reports 815/815 px `clientWidth`/`scrollWidth`, so the topology does not create document-level horizontal overflow.
+- The current scoped topology viewport reports 2,760 px of content inside a 750 px viewport. Its native bottom scrollbar remains visible.
+- Pointer drag moved the viewport from 300 px to 500 px, and keyboard Home, ArrowLeft/ArrowRight, and End reached the expected bounded positions.
+- Seven visible worktree stations map to seven visible worktree clusters. Their measured station/cluster center difference is 0 px, with zero cluster overlap.
+- The collapsed topology height is content-led at 603 px (`scrollHeight === clientHeight`). Expanding the historical disclosure renders all 10 history tasks and grows the topology to 951 px without internal vertical clipping (`scrollHeight === clientHeight`).
+- Shift+wheel translation remains covered by the interaction contract and guarded at scroll boundaries, but the fixed Codex Browser automation surface could not synthesize the combined modifier-wheel gesture for an independent runtime measurement.
 - Browser console warnings/errors: none.
 - Contrast on white: primary text 16.10:1, muted text 4.70:1, success text 4.98:1, warning text 5.09:1, and dirty/error text 4.72:1.
+- MAP, READ, and FULL were exercised in the current build. Pointer and keyboard selection resolve the exact active, idle, and history task without entering the panning state; the standalone environment truthfully falls back to `Open this task from Codex` when the host bridge is unavailable.
+- Evidence limits for the current build: the fixed in-app Browser could not independently actuate the native scrollbar thumb, synthesize Shift+wheel, or resize to an exact 420 px viewport. These are interaction-evidence limits, not observed P0/P1/P2 visual defects; scrollbar presence and narrow-layout behavior remain covered by the UI contracts.
 
 ## Iteration history
 
@@ -101,6 +104,16 @@ No actionable P0/P1/P2 differences remain after the structure pass. The final co
 - Fixes: measure each rendered main station once and project that coordinate into its fork group; derive the full vertical connector height from the main station to the last visible branch rail; place fork labels, branch origins, and conversation tracks from the same `--fork-x`; center both branch endpoint circles on the stroke; standardize main, branch, and connector strokes at 2 px with 12 px nodes; expand the topology-width budget so each fork has enough horizontal separation; recompute geometry after rendering, density changes, disclosure changes, and window resizing.
 - Post-fix evidence: all five fork groups align within 0.39 px in MAP, READ, and FULL; narrow layout alignment remains within 0.13 px; continuous vertical connectors visibly join the main timeline to each branch; endpoint circles and return hooks remain centered; Browser warnings/errors are empty.
 - Final visual evidence: `line-quality-after.jpg`, `comparison-line-quality-after.png`, and the native-pixel focused comparison `comparison-line-quality-detail.png`.
+
+### Iteration 7
+
+- Earlier P1: a single fork station visually owned multiple sibling worktrees, so the main rail encoded fork groups instead of the user-approved `main -> worktree -> task/Agent` hierarchy.
+- Earlier P1: the active task stack appeared beside a sibling worktree under one shared station, making worktree ownership harder to read at a glance.
+- Earlier P2: fork-group grid spans created a broad empty region and weakened the direct vertical relationship between each worktree station and its activity stack.
+- Fixes: flatten the ordered branch lanes into one shared worktree sequence; render one timeline station and one vertically aligned cluster per worktree; keep fork metadata as secondary lane annotation; attach each task/Agent roster directly below its worktree; make the topology height follow the collapsed or expanded roster content while retaining scoped horizontal overflow.
+- Post-fix visual evidence: `task-roster-before.png`, `task-roster-final.png`, and `comparison-task-roster-final.png`. The final capture visibly separates `codex/rail-view-design-alignment` and `codex/git-workflow-orchestrator-design` into distinct rail stations, and the task roster sits under its owning worktree.
+- Post-fix geometry and interaction evidence: 7 stations, 7 clusters, 0 px maximum center difference, 0 overlaps, 2,760/750 px scoped horizontal extent, 815/815 px document width, 603/603 px collapsed height, 951/951 px expanded height, 12 task records, all three density modes, drag and keyboard panning, exact task selection, truthful standalone fallback, and no console warnings or errors.
+- Focused comparison was not needed beyond the readable native-scale rejected/final topology crop: worktree labels, Agent/status text, station stems, and ownership relationships are legible in the combined image, while color and typography were unchanged from the already-passed iteration 6 source comparison.
 
 ## Final result
 
