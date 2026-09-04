@@ -338,3 +338,21 @@ fn dock_asset_preserves_horizontal_panorama_at_narrow_widths() {
     assert!(!html.contains(".rail-line { margin-left: 22px; width: 3px; height: 24px; }"));
     assert!(html.contains("--identity-width: 214px"));
 }
+
+#[test]
+fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
+    let html = dock_html();
+    for contract in [
+        "function alignRailGeometry",
+        "--fork-x",
+        "--connector-top",
+        "--connector-height",
+        "transform: translate(-50%, -50%)",
+        "requestAnimationFrame(alignAllRailGeometry)",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing shared rail geometry contract: {contract}"
+        );
+    }
+}
