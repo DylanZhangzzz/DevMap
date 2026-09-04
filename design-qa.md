@@ -8,7 +8,11 @@
 - Combined comparison, iteration 1: `.superpowers/brainstorm/product-design/comparison-light-alignment-iteration-1.png`
 - Structure-aligned implementation, iteration 3: `.superpowers/brainstorm/product-design/topology-alignment-final.jpg`
 - Conversation panorama implementation, iteration 5: `.superpowers/brainstorm/product-design/conversation-panorama-final.jpg`
-- Final combined comparison: `.superpowers/brainstorm/product-design/comparison-conversation-panorama-final.png`
+- Rail geometry before correction, iteration 6: `.superpowers/brainstorm/product-design/line-quality-before.jpg`
+- Diagnostic source/before comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-before.png`
+- Rail geometry after correction, iteration 6: `.superpowers/brainstorm/product-design/line-quality-after.jpg`
+- Final combined comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-after.png`
+- Focused rail comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-detail.png`
 - Source pixels: 748 × 794. The source includes its design-host header and surrounding canvas.
 - Implementation pixels: 1,264 × 710 at the Codex in-app Browser's current desktop viewport and device scale.
 - Comparison normalization: source retained at 748 × 794; implementation content cropped from x=164 to x=1,085 and normalized to 748 × 577 beside the source. The comparison is for palette, typography, node treatment, and rail styling rather than a pixel-identical content layout because the source and live repository contain different worktree data.
@@ -44,6 +48,8 @@ No actionable P0/P1/P2 differences remain after the structure pass. The final co
 - All six sticky worktree identities remained at the same 25 px left position while the activity and target columns scrolled behind their opaque mask.
 - At a 420 px Browser viewport, the document remained 405 px wide while the scoped topology viewport retained 1,750 px of scrollable content and a 1,494 × 3 px visible branch rail.
 - Shift+wheel translation is covered by the interaction contract and guarded at scroll boundaries; the Browser automation surface could not synthesize the combined modifier-wheel gesture for an independent runtime measurement.
+- Main station, fork label, and branch origin were measured on all five visible fork groups. Their maximum horizontal spread fell from 36.41 px before the shared-coordinate fix to 0.39 px after it.
+- READ and FULL retained the same 0.39 px maximum alignment spread. At a 420 px Browser viewport, the spread remained 0.13 px while document overflow remained zero.
 - Browser console warnings/errors: none.
 - Contrast on white: primary text 16.10:1, muted text 4.70:1, success text 4.98:1, warning text 5.09:1, and dirty/error text 4.72:1.
 
@@ -86,6 +92,15 @@ No actionable P0/P1/P2 differences remain after the structure pass. The final co
 - Fixes: kept Worktree as the level-one row; placed ordered conversation nodes directly on each Worktree rail; made conversation title, Agent identity, and ACTIVE/IDLE state visible in MAP; exposed progressively richer host/session/capture details in READ and FULL; retained all active plus three recent inactive conversations and grouped older history behind `+N historical conversations`; added a bounded 1,080–6,400 px topology surface with scoped native overflow; made Worktree identities sticky; added background pointer-drag, Shift+wheel, Arrow/Home/End navigation, and grab/grabbing feedback; preserved the horizontal rail at narrow widths; reduced empty lanes to one quiet `No linked conversation` node.
 - Post-fix evidence: the real active task `查找今天上午开发结果 (2)` appears under its owning Worktree with `Agent · codex` and `ACTIVE`; MAP/READ/FULL progressive disclosure, selection details, sticky geometry, pointer drag, keyboard pan, narrow-width behavior, and zero console errors were verified in the Codex in-app Browser.
 - Final visual evidence: `conversation-panorama-final.jpg` and `comparison-conversation-panorama-final.png`.
+
+### Iteration 6
+
+- Earlier P1: the main timeline station, fork label, and branch-line origin were calculated in three different containing blocks, producing a measured 36.41 px horizontal disagreement and visibly broken topology.
+- Earlier P1: fork stems began near each branch group instead of at the main timeline, so later branches appeared as isolated vertical fragments rather than continuous ancestry paths.
+- Earlier P2: branch endpoint circles were positioned by their outer edges rather than their centers, main and branch strokes used inconsistent weights, and the compact topology width allowed downstream fork stems to crowd preceding conversation cards.
+- Fixes: measure each rendered main station once and project that coordinate into its fork group; derive the full vertical connector height from the main station to the last visible branch rail; place fork labels, branch origins, and conversation tracks from the same `--fork-x`; center both branch endpoint circles on the stroke; standardize main, branch, and connector strokes at 2 px with 12 px nodes; expand the topology-width budget so each fork has enough horizontal separation; recompute geometry after rendering, density changes, disclosure changes, and window resizing.
+- Post-fix evidence: all five fork groups align within 0.39 px in MAP, READ, and FULL; narrow layout alignment remains within 0.13 px; continuous vertical connectors visibly join the main timeline to each branch; endpoint circles and return hooks remain centered; Browser warnings/errors are empty.
+- Final visual evidence: `line-quality-after.jpg`, `comparison-line-quality-after.png`, and the native-pixel focused comparison `comparison-line-quality-detail.png`.
 
 ## Final result
 
