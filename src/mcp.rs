@@ -831,6 +831,7 @@ fn parse_codex_tasks(
         let status = match host_status.as_str() {
             "active" => PresenceStatus::Working,
             "idle" => PresenceStatus::Idle,
+            "notLoaded" => PresenceStatus::Stale,
             _ => return Err(DevMapError::InvalidDomain("codex_tasks.status")),
         };
         let session_id = required_string(row, "id")?;
@@ -1245,7 +1246,7 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                         "properties": {
                             "id": {"type": "string", "minLength": 1, "maxLength": MAX_IDENTIFIER_BYTES},
                             "title": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
-                            "status": {"type": "string", "enum": ["active", "idle"]},
+                            "status": {"type": "string", "enum": ["active", "idle", "notLoaded"]},
                             "cwd": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
                             "updatedAt": {"type": "integer", "minimum": 0},
                             "hostId": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},

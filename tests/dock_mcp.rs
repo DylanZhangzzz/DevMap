@@ -278,6 +278,24 @@ fn browser_dock_projects_exact_codex_task_titles_into_their_workspace() {
                         "updatedAt": 1_788_426_500_u64,
                         "hostId": "remote-host",
                         "kind": "codex"
+                    },
+                    {
+                        "id": "01a00000-0000-7000-8000-000000000004",
+                        "title": "Historical task",
+                        "status": "notLoaded",
+                        "cwd": repo.path().to_string_lossy(),
+                        "updatedAt": 1_788_425_000_u64,
+                        "hostId": "local",
+                        "kind": "codex"
+                    },
+                    {
+                        "id": "01a00000-0000-7000-8000-000000000005",
+                        "title": "Idle task",
+                        "status": "idle",
+                        "cwd": repo.path().to_string_lossy(),
+                        "updatedAt": 1_788_425_500_u64,
+                        "hostId": "local",
+                        "kind": "codex"
                     }
                 ]
             }),
@@ -295,12 +313,45 @@ fn browser_dock_projects_exact_codex_task_titles_into_their_workspace() {
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     let model: Value = serde_json::from_str(http_body(&response)).unwrap();
     let chats = model["lanes"][0]["chats"].as_array().unwrap();
-    assert_eq!(chats.len(), 1);
+    assert_eq!(chats.len(), 3);
+    assert_eq!(chats[0]["codex_thread_id"], "01a00000-0000-7000-8000-000000000001");
     assert_eq!(chats[0]["display_title"], "修复 DevMap 对话窗口名");
     assert_eq!(chats[0]["host_status"], "active");
+    assert!(chats.iter().any(|chat| {
+        chat["display_title"] == "Historical task"
+            && chat["host_status"] == "notLoaded"
+            && chat["status"] == "stale"
+    }));
     assert_eq!(chats[0]["association_source"], "codex_task_cwd");
     assert!(!model.to_string().contains("不相关任务"));
     assert!(!model.to_string().contains("远端同路径任务"));
+}
+
+#[test]
+fn codex_task_inventory_rejects_unsupported_status() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let response = runtime.handle(&call(
+        json!(2),
+        DOCK_DATA_TOOL,
+        json!({
+            "codex_tasks": [{
+                "id": "01a00000-0000-7000-8000-000000000004",
+                "title": "Completed task",
+                "status": "completed",
+                "cwd": repo.path().to_string_lossy(),
+                "updatedAt": 1_788_425_000_u64,
+                "hostId": "local",
+                "kind": "codex"
+            }]
+        }),
+    )).unwrap();
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("codex_tasks.status"));
 }
 
 #[test]
