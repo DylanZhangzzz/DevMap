@@ -257,9 +257,7 @@ fn dock_asset_keeps_worktrees_primary_and_conversations_visible_in_every_density
             "missing conversation hierarchy contract: {contract}"
         );
     }
-    assert!(!html.contains(
-        r#"html[data-density="map"] .conversation-track { display: none"#
-    ));
+    assert!(!html.contains(r#"html[data-density="map"] .conversation-track { display: none"#));
 }
 
 #[test]
@@ -337,8 +335,6 @@ fn dock_asset_renders_one_quiet_empty_conversation_state() {
 fn dock_asset_preserves_horizontal_panorama_at_narrow_widths() {
     let html = dock_html();
     assert!(!html.contains(".timeline-station { display: none; }"));
-    assert!(!html.contains(
-        ".rail-line { margin-left: 22px; width: 3px; height: 24px; }"
-    ));
+    assert!(!html.contains(".rail-line { margin-left: 22px; width: 3px; height: 24px; }"));
     assert!(html.contains("--identity-width: 214px"));
 }
