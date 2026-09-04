@@ -28,15 +28,15 @@ fn dock_asset_renders_shared_integration_rails_and_fork_stations() {
 }
 
 #[test]
-fn dock_asset_renders_parallel_branch_rails_with_progressive_density() {
+fn dock_asset_renders_worktree_stations_with_progressive_density() {
     let html = dock_html();
     for contract in [
         "topology-canvas",
-        "branch-rails",
-        "branch-rail",
+        "worktree-stage",
+        "worktree-cluster",
         "fork-node",
         "worktree-stop",
-        "agent-summary",
+        "agent-roster",
         "density-switch",
         "data-density=\"map\"",
         "aria-pressed",
@@ -119,14 +119,13 @@ fn dock_asset_places_branch_lanes_on_one_shared_commit_timeline() {
         "timeline-station",
         ".timeline-station::after",
         "timeline-head",
-        "branch-track",
+        "worktree-stage",
+        "agent-roster",
         "return-edge",
-        "stationPercent",
-        r#"style.setProperty("--station","#,
+        "--station-count",
+        "--station-span",
         r#"html[data-density="map"] .workspace-short"#,
         r#"html[data-density="full"] .legend"#,
-        r#"html[data-density="read"] .branch-rail"#,
-        r#"html[data-density="full"] .branch-rail"#,
         ".workspace-branch.current .worktree-stop",
     ] {
         assert!(
@@ -134,6 +133,7 @@ fn dock_asset_places_branch_lanes_on_one_shared_commit_timeline() {
             "missing shared timeline contract: {contract}"
         );
     }
+    assert!(!html.contains("stationPercent"));
 }
 
 #[test]
@@ -246,7 +246,8 @@ fn dock_asset_keeps_worktrees_primary_and_conversations_visible_in_every_density
     let html = dock_html();
     for contract in [
         "worktree-identity",
-        "conversation-track",
+        "agent-roster",
+        "agent-task-node",
         "conversation-node",
         "conversation-title",
         "agent-identity",
@@ -257,7 +258,7 @@ fn dock_asset_keeps_worktrees_primary_and_conversations_visible_in_every_density
             "missing conversation hierarchy contract: {contract}"
         );
     }
-    assert!(!html.contains(r#"html[data-density="map"] .conversation-track { display: none"#));
+    assert!(!html.contains(r#"html[data-density="map"] .agent-roster { display: none"#));
 }
 
 #[test]
@@ -265,7 +266,8 @@ fn dock_asset_orders_and_bounds_historical_conversations() {
     let html = dock_html();
     for contract in [
         "function compareConversations",
-        "const MAX_RECENT_INACTIVE = 3",
+        "const MAX_RECENT_HISTORY = 3",
+        "function conversationCategory",
         "historical-conversations",
         "historical conversations",
     ] {
@@ -277,7 +279,38 @@ fn dock_asset_orders_and_bounds_historical_conversations() {
 }
 
 #[test]
-fn dock_asset_uses_a_sticky_worktree_index_and_scoped_horizontal_viewport() {
+fn dock_asset_nests_vertical_agent_rosters_under_horizontal_worktree_stations() {
+    let html = dock_html();
+    for contract in [
+        "worktree-stage",
+        "worktree-cluster",
+        "worktree-state",
+        "agent-roster",
+        "agent-task-node",
+        "--station-count",
+        "--station-span",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing roster contract: {contract}"
+        );
+    }
+    assert!(html.contains("branches.append(createWorktreeCluster"));
+    assert!(!html.contains("createConversationTrack"));
+}
+
+#[test]
+fn dock_asset_keeps_active_idle_and_three_recent_history_items_visible() {
+    let html = dock_html();
+    assert!(html.contains("conversationCategory"));
+    assert!(html.contains("category === \"active\""));
+    assert!(html.contains("category === \"idle\""));
+    assert!(html.contains("MAX_RECENT_HISTORY = 3"));
+    assert!(html.contains("+${historical.length} historical conversations"));
+}
+
+#[test]
+fn dock_asset_uses_a_scoped_horizontal_viewport_for_the_vertical_roster_stage() {
     let html = dock_html();
     for contract in [
         "topology-viewport",
@@ -285,6 +318,8 @@ fn dock_asset_uses_a_sticky_worktree_index_and_scoped_horizontal_viewport() {
         "scrollbar-gutter: stable",
         "function topologyWidth",
         "--topology-width",
+        "worktree-stage",
+        "agent-roster",
     ] {
         assert!(
             html.contains(contract),
@@ -294,7 +329,6 @@ fn dock_asset_uses_a_sticky_worktree_index_and_scoped_horizontal_viewport() {
     assert!(html.contains(".topology-viewport"));
     assert!(html.contains("overflow-x: auto"));
     assert!(html.contains(".worktree-identity"));
-    assert!(html.contains("position: sticky"));
 }
 
 #[test]
@@ -317,17 +351,18 @@ fn dock_asset_supports_safe_horizontal_pan_inputs() {
 }
 
 #[test]
-fn dock_asset_sticky_worktree_identity_masks_scrolled_content() {
+fn dock_asset_offsets_the_worktree_stage_from_the_integration_identity() {
     let html = dock_html();
-    assert!(html.contains(".worktree-identity"));
-    assert!(html.contains("margin-left: -18px"));
-    assert!(html.contains("width: calc(100% + 18px)"));
+    assert!(html.contains(".worktree-stage"));
+    assert!(html.contains("margin-left: calc(var(--identity-width) + 18px)"));
+    assert!(html.contains("padding-right: var(--target-width)"));
 }
 
 #[test]
 fn dock_asset_renders_one_quiet_empty_conversation_state() {
     let html = dock_html();
-    assert!(html.contains("summary.hidden = lane.chats.length === 0"));
+    assert!(html.contains("if (lane.chats.length === 0)"));
+    assert!(html.contains("roster.append(createUnlinkedTask())"));
     assert!(html.contains("No linked conversation"));
 }
 
@@ -343,16 +378,19 @@ fn dock_asset_preserves_horizontal_panorama_at_narrow_widths() {
 fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
     let html = dock_html();
     for contract in [
-        "function alignRailGeometry",
-        "--fork-x",
-        "--connector-top",
-        "--connector-height",
-        "transform: translate(-50%, -50%)",
-        "requestAnimationFrame(alignAllRailGeometry)",
+        "--station-count",
+        "--station-span",
+        "grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr))",
+        "grid-column: span var(--station-span)",
+        ".fork-group::before { left: 50%; }",
     ] {
         assert!(
             html.contains(contract),
             "missing shared rail geometry contract: {contract}"
         );
     }
+    assert!(!html.contains("function alignRailGeometry"));
+    assert!(!html.contains("function alignAllRailGeometry"));
+    assert!(!html.contains("getBoundingClientRect()"));
+    assert!(!html.contains("--fork-x"));
 }

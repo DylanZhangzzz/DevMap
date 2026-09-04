@@ -64,67 +64,65 @@
     .rail-node[aria-current="true"] { border-color: var(--rail-color); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
     .rail-node strong { display: block; overflow-wrap: anywhere; }
     .rail-node span { display: block; color: var(--muted); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .rail-line, .worktree-stage { display: grid; grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr)); }
     .rail-line { position: relative; height: 2px; border-radius: 99px; background: var(--rail-color); }
-    .timeline-station { position: absolute; top: 50%; left: var(--station); z-index: 2; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: translate(-50%, -50%); border: 0; background: transparent; cursor: pointer; }
+    .timeline-station, .fork-group { grid-column: span var(--station-span); }
+    .timeline-station { position: relative; inset: auto; z-index: 2; justify-self: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: none; border: 0; background: transparent; cursor: pointer; }
     .timeline-station::after { content: ""; position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
     .timeline-station:hover::after, .timeline-station:focus-visible::after { box-shadow: 0 0 0 4px var(--accent-soft); }
     .timeline-head { position: absolute; top: 50%; right: -1px; display: grid; place-items: center; min-width: 47px; min-height: 22px; padding: 0 10px; transform: translateY(-50%); border-radius: 999px; background: var(--rail-color); color: var(--surface); font: 800 9px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .rail-parent { margin: 4px 0 4px calc(var(--identity-width) + 18px); color: var(--faint); font: 9px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .branch-rails { position: relative; display: grid; gap: 2px; margin: 4px 0 0; min-width: 0; }
-    .fork-group { position: relative; display: grid; gap: 1px; min-width: 0; padding: 5px 0 2px; }
-    .fork-group::before { content: ""; position: absolute; top: var(--connector-top, -9px); left: var(--fork-x, calc(var(--identity-width) + var(--station))); width: 2px; height: var(--connector-height, 36px); transform: translateX(-50%); border-radius: 99px; background: var(--accent); }
-    .fork-node { position: relative; z-index: 2; justify-self: start; min-height: 18px; margin-left: var(--fork-x, calc(var(--identity-width) + var(--station))); padding: 1px 5px; transform: translateX(-50%); border: 0; border-radius: 4px; background: var(--bg-canvas); color: var(--faint); cursor: pointer; text-align: center; font: 650 8px/1.15 ui-monospace, "Cascadia Code", Consolas, monospace; box-shadow: none; }
+    .worktree-stage { position: relative; gap: 0; margin-top: 4px; margin-left: calc(var(--identity-width) + 18px); padding-right: var(--target-width); min-width: 0; }
+    .fork-group { position: relative; display: grid; align-content: start; gap: 1px; min-width: 0; padding: 5px 0 2px; }
+    .fork-group::before { content: ""; position: absolute; top: -9px; width: 2px; height: 38px; transform: translateX(-50%); border-radius: 99px; background: var(--accent); }
+    .fork-group::before { left: 50%; }
+    .fork-node { position: relative; z-index: 2; justify-self: center; min-height: 18px; margin: 0; padding: 1px 5px; transform: none; border: 0; border-radius: 4px; background: var(--bg-canvas); color: var(--faint); cursor: pointer; text-align: center; font: 650 8px/1.15 ui-monospace, "Cascadia Code", Consolas, monospace; box-shadow: none; }
     .fork-group.unknown .fork-node { border-style: dashed; color: var(--unknown); }
     .fork-node[aria-current="true"] { color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
     .station-title { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
     .station-title strong { color: var(--text); font-family: inherit; }
     .station-count { color: var(--faint); }
     .station-meta { display: none; }
-    .branch-list { display: grid; gap: 2px; min-width: 0; }
-    .branch-rail { position: relative; display: grid; grid-template-columns: var(--identity-width) minmax(560px, 1fr) var(--target-width); grid-template-areas: "identity track return" "identity tasks return"; align-items: center; column-gap: 14px; row-gap: 3px; min-width: 0; min-height: 62px; padding: 3px 0; }
+    .branch-list { display: grid; grid-template-columns: repeat(var(--station-span), 272px); align-items: start; justify-content: center; gap: 20px; min-width: 0; }
+    .worktree-cluster { position: relative; display: grid; grid-template-rows: auto auto auto auto; align-content: start; width: 272px; min-width: 272px; }
+    .worktree-stem { justify-self: center; width: 2px; height: 28px; background: var(--accent); }
     .workspace-branch.current { position: relative; }
     .workspace-branch.current .worktree-stop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .worktree-stop, .task-node { position: relative; z-index: 2; min-width: 0; min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
-    .worktree-stop { grid-area: identity; align-self: center; justify-self: stretch; width: auto; margin-left: 0; }
-    .worktree-identity { position: sticky; left: 0; z-index: 6; width: calc(100% + 18px); margin-left: -18px; margin-right: 10px; padding-left: 26px; background: var(--surface); box-shadow: 10px 0 14px var(--bg-canvas); }
+    .worktree-stop { align-self: center; justify-self: stretch; width: auto; margin-left: 0; }
+    .worktree-identity { position: relative; left: auto; z-index: 6; width: 100%; margin: 0; padding-left: 10px; background: var(--surface); box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
     .worktree-stop:hover, .task-node:hover, .fork-node:hover, .rail-node:hover { border-color: var(--accent); }
     .worktree-stop[aria-current="true"], .task-node[aria-current="true"] { border-color: var(--accent); background: var(--surface-raised); box-shadow: 0 0 0 2px var(--accent-soft); }
     .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 10px; font-weight: 780; overflow-wrap: anywhere; }
     .current-pill { padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 9px; letter-spacing: .05em; }
     .workspace-short, .task-meta { display: block; margin-top: 3px; color: var(--muted); font: 10px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .dirty-mark { display: inline-block; margin-top: 3px; color: var(--danger); font-size: 10px; font-weight: 800; }
-    .rail-path { grid-area: unset; grid-column: 1 / -1; grid-row: 1; position: absolute; left: var(--fork-x, calc(var(--identity-width) + var(--station))); right: calc(var(--target-width) + 14px); top: 50%; z-index: 1; height: 2px; border-radius: 99px; background: var(--accent); }
-    .rail-path::before, .rail-path::after { content: ""; position: absolute; top: 50%; width: 12px; height: 12px; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg-canvas); }
-    .rail-path::before { left: 0; transform: translate(-50%, -50%); } .rail-path::after { right: 0; transform: translate(50%, -50%); }
-    .agent-summary { grid-area: track; z-index: 2; display: flex; align-items: center; justify-self: end; gap: 6px; min-width: 0; margin-right: 12px; padding: 3px 6px; background: var(--bg-canvas); color: var(--muted); font-size: 9px; }
-    .agent-summary::before { content: ""; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
-    .agent-summary.active::before { background: var(--accent); }
-    .task-stack, .conversation-track { grid-area: unset; grid-column: 1 / 3; grid-row: 2; z-index: 3; display: flex; align-items: stretch; justify-self: stretch; width: auto; gap: 8px; min-width: 0; margin-left: calc(var(--fork-x, calc(var(--identity-width) + var(--station))) + 18px); padding: 3px 10px 6px 0; }
-    .task-node, .conversation-node { flex: 0 0 226px; min-width: 0; min-height: 44px; padding: 7px 9px; }
+    .worktree-state { margin: 6px 0 0; color: var(--muted); font: 800 9px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .worktree-state.dirty { color: var(--danger); }
+    .agent-roster { position: relative; display: grid; gap: 6px; margin: 8px 0 0 18px; padding-left: 16px; border-left: 2px solid var(--line); }
+    .task-node, .conversation-node { min-width: 0; min-height: 44px; padding: 7px 9px; }
+    .agent-task-node { width: 100%; min-height: 52px; }
     .task-title, .conversation-title { display: block; font-size: 11px; font-weight: 760; overflow-wrap: anywhere; }
     .conversation-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; margin-top: 3px; }
     .agent-identity { color: var(--text); font: 700 9px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
     .task-state, .conversation-state { color: var(--accent); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .agent-task-node.history .conversation-state { color: var(--faint); }
     .task-node.idle .task-state, .conversation-node.idle .conversation-state, .conversation-node.completed .conversation-state, .conversation-node.stale .conversation-state { color: var(--muted); }
     .conversation-context, .conversation-audit { display: block; margin-top: 3px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .historical-conversations { flex: 0 0 auto; min-height: 44px; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 10px; }
+    .historical-conversations { width: 100%; min-height: 44px; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 10px; }
     .historical-conversations:hover { border-color: var(--accent); color: var(--text); }
     .unlinked { min-height: 38px; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
     .unlinked strong, .unlinked span { display: block; }
     .unlinked strong { font-size: 11px; } .unlinked span { font-size: 9px; }
     html[data-density="map"] .workspace-short, html[data-density="map"] .conversation-context, html[data-density="map"] .conversation-audit { display: none; }
     html[data-density="read"] .conversation-audit { display: none; }
-    html[data-density="read"] .branch-rail, html[data-density="full"] .branch-rail { min-height: 94px; }
-    html[data-density="read"] .agent-summary, html[data-density="full"] .agent-summary { display: none; }
     html[data-density="read"] .task-meta { display: none; }
-    .return-state { grid-area: return; position: relative; z-index: 2; align-self: center; display: grid; align-content: center; min-height: 30px; padding: 3px 0 3px 8px; border: 0; color: var(--unknown); font-size: 9px; font-weight: 800; background: var(--bg-canvas); }
-    .return-state::before { content: ""; position: absolute; top: 50%; right: 100%; width: 24px; border-top: 2px dashed var(--unknown); }
+    .return-state { position: relative; z-index: 2; align-self: stretch; display: grid; align-content: center; min-height: 38px; margin-top: 10px; padding: 5px 8px; border: 0; color: var(--unknown); font-size: 9px; font-weight: 800; background: var(--bg-canvas); }
+    .return-state::before { content: ""; position: absolute; bottom: 100%; left: 50%; height: 10px; border-left: 2px dashed var(--unknown); }
     .return-state.merged { color: #12804b; background: var(--bg-canvas); }
     .return-state.merged::before { border-color: var(--success); border-style: solid; }
-    .return-state.merged::after { content: ""; position: absolute; right: calc(100% + 22px); bottom: 50%; width: 18px; height: 30px; border-top: 2px solid var(--success); border-right: 2px solid var(--success); border-radius: 0 15px 0 0; }
     .return-state.unmerged { color: #9a620a; background: var(--bg-canvas); }
     .counts { display: block; margin-top: 2px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .collapsed-branches { justify-self: start; min-height: 38px; margin: 2px 0 0; padding: 7px 11px; border: 1px dashed var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; }
+    .collapsed-branches { grid-column: 1 / -1; justify-self: start; min-height: 38px; margin: 8px 0 0; padding: 7px 11px; border: 1px dashed var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; }
     .collapsed-branches:hover { border-color: var(--accent); color: var(--text); }
     .selection-details { margin: 0; padding: 16px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: var(--surface); box-shadow: inset 0 1px 0 rgb(255 255 255 / 75%); }
     .selection-details h2 { margin: 0 0 10px; font-size: 16px; }
@@ -144,11 +142,7 @@
       .map-toolbar { grid-template-columns: minmax(0, 1fr); }
       .toolbar-side, .legend { justify-content: flex-start; }
       .rail-section { padding: 14px 12px 18px; }
-      .rail-parent, .branch-rails { margin-left: 0; }
-      .branch-rail { grid-template-columns: var(--identity-width) minmax(560px, 1fr) var(--target-width); grid-template-areas: "identity track return" "identity tasks return"; gap: 7px 12px; }
-      .worktree-stop { grid-area: identity; width: auto; margin-left: 0; }
-      .worktree-identity { width: calc(100% + 12px); margin-left: -12px; padding-left: 20px; }
-      .agent-summary, .task-stack { justify-self: stretch; width: auto; }
+      .rail-parent { margin-left: 0; }
       .detail-grid { grid-template-columns: minmax(0, 1fr); }
       .detail-grid dd { margin-bottom: 6px; }
     }
@@ -198,7 +192,7 @@
     (() => {
       "use strict";
       const MAX_ROWS = 2048, MAX_TEXT = 16384, MAX_TAGS = 32, MAX_VISIBLE_BRANCHES = 6;
-      const MAX_RECENT_INACTIVE = 3;
+      const MAX_RECENT_HISTORY = 3;
       const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
@@ -280,9 +274,17 @@
       function allLanes(value) { return value.branch_groups.flatMap((group) => group.lanes); }
       function effectiveConversationState(chat) { return (chat.host_status || chat.status).toLowerCase(); }
       function conversationInstant(chat) { const instant = Date.parse(chat.last_event_at); return Number.isFinite(instant) ? instant : 0; }
+      function conversationCategory(chat) {
+        const state = effectiveConversationState(chat);
+        if (activeConversationStates.has(state)) return "active";
+        if (state === "idle") return "idle";
+        return "history";
+      }
       function compareConversations(left, right) {
-        const bucket = (chat) => activeConversationStates.has(effectiveConversationState(chat)) ? 0 : effectiveConversationState(chat) === "idle" ? 1 : 2;
-        return bucket(left) - bucket(right) || conversationInstant(right) - conversationInstant(left) || left.session_id.localeCompare(right.session_id);
+        const order = { active: 0, idle: 1, history: 2 };
+        return order[conversationCategory(left)] - order[conversationCategory(right)]
+          || conversationInstant(right) - conversationInstant(left)
+          || left.session_id.localeCompare(right.session_id);
       }
       function activeTaskCount(lane) { return lane.chats.filter((task) => activeConversationStates.has(effectiveConversationState(task))).length; }
       function rankLane(lane) {
@@ -296,36 +298,9 @@
         }
         return 0;
       }
-      function stationPercent(index, total) {
-        if (total <= 1) return 24;
-        return 12 + (index / (total - 1)) * 54;
-      }
       function topologyWidth(groups) {
-        const forks = Math.max(1, groups.length);
-        const conversations = Math.max(1, ...groups.flatMap((group) => group.lanes.map((lane) => lane.chats.length)));
-        return Math.min(6400, Math.max(1320, 820 + forks * 240 + conversations * 260));
-      }
-      function alignRailGeometry(section) {
-        const stations = [...section.querySelectorAll(".integration-rail .timeline-station")];
-        const groups = [...section.querySelectorAll(":scope > .branch-rails > .fork-group")];
-        for (let index = 0; index < groups.length; index += 1) {
-          const group = groups[index], station = stations[index];
-          if (!station || group.hidden) continue;
-          const paths = [...group.querySelectorAll(".rail-path")].filter((path) => path.getClientRects().length > 0);
-          if (paths.length === 0) continue;
-          const groupRect = group.getBoundingClientRect();
-          const stationRect = station.getBoundingClientRect();
-          const lastPathRect = paths.at(-1).getBoundingClientRect();
-          const stationX = stationRect.left + stationRect.width / 2;
-          const stationY = stationRect.top + stationRect.height / 2;
-          const pathY = lastPathRect.top + lastPathRect.height / 2;
-          group.style.setProperty("--fork-x", `${Math.round(stationX - groupRect.left)}px`);
-          group.style.setProperty("--connector-top", `${Math.round(stationY - groupRect.top)}px`);
-          group.style.setProperty("--connector-height", `${Math.max(0, Math.round(pathY - stationY))}px`);
-        }
-      }
-      function alignAllRailGeometry() {
-        for (const section of byId("relationship-map").querySelectorAll(".rail-section")) alignRailGeometry(section);
+        const worktrees = Math.max(1, groups.reduce((sum, group) => sum + group.lanes.length, 0));
+        return Math.min(6400, Math.max(1320, 520 + worktrees * 320));
       }
       function renderSnapshot(value) {
         const lanes = allLanes(value);
@@ -341,14 +316,14 @@
         const surface = byId("relationship-map");
         surface.style.setProperty("--topology-width", `${topologyWidth(value.branch_groups)}px`);
         surface.replaceChildren(fragment);
-        requestAnimationFrame(alignAllRailGeometry);
         const warning = byId("warnings"); warning.hidden = value.warnings.length === 0 && !value.truncated;
         warning.textContent = value.truncated ? `PARTIAL VIEW · ${value.warnings.length} integrity warning(s)` : `${value.warnings.length} integrity warning(s)`;
       }
       function createRail(rail, groups) {
         const section = document.createElement("section"); section.className = `rail-section ${rail.parent ? "development" : "root"}`;
         const matching = groups.filter((candidate) => candidate.target_branch === rail.name);
-        const stations = new Map(matching.map((group, index) => [group, stationPercent(index, matching.length)]));
+        const stationCount = Math.max(1, matching.reduce((sum, group) => sum + Math.max(1, group.lanes.length), 0));
+        section.style.setProperty("--station-count", String(stationCount));
         const labels = document.createElement("div"); labels.className = "topology-grid-labels"; labels.setAttribute("aria-hidden", "true");
         for (const label of ["BASE", "BRANCH RAILS", "ACTIVITY", "TARGET"]) { const item = document.createElement("span"); item.textContent = label; labels.append(item); }
         const header = document.createElement("div"); header.className = "integration-rail";
@@ -358,8 +333,8 @@
         node.append(name, meta);
         const line = document.createElement("div"); line.className = "rail-line";
         for (const group of matching) {
-          const station = graphButton("timeline-station", `Open ${group.terminal ? rail.name + " branch head" : group.fork_point ? "fork " + group.fork_point.commit.slice(0, 8) : "unknown fork"}`, () => showStation(group));
-          station.style.setProperty("--station", `${stations.get(group)}%`);
+          const station = graphButton("timeline-station", stationLabel(group), () => showStation(group));
+          station.style.setProperty("--station-span", String(Math.max(1, group.lanes.length)));
           line.append(station);
         }
         const head = document.createElement("span"); head.className = "timeline-head"; head.textContent = "HEAD";
@@ -369,8 +344,8 @@
         const ordered = matching.flatMap((group) => group.lanes).sort(compareRanks);
         const visibleIds = new Set(ordered.slice(0, MAX_VISIBLE_BRANCHES).map((lane) => lane.worktree_id));
         const expanded = expandedTargets.has(rail.name);
-        const list = document.createElement("div"); list.className = "branch-rails";
-        for (const group of matching) list.append(createGroup(group, visibleIds, expanded, stations.get(group)));
+        const list = document.createElement("div"); list.className = "worktree-stage";
+        for (const group of matching) list.append(createGroup(group, visibleIds, expanded, Math.max(1, group.lanes.length)));
         const hiddenCount = Math.max(0, ordered.length - MAX_VISIBLE_BRANCHES);
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, rail.name, hiddenCount));
@@ -382,11 +357,13 @@
       }
       function createDetachedGroup(group) {
         const section = document.createElement("section"); section.className = "rail-section";
+        const stationCount = Math.max(1, group.lanes.length);
+        section.style.setProperty("--station-count", String(stationCount));
         const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
         const ordered = [...group.lanes].sort(compareRanks);
         const visibleIds = new Set(ordered.slice(0, MAX_VISIBLE_BRANCHES).map((lane) => lane.worktree_id));
         const expanded = expandedTargets.has(group.target_branch);
-        const list = document.createElement("div"); list.className = "branch-rails"; list.append(createGroup(group, visibleIds, expanded));
+        const list = document.createElement("div"); list.className = "worktree-stage"; list.append(createGroup(group, visibleIds, expanded, stationCount));
         const hiddenCount = Math.max(0, ordered.length - MAX_VISIBLE_BRANCHES);
         if (hiddenCount > 0) {
           const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, group.target_branch, hiddenCount));
@@ -396,44 +373,61 @@
         }
         section.append(heading, list); return section;
       }
-      function createGroup(group, visibleIds, expanded, stationPosition = 18) {
+      function stationLabel(group) {
+        return group.terminal
+          ? `${group.target_branch} branch head`
+          : group.fork_point
+            ? `Fork ${group.fork_point.commit.slice(0, 8)}`
+            : `Unknown base with ${group.target_branch}`;
+      }
+      function createGroup(group, visibleIds, expanded, stationSpan) {
         const article = document.createElement("article"); article.className = `fork-group ${group.terminal ? "terminal" : group.fork_point ? "known" : "unknown"}`;
-        article.style.setProperty("--station", `${stationPosition}%`);
+        article.style.setProperty("--station-span", String(stationSpan));
         const collapsedOnly = group.lanes.every((lane) => !visibleIds.has(lane.worktree_id));
         if (collapsedOnly) { article.dataset.collapsedCluster = "true"; article.hidden = !expanded; }
-        const stationLabel = group.terminal ? `${group.target_branch} branch head` : group.fork_point ? `Fork ${group.fork_point.commit.slice(0, 8)}` : `Unknown base with ${group.target_branch}`;
-        const station = graphButton("fork-node fork-station", stationLabel, () => showStation(group));
+        const branches = document.createElement("div"); branches.className = "branch-list";
+        for (const lane of group.lanes) branches.append(createWorktreeCluster(lane, visibleIds.has(lane.worktree_id), expanded));
+        article.append(createForkButton(group), branches); return article;
+      }
+      function createForkButton(group) {
+        const label = stationLabel(group);
+        const station = graphButton("fork-node fork-station", label, () => showStation(group));
         const title = document.createElement("span"); title.className = "station-title";
-        const strong = document.createElement("strong"); strong.textContent = stationLabel;
+        const strong = document.createElement("strong"); strong.textContent = label;
         const count = document.createElement("span"); count.className = "station-count"; count.textContent = `${group.lanes.length} worktree${group.lanes.length === 1 ? "" : "s"}`;
         title.append(strong, count);
         const meta = document.createElement("span"); meta.className = "station-meta";
         meta.textContent = group.fork_point ? `${group.target_branch} · ${group.fork_point.tags.length ? group.fork_point.tags.join(", ") : "No exact tag"}` : group.terminal ? "Integration terminal" : "Git ancestry unavailable";
-        station.append(title, meta);
-        const branches = document.createElement("div"); branches.className = "branch-list";
-        for (const lane of group.lanes) branches.append(createBranchRail(lane, visibleIds.has(lane.worktree_id), expanded));
-        article.append(station, branches); return article;
+        station.append(title, meta); return station;
       }
-      function createBranchRail(lane, visible, expanded) {
-        const row = document.createElement("div"); row.className = `branch-rail workspace-branch${lane.is_current ? " current" : ""}`;
-        if (!visible) { row.dataset.collapsedBranch = "true"; row.hidden = !expanded; }
+      function createWorktreeCluster(lane, visible, expanded) {
+        const cluster = document.createElement("article"); cluster.className = `worktree-cluster workspace-branch${lane.is_current ? " current" : ""}`;
+        if (!visible) { cluster.dataset.collapsedBranch = "true"; cluster.hidden = !expanded; }
+        const stem = document.createElement("span"); stem.className = "worktree-stem"; stem.setAttribute("aria-hidden", "true");
+        const workspace = createWorktreeButton(lane);
+        const state = createWorktreeState(lane.relationship);
+        const roster = createAgentRoster(lane);
+        const returned = createReturnState(lane.relationship);
+        cluster.append(stem, workspace, state, roster, returned); return cluster;
+      }
+      function createWorktreeButton(lane) {
         const workspace = graphButton("worktree-stop workspace-button worktree-identity", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
         const branch = document.createElement("span"); branch.className = "branch-name"; branch.textContent = lane.branch || "detached HEAD";
         if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; branch.append(current); }
         const path = document.createElement("span"); path.className = "workspace-short"; path.textContent = shortWorkspace(lane.workspace_path);
-        workspace.append(branch, path);
-        if (lane.relationship.dirty) { const dirty = document.createElement("span"); dirty.className = "dirty-mark"; dirty.textContent = `● DIRTY ${lane.relationship.changed_file_count}`; workspace.append(dirty); }
-        const railPath = document.createElement("span"); railPath.className = "rail-path branch-track"; railPath.setAttribute("aria-hidden", "true");
-        const active = activeTaskCount(lane);
-        const summary = document.createElement("span"); summary.className = `agent-summary${active > 0 ? " active" : ""}`;
-        summary.hidden = lane.chats.length === 0;
-        summary.textContent = `${lane.chats.length} agent${lane.chats.length === 1 ? "" : "s"}${active > 0 ? ` · ${active} active` : " · idle"}`;
-        const tasks = createConversationTrack(lane);
-        const state = lane.relationship.merged === true ? "merged" : lane.relationship.merged === false ? "unmerged" : "unknown";
+        workspace.append(branch, path); return workspace;
+      }
+      function createWorktreeState(relationship) {
+        const state = document.createElement("span"); state.className = `worktree-state ${relationship.dirty ? "dirty" : "clean"}`;
+        state.textContent = relationship.dirty ? `● DIRTY ${relationship.changed_file_count}` : "○ CLEAN";
+        return state;
+      }
+      function createReturnState(relationship) {
+        const state = relationship.merged === true ? "merged" : relationship.merged === false ? "unmerged" : "unknown";
         const returned = document.createElement("div"); returned.className = `return-state return-edge ${state}`;
-        returned.textContent = lane.relationship.merge_target === null ? "Terminal" : lane.relationship.merged === true ? `Merged → ${lane.relationship.merge_target}` : lane.relationship.merged === false ? `Not merged → ${lane.relationship.merge_target}` : `Unknown → ${lane.relationship.merge_target || "target"}`;
-        const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = lane.relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${lane.relationship.ahead} · behind ${lane.relationship.behind}`;
-        returned.append(counts); row.append(workspace, railPath, summary, tasks, returned); return row;
+        returned.textContent = relationship.merge_target === null ? "Terminal" : relationship.merged === true ? `Merged → ${relationship.merge_target}` : relationship.merged === false ? `Not merged → ${relationship.merge_target}` : `Unknown → ${relationship.merge_target || "target"}`;
+        const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${relationship.ahead} · behind ${relationship.behind}`;
+        returned.append(counts); return returned;
       }
       function toggleCollapsedBranches(section, disclosure, target, hiddenCount) {
         const expanding = !expandedTargets.has(target);
@@ -442,39 +436,39 @@
         for (const cluster of section.querySelectorAll("[data-collapsed-cluster]")) cluster.hidden = !expanding;
         disclosure.setAttribute("aria-expanded", String(expanding));
         disclosure.textContent = expanding ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
-        requestAnimationFrame(alignAllRailGeometry);
         announce(expanding ? "Showing all branches" : "Inactive branches collapsed");
       }
-      function createConversationTrack(lane) {
-        const track = document.createElement("div"); track.className = "task-stack conversation-track";
-        if (lane.chats.length === 0) { track.append(createUnlinkedTask()); return track; }
+      function createAgentRoster(lane) {
+        const roster = document.createElement("div"); roster.className = "agent-roster";
+        if (lane.chats.length === 0) { roster.append(createUnlinkedTask()); return roster; }
         const ordered = [...lane.chats].sort(compareConversations);
-        const active = ordered.filter((chat) => activeConversationStates.has(effectiveConversationState(chat)));
-        const inactive = ordered.filter((chat) => !activeConversationStates.has(effectiveConversationState(chat)));
-        const recent = inactive.slice(0, MAX_RECENT_INACTIVE);
-        const historical = inactive.slice(MAX_RECENT_INACTIVE);
-        for (const chat of [...active, ...recent]) track.append(createTask(chat));
-        if (historical.length === 0) return track;
+        const active = ordered.filter((chat) => { const category = conversationCategory(chat); return category === "active"; });
+        const idle = ordered.filter((chat) => { const category = conversationCategory(chat); return category === "idle"; });
+        const history = ordered.filter((chat) => conversationCategory(chat) === "history");
+        const recentHistory = history.slice(0, MAX_RECENT_HISTORY);
+        const olderHistory = history.slice(MAX_RECENT_HISTORY);
+        const historical = olderHistory;
+        for (const chat of [...active, ...idle, ...recentHistory]) roster.append(createTask(chat));
+        if (olderHistory.length === 0) return roster;
         const historyNodes = historical.map(createTask);
         const disclosure = button("historical-conversations", `Show ${historical.length} historical conversations`, () => {
           const expanding = !expandedConversationHistory.has(lane.worktree_id);
           if (expanding) {
             expandedConversationHistory.add(lane.worktree_id);
-            for (const node of historyNodes) track.insertBefore(node, disclosure);
+            for (const node of historyNodes) roster.insertBefore(node, disclosure);
           } else {
             expandedConversationHistory.delete(lane.worktree_id);
             for (const node of historyNodes) node.remove();
           }
           disclosure.setAttribute("aria-expanded", String(expanding));
           disclosure.textContent = expanding ? "Collapse history" : `+${historical.length} historical conversations`;
-          requestAnimationFrame(alignAllRailGeometry);
           announce(expanding ? "Historical conversations expanded" : "Historical conversations collapsed");
         });
         const expanded = expandedConversationHistory.has(lane.worktree_id);
         disclosure.setAttribute("aria-expanded", String(expanded));
         disclosure.textContent = expanded ? "Collapse history" : `+${historical.length} historical conversations`;
-        if (expanded) for (const node of historyNodes) track.append(node);
-        track.append(disclosure); return track;
+        if (expanded) for (const node of historyNodes) roster.append(node);
+        roster.append(disclosure); return roster;
       }
       function relativeActivity(timestamp) {
         const elapsed = Math.max(0, Date.now() - conversationInstant({ last_event_at: timestamp }));
@@ -485,11 +479,12 @@
       }
       function createTask(chat) {
         const stateValue = effectiveConversationState(chat);
-        const node = button(`task-node conversation-node ${stateValue}`, `Select conversation ${chat.display_title}`, () => showTask(chat));
+        const category = conversationCategory(chat);
+        const node = button(`task-node conversation-node agent-task-node ${category} ${stateValue}`, `Select conversation ${chat.display_title}`, () => showTask(chat));
         const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
         const facts = document.createElement("span"); facts.className = "conversation-facts";
         const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
-        const state = document.createElement("span"); state.className = "task-state conversation-state"; state.textContent = chat.host_status || chat.status;
+        const state = document.createElement("span"); state.className = "task-state conversation-state"; state.textContent = category.toUpperCase();
         facts.append(agent, state);
         const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
         const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
@@ -517,7 +512,6 @@
         if (!new Set(["map", "read", "full"]).has(mode)) return;
         document.documentElement.dataset.density = mode;
         for (const control of byId("density-switch").querySelectorAll("[data-density-value]")) control.setAttribute("aria-pressed", String(control.dataset.densityValue === mode));
-        requestAnimationFrame(alignAllRailGeometry);
         if (shouldAnnounce) announce(`${mode.toUpperCase()} density`);
       }
       function shortWorkspace(path) { const parts = path.replaceAll("\\", "/").split("/").filter(Boolean); return parts.slice(-2).join("/") || path; }
@@ -638,7 +632,6 @@
       });
       byId("refresh").addEventListener("click", requestFullRefresh);
       for (const control of byId("density-switch").querySelectorAll("[data-density-value]")) control.addEventListener("click", () => setDensity(control.dataset.densityValue));
-      window.addEventListener("resize", () => requestAnimationFrame(alignAllRailGeometry));
       installPanControls(byId("topology-viewport"));
       setDensity("map", false);
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
