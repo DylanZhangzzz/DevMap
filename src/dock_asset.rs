@@ -21,7 +21,7 @@ pub fn dock_html() -> &'static str {
         );
         // The template has no preformatted text or multiline string literals.
         // Strip source indentation for transport, keeping readable source and the
-        // 144 KiB resource budget including platform/arrival navigation.
+        // 148 KiB resource budget including persistent journey navigation.
         // Keep newlines for JavaScript comments.
         TEMPLATE
             .lines()

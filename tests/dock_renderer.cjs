@@ -95,6 +95,115 @@ function snapshot() {
 module.exports = { snapshot, chat };
 
 if (require.main === module) {
+function journeySnapshot() {
+  const value = snapshot(), lane = value.lanes[0];
+  lane.relationship.fork_point = {commit: lane.head,target_branch:'main',tags:[],subject:null,authored_at:null,distance_to_target:0};
+  value.route_plans = [{route_id:'route-0123456789abcdef0123456789abcdef',repository_id:value.repository_id,revision:1,worktree_id:lane.worktree_id,start_commit:lane.head,goal:'Deliver login',target_ref:'refs/heads/main',milestones:[],source:'User plan',abandoned:false,updated_at:stamp}];
+  return value;
+}
+test('journey context survives ancestor and arrival inspection and refresh', () => {
+  const ui = harness(), value = journeySnapshot(); ui.acceptSnapshot(value);
+  const journey = ui.ids.get('journey-context');
+  assert.ok(journey?.textContent.includes('main-folder'));
+  assert.ok(journey.textContent.includes('Common ancestor'));
+  assert.ok(journey.textContent.includes('main'));
+  journey.querySelectorAll('[data-journey-action]').find(n => n.dataset.journeyAction === 'ancestor').listeners.click();
+  assert.ok(ui.ids.get('selection-details').textContent.includes(value.lanes[0].head));
+  assert.ok(journey.textContent.includes('main-folder'));
+  const arrival = journey.querySelectorAll('[data-journey-action]').find(n => n.dataset.journeyAction === value.route_plans[0].route_id);
+  arrival.focus(); arrival.listeners.click();
+  ui.acceptSnapshot({...value,observation_revision:10});
+  assert.ok(ui.ids.get('selection-details').textContent.includes('Deliver login'));
+  assert.ok(journey.textContent.includes('main-folder'));
+  assert.equal(ui.document.activeElement.dataset.journeyAction, value.route_plans[0].route_id);
+  ui.acceptSnapshot({...value,route_plans:[],observation_revision:11});
+  assert.ok(journey.textContent.includes('No destination recorded'));
+  assert.ok(ui.ids.get('selection-details').textContent.includes('no longer available'));
+});
+test('journey separates missing origin, multiple destinations and partial passenger observations', () => {
+  const ui = harness(), value = journeySnapshot();
+  value.lanes[0].relationship.fork_point = null; value.task_observation.complete = false;
+  value.route_plans.push({...value.route_plans[0], route_id:'route-abcdef0123456789abcdef0123456789',target_ref:'refs/heads/dev',goal:'Deliver dev'});
+  value.warnings.push({code:'planned_target_unavailable',subject_id:value.route_plans[1].route_id});
+  ui.acceptSnapshot(value);
+  const text = ui.ids.get('journey-context')?.textContent || '';
+  assert.match(text, /Origin not recorded/);
+  assert.match(text, /Passengers unknown/);
+  assert.match(text, /main/); assert.match(text, /dev.*unavailable/);
+  assert.ok(!text.includes('merged'));
+  const controls = ui.ids.get('journey-context').querySelectorAll('[data-journey-action]');
+  assert.equal(controls.filter(n=>n.dataset.journeyAction.startsWith('route-')).length,2);
+});
+test('a fully visible single passenger has no expand-all action and destination precedes roster', () => {
+  const ui = harness(), value = journeySnapshot(); value.lanes[0].chats = [chat('done','Finished chat','completed')];
+  ui.acceptSnapshot(value);
+  const card = ui.ids.get('relationship-map').querySelectorAll('[data-worktree-id]').find(n=>n.dataset.worktreeId===value.current_worktree_id);
+  assert.ok(!card.querySelectorAll('.task-disclosure').some(n=>n.dataset.objectId?.startsWith('tasks:')));
+  const text = card.textContent;
+  assert.ok(text.indexOf('To main') < text.indexOf('Finished chat'));
+});
+test('journey updates stale observations without stealing focused controls and follows workspace removal', () => {
+  const ui = harness(), value = journeySnapshot(); ui.acceptSnapshot(value);
+  const journey = ui.ids.get('journey-context');
+  const head = journey?.querySelectorAll('[data-journey-action]').find(n=>n.dataset.journeyAction==='head');
+  assert.ok(head); head.focus();
+  ui.advance(120001); ui.refreshDynamicState();
+  assert.match(journey.textContent,/Passengers unknown/);
+  assert.equal(ui.document.activeElement.dataset.journeyAction,'head');
+  const next = structuredClone(value); next.observation_revision++;
+  next.lanes = next.lanes.slice(1); next.branch_groups[0].lanes = next.lanes;
+  next.workspace_facts = next.workspace_facts.slice(1);
+  ui.acceptSnapshot(next);
+  assert.equal(journey.hidden,true);
+});
+test('a shared planned arrival offers exact worktree sources without opening tasks', () => {
+  const ui = harness(), value = journeySnapshot();
+  value.route_plans.push({...value.route_plans[0],route_id:'route-abcdef0123456789abcdef0123456789',worktree_id:value.lanes[1].worktree_id,start_commit:value.lanes[1].head});
+  ui.acceptSnapshot(value);
+  const arrival = ui.ids.get('relationship-map').querySelectorAll('.arrival-source')[0];
+  assert.ok(arrival); arrival.listeners.click();
+  assert.equal(ui.document.activeElement,ui.ids.get('selection-details').querySelector('.dismiss-details'));
+  const choices = ui.ids.get('selection-details').querySelectorAll('.arrival-workspace');
+  assert.equal(choices.length,2);
+  choices[1].listeners.click();
+  assert.ok(ui.ids.get('journey-context').textContent.includes('auth-folder'));
+  assert.equal(ui.messages.filter(m=>m.method==='ui/message').length,0);
+});
+test('clearing journey focus restores other workspaces', () => {
+  const ui=harness(), value=journeySnapshot(); ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map');
+  ui.ids.get('journey-context').querySelectorAll('[data-journey-action]').find(n=>n.dataset.journeyAction==='focus').listeners.click();
+  assert.ok(map.querySelectorAll('.worktree-cluster').some(n=>n.dataset.journeyMuted==='true'));
+  ui.ids.get('zoom-fit').listeners.click(); ui.refreshDynamicState();
+  assert.ok(map.querySelectorAll('.worktree-cluster').every(n=>n.dataset.journeyMuted!=='true'));
+});
+test('journey focus can return to full platform detail without losing its workspace', () => {
+  const ui=harness(), value=journeySnapshot(); ui.acceptSnapshot(value);
+  const action=()=>ui.ids.get('journey-context').querySelectorAll('[data-journey-action]').find(n=>n.dataset.journeyAction==='focus');
+  action().listeners.click(); assert.match(action().textContent,/Show platform/);
+  action().listeners.click(); assert.equal(action().textContent,'Focus journey');
+  assert.ok(ui.ids.get('journey-context').textContent.includes('main-folder'));
+  assert.ok(ui.ids.get('relationship-map').querySelectorAll('.worktree-cluster').every(n=>n.dataset.journeyMuted!=='true'));
+});
+test('arrival choices follow their target on refresh without navigating or losing close focus', () => {
+  const ui=harness(), value=journeySnapshot();
+  value.route_plans.push({...value.route_plans[0],route_id:'route-abcdef0123456789abcdef0123456789',worktree_id:value.lanes[1].worktree_id,start_commit:value.lanes[1].head});
+  ui.acceptSnapshot(value); ui.ids.get('relationship-map').querySelector('.arrival-source').listeners.click();
+  const details=ui.ids.get('selection-details'); details.querySelector('.dismiss-details').focus();
+  ui.refreshDynamicState(); assert.equal(ui.document.activeElement,details.querySelector('.dismiss-details'));
+  value.route_plans.push({...value.route_plans[0],route_id:'route-11111111111111111111111111111111',worktree_id:value.lanes[2].worktree_id,start_commit:value.lanes[2].head});
+  value.observation_revision++; ui.acceptSnapshot(value);
+  assert.equal(details.querySelectorAll('.arrival-workspace').length,3);
+  value.route_plans[1].target_ref='refs/heads/dev'; value.route_plans.pop(); value.observation_revision++;
+  ui.acceptSnapshot(value);
+  assert.equal(details.hidden,false); assert.equal(details.querySelectorAll('.arrival-workspace').length,1);
+});
+test('unavailable plans cannot certify that no destination was recorded', () => {
+  const ui=harness(), value=journeySnapshot(); value.route_plans=[];
+  value.warnings=[{code:'route_plans_unavailable',subject_id:null}]; ui.acceptSnapshot(value);
+  assert.match(ui.ids.get('journey-context').textContent,/Destination observation unavailable/);
+  assert.ok(!ui.ids.get('relationship-map').textContent.includes('No destination recorded'));
+});
 test('empty legacy inventories cannot certify an unattended platform', () => {
   const ui=harness(), value=snapshot(); delete value.task_observation.scope;
   value.lanes[0].chats=[]; value.workspace_facts[0].working_state='dirty';
@@ -342,6 +451,7 @@ test('selected task refresh follows its verified identity through rename and rel
   changed.lanes[1].chats.push(moved);
   assert.equal(ui.acceptSnapshot(changed), true);
   assert.match(ui.ids.get('selection-details').textContent, /Renamed after moving/);
+  assert.ok(ui.ids.get('journey-context').textContent.includes('auth-folder'));
   assert.ok(ui.ids.get('selection-details').textContent.includes(changed.lanes[1].workspace_path));
   assert.equal(ui.explorationState().selectedWorkspaceId, changed.lanes[1].worktree_id);
   assert.equal(ui.messages.length, messages);
@@ -447,7 +557,7 @@ test('v4 renders actual graph, measured workspaces, exact names, and keeps inval
   assert.ok(surface.querySelector('.worktree-identity').getAttribute('aria-label').includes('checkouts/main-folder'));
   assert.ok(surface.textContent.includes('<img onerror=alert(1)> 保留完整任务标题'));
   assert.equal(surface.querySelectorAll('img').length, 0);
-  assert.equal(surface.querySelector('.task-count-summary').textContent, '3 developing · 1 other passengers');
+  assert.match(surface.querySelector('.passenger-count').textContent, /4 passengers.*3 developing.*1 waiting/);
   assert.equal(surface.querySelectorAll('.task-node').length, 2);
   const layout = surface.metroLayout;
   const card = surface.querySelectorAll('[data-worktree-id]')[0];
@@ -516,16 +626,16 @@ test('task expansion reallocates measured cards and history remains explicitly d
   assert.ok(surface.textContent.includes('Historical task'));
 });
 
-test('a two-name default preview is followed by an explicit active count', () => {
+test('a two-name preview retains an explicit passenger and activity count', () => {
   const ui = harness(), value = snapshot();
   value.lanes[0].chats = value.lanes[0].chats.slice(0, 2);
   value.branch_groups[0].lanes = value.lanes; value.counts.tasks = 2;
   assert.equal(ui.acceptSnapshot(value), true);
   const card = ui.ids.get('relationship-map').querySelectorAll('[data-worktree-id]')[0];
   assert.equal(card.querySelectorAll('.task-node').length, 2);
-  const summary = card.querySelector('.task-count-summary');
-  assert.ok(summary, 'the visible names need a following active-count summary');
-  assert.equal(summary.textContent, '2 developing');
+  const summary = card.querySelector('.passenger-count');
+  assert.ok(summary, 'the preview must retain its passenger count');
+  assert.match(summary.textContent, /2 passengers.*2 developing/);
 });
 
 test('SVG routes use station centers and each crossing masks only its underpassing edge', () => {
@@ -768,7 +878,7 @@ test('roster states and counts qualify stale, incomplete and missing observation
     value.observation_revision++; value.task_observation = observation;
     assert.equal(ui.acceptSnapshot(value), true);
     assert.equal(surface.querySelector('.conversation-state').textContent, 'Last observed ACTIVE');
-    assert.match(surface.querySelector('.task-count-summary').textContent, /Last observed.*3 developing/);
+    assert.match(surface.querySelector('.passenger-count').textContent, /Passengers unknown.*3 developing/);
     assert.equal(surface.querySelector('.task-node').dataset.objectId, 'task:' + codexId('a'));
   }
   value.observation_revision++; value.task_observation = { scope: "unarchived_chats", observed_at: stamp, complete: true };
@@ -794,9 +904,9 @@ test('incomplete individual task captures qualify their observed state and roste
   ui.acceptSnapshot(value);
   const surface = ui.ids.get('relationship-map');
   assert.equal(surface.querySelector('.conversation-state').textContent, 'Last observed ACTIVE');
-  assert.match(surface.querySelector('.task-count-summary').textContent, /^Last observed/);
+  assert.match(surface.querySelector('.task-disclosure').getAttribute('aria-label'), /Last observed/);
   ui.refreshDynamicState();
-  assert.match(surface.querySelector('.task-count-summary').textContent, /^Last observed/);
+  assert.match(surface.querySelector('.task-disclosure').getAttribute('aria-label'), /Last observed/);
 });
 
 test('viewport wayfinding identifies both true endpoints for known offscreen routes and navigates to them', () => {

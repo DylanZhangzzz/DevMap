@@ -39,8 +39,8 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     );
     assert!(!html.contains("localStorage"));
     assert!(!html.contains("sessionStorage"));
-    // Includes bounded future-route geometry and platform interactions.
-    assert!(html.len() < 144 * 1024);
+    // Includes persistent journey navigation; remains below the 512 KiB transport cap.
+    assert!(html.len() < 148 * 1024);
 }
 
 #[test]

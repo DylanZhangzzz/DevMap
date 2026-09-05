@@ -146,7 +146,6 @@
     .conversation-context, .conversation-audit { display: none; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
     html[data-density="full"] .conversation-context, html[data-density="full"] .conversation-audit { display: block; }
     .historical-conversations, .task-disclosure { width: 100%; color: var(--accent); font-size: .875rem; }
-    .task-count-summary { margin: 0; padding: 2px 8px; color: var(--muted); font-size: .75rem; }
     .unlinked { margin: 4px 8px; color: var(--muted); font-size: .75rem; }
     .empty { margin: 0; padding: 16px; color: var(--muted); }
     .limited-world .worktree-cluster { position: relative; margin: 16px; }
@@ -184,6 +183,18 @@
     .arrival-zone { position:absolute; border-left:2px dashed var(--muted); padding:0 12px; color:var(--muted); font-size:.75rem; }
     .arrival-zone strong { display:block; font-size:.875rem; color:var(--text); }
     .arrival-zone::before { content:""; position:absolute; width:12px; height:12px; left:-7px; top:-6px; border:2px solid var(--muted); border-radius:50%; background:var(--bg-canvas); }
+    .journey-context { flex:none; border-block:1px solid var(--line-soft); padding:6px 0; max-height:28vh; overflow:auto; }
+    .journey-heading { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; font-size:.75rem; }
+    .journey-heading strong { overflow-wrap:anywhere; }
+    .journey-stops { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+    .journey-stop { font-size:.75rem; color:var(--accent); padding:4px 8px; }
+    .journey-unknown { font-size:.75rem; color:var(--muted); padding:4px 8px; }
+    .arrival-source { cursor:pointer; }
+    .arrival-workspace { display:block; width:100%; }
+    .worktree-cluster[data-journey-muted="true"] { opacity:.55; }
+    .worktree-cluster[data-journey-muted="true"]:is(:hover,:focus-within) { opacity:1; }
+    .worktree-cluster[data-journey-muted="true"] > :not(.worktree-identity):not(.platform-heading:first-child) { display:none; }
+    .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) { display:none; }
   </style>
 </head>
 <body>
@@ -220,6 +231,7 @@
           <details class="branch-index"><summary>Branches <span id="branch-count">0</span></summary><nav class="branch-list" id="branch-list" aria-label="Branch index"></nav></details>
         </div>
         <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Future plan</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
+        <section class="journey-context" id="journey-context" aria-label="Selected workspace journey" hidden></section>
         <div class="topology-viewport" id="topology-viewport" tabindex="0" aria-label="Scrollable repository topology">
           <div class="topology-world" id="topology-world"><div class="relationship-map topology-canvas topology-surface" id="relationship-map"><p class="empty">Waiting for repository topology and linked tasks…</p></div><div class="overview-markers" id="overview-markers" hidden></div></div>
         </div>
@@ -231,6 +243,7 @@
         <details class="map-help" id="route-plan-panel" hidden><summary>Route plans</summary><div class="route-plan-list" id="route-plan-list"></div></details>
         <details class="map-help"><summary>Map key and observation rules</summary>
           <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
+          <p>Journey endpoints stay above the map while you inspect a station. Focus journey compacts other platforms; long routes retain readable endpoint links. Select a planned arrival to find its source workspaces.</p>
           <p>Stations are commits. Colored rails follow verified parent relationships; thin attachment stems identify workspaces and references. Dashed routes and hollow stops show future plans, never completed Git operations. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
           <p>Double-ring stations mark observed forks or merges. Worktree platforms attach at HEAD; passengers are existing unarchived chats, counted once including their Agent. Finished, idle and unloaded chats remain passengers. Common ancestor means current shared history, not a recorded creation point.</p>
           <p>Branch colors identify references. A fresh, complete chat inventory is required to confirm an unattended platform. Unattended work warns when uncommitted or unmerged changes remain. Inventory is fresh for 120 seconds. Missing observations never prove deletion; cleanup always needs review.</p>
@@ -256,6 +269,7 @@
       let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
       let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
       let mapScale = 1;
+      let journeyWorkspaceId = null, journeyFocused = false;
       const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set();
       const preferredWorkspaceByHead = new Map();
       const byId = (id) => document.getElementById(id);
@@ -371,9 +385,99 @@
       function passengerObservation(value) { return {complete:value.task_observation?.scope === "unarchived_chats" && value.task_observation.complete === true,observedAtMs:instant(value.task_observation?.observed_at)}; }
       function populatePassengers(node, lane, value) {
         const summary = Core.summarizePassengers(uniqueTasks(lane).map(chat => ({id:taskId(chat),lifecycle:chat.lifecycle,isChat:!!chat.codex_thread_id,status:effectiveConversationState(chat)})), passengerObservation(value), Date.now());
-        node.textContent = (summary.state === "unknown" ? "Passengers unknown · " + summary.observedCount + " last observed" : summary.observedCount + " passengers · observed") + " · " + summary.developing + " developing · " + summary.waiting + " waiting · " + summary.completed + " finished · " + summary.unknown + " activity unknown";
+        node.textContent = (summary.state === "unknown" ? "Passengers unknown · " + summary.observedCount + " last observed" : summary.observedCount + " passengers · observed") + [[summary.developing,"developing"],[summary.waiting,"waiting"],[summary.completed,"finished"],[summary.unknown,"activity unknown"]].filter(([count]) => count > 0).map(([count,label]) => " · " + count + " " + label).join("");
         if (!value.task_observation?.complete) node.textContent += " · partial inventory";
         return summary;
+      }
+      function setJourneyWorkspace(id, value = lastSnapshot) {
+        const reflow = journeyFocused && id !== journeyWorkspaceId;
+        if (id !== journeyWorkspaceId) journeyFocused = false;
+        journeyWorkspaceId = id;
+        if (reflow && value) renderSnapshot(value);
+        renderJourney(value);
+      }
+      function destinationCoverage(value) {
+        return value.warnings.some(w => w.code === "route_plans_unavailable") ? "Destination observation unavailable"
+          : value.warnings.some(w => w.code === "route_plans_truncated") ? "Partial destination inventory" : "";
+      }
+      function renderJourney(value) {
+        const panel = byId("journey-context");
+        const lane = value && workspaceRecords(value).find(r => r.lane.worktree_id === journeyWorkspaceId)?.lane;
+        for (const card of byId("relationship-map").querySelectorAll(".worktree-cluster")) {
+          card.dataset.journeyMuted = String(!!lane && journeyFocused && card.dataset.worktreeId !== journeyWorkspaceId);
+          card.dataset.journeyFocused = String(!!lane && journeyFocused && card.dataset.worktreeId === journeyWorkspaceId);
+        }
+        panel.hidden = !lane;
+        if (!lane) { journeyWorkspaceId = null; panel.replaceChildren(); delete panel.dataset.signature; return; }
+        const count = element("span", ""); populatePassengers(count, lane, value);
+        const plans = (value.route_plans || []).filter(p => p.worktree_id === lane.worktree_id && !p.abandoned);
+        const signature = JSON.stringify([lane.workspace_path,lane.branch,lane.head,lane.relationship?.fork_point,plans,count.textContent,value.warnings,journeyFocused]);
+        if (panel.dataset.signature !== signature) {
+          const focused = [...panel.querySelectorAll("[data-journey-action]")].find(n => n === document.activeElement)?.dataset.journeyAction;
+          const scroll = panel.scrollTop;
+          const heading = element("div", "journey-heading");
+          const name = element("strong", "", worktreeDisplayName(lane.workspace_path)); name.title = lane.workspace_path;
+          heading.append(name,count);
+          const stops = element("nav", "journey-stops"); stops.setAttribute("aria-label", "Journey endpoints");
+          const add = (id, text, action) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; stops.append(control); };
+          const ancestor = lane.relationship?.fork_point?.commit;
+          if (ancestor) add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
+          else stops.append(element("span", "journey-unknown", "Origin not recorded"));
+          if (safeHash(lane.head) && !/^0+$/.test(lane.head)) add("head", "Now · " + lane.head.slice(0,8), () => { locateWorkspace(lane.worktree_id); showCommit(lane.head); });
+          else stops.append(element("span", "journey-unknown", "No commit yet"));
+          for (const plan of plans) {
+            const missing = value.warnings.some(w => w.code === "planned_target_unavailable" && w.subject_id === plan.route_id);
+            add(plan.route_id, "To " + (plan.target_ref?.replace(/^refs\/heads\//, "") || "unspecified") + (missing ? " · unavailable" : " · planned"), () => locateArrival(plan));
+          }
+          const coverage = destinationCoverage(value);
+          if (coverage || !plans.length) stops.append(element("span", "journey-unknown", coverage || "No destination recorded"));
+          add("focus", journeyFocused ? "Show platform" : "Focus journey", () => focusJourney());
+          panel.replaceChildren(heading,stops); panel.dataset.signature = signature; panel.scrollTop = scroll;
+          if (focused) [...panel.querySelectorAll("[data-journey-action]")].find(n => n.dataset.journeyAction === focused)?.focus({preventScroll:true});
+        }
+      }
+      function focusJourney() {
+        const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        const lane = lastSnapshot && workspaceRecords(lastSnapshot).find(r => r.lane.worktree_id === journeyWorkspaceId)?.lane;
+        if (!surface.metroLayout || !lane) return;
+        byId("selection-details").hidden = true;
+        if (journeyFocused) { journeyFocused = false; renderSnapshot(lastSnapshot); locateWorkspace(lane.worktree_id); return; }
+        journeyFocused = true; renderSnapshot(lastSnapshot);
+        const layout = surface.metroLayout;
+        const attachment = layout.attachments.find(a => a.worktree_id === lane.worktree_id);
+        const ids = new Set([lane.head,lane.relationship?.fork_point?.commit]);
+        const rects = [...layout.nodes.filter(n => ids.has(n.id)).map(n => ({x:n.x-24,y:n.y-24,width:160,height:72})),
+          ...layout.arrivals.filter(a => (lastSnapshot.route_plans || []).some(p => p.worktree_id === lane.worktree_id && !p.abandoned && a.route_ids.includes(p.route_id)))];
+        if (attachment) rects.push(attachment);
+        for (const journey of layout.journeys || []) if (journey.worktree_id === lane.worktree_id) for (const point of journey.points) rects.push({...point,width:16,height:16});
+        if (!rects.length) return;
+        const x = Math.min(...rects.map(r=>r.x)), y = Math.min(...rects.map(r=>r.y));
+        const width = Math.max(...rects.map(r=>r.x+r.width))-x, height = Math.max(...rects.map(r=>r.y+r.height))-y;
+        const fit = Math.min(1,(viewport.clientWidth-48)/width,(viewport.clientHeight-48)/height);
+        if (fit < .6) locateWorkspace(lane.worktree_id);
+        else { mapScale = fit; applyMapScale(); setViewportPosition({left:Math.max(0,x*fit-8),top:Math.max(0,y*fit-8),behavior:"instant"}); }
+        journeyFocused = true; renderJourney(lastSnapshot);
+      }
+      function locateArrival(plan) {
+        setJourneyWorkspace(plan.worktree_id);
+        const zone = byId("relationship-map").metroLayout?.arrivals.find(a => a.route_ids.includes(plan.route_id));
+        if (zone) { setMapScale(1); setViewportPosition({left:Math.max(0,zone.x-40),top:Math.max(0,zone.y-80),behavior:"instant"}); }
+        showRoutePlan(plan);
+      }
+      function showArrivalSources(targetRef, navigateSingle = true) {
+        const plans = (lastSnapshot?.route_plans || []).filter(p => p.target_ref === targetRef && !p.abandoned);
+        const ids = new Set(plans.map(p => p.worktree_id));
+        const lanes = workspaceRecords(lastSnapshot).filter(r => ids.has(r.lane.worktree_id)).map(r=>r.lane);
+        if (navigateSingle && lanes.length === 1) { zoomWorkspace(lanes[0].worktree_id); return; }
+        showDetails("Workspaces planning this arrival", []);
+        byId("selection-details").dataset.arrivalTarget = JSON.stringify(targetRef);
+        if (!lanes.length || destinationCoverage(lastSnapshot)) byId("selection-details").append(element("p", "", destinationCoverage(lastSnapshot) || "No source workspaces currently observed"));
+        for (const lane of lanes) {
+          const choice = button("arrival-workspace", "View workspace " + lane.workspace_path, () => zoomWorkspace(lane.worktree_id));
+          choice.textContent = worktreeDisplayName(lane.workspace_path) + " · " + (lane.branch || "detached HEAD"); choice.title = lane.workspace_path; choice.dataset.worktreeId = lane.worktree_id;
+          byId("selection-details").append(choice);
+        }
+        if (navigateSingle) byId("selection-details").querySelector(".dismiss-details")?.focus({preventScroll:true});
       }
       function element(tag, className, text) {
         const node = document.createElement(tag); node.className = className;
@@ -520,6 +624,8 @@
       function createWorkspace(lane, facts, value, width) {
         const cluster = element("article", "worktree-cluster workspace-branch" + (lane.worktree_id === value.current_worktree_id ? " current" : ""));
         cluster.dataset.worktreeId = lane.worktree_id; cluster.dataset.objectId = "workspace:" + lane.worktree_id;
+        cluster.dataset.journeyMuted = String(journeyFocused && lane.worktree_id !== journeyWorkspaceId);
+        cluster.dataset.journeyFocused = String(journeyFocused && lane.worktree_id === journeyWorkspaceId);
         cluster.style.width = width + "px"; cluster.setAttribute("data-no-pan", "");
         const displayName = worktreeDisplayName(lane.workspace_path) || "Workspace · " + lane.worktree_id.slice(-8);
         const linkedCount = uniqueTasks(lane).length;
@@ -548,13 +654,13 @@
         cluster.append(element("p", "platform-heading", facts?.integration === "included" ? "HEAD included in " + targetName : facts?.integration === "ahead" ? "Work ahead of " + targetName : facts?.integration === "terminal" ? "Mainline platform" : "Integration unknown"));
         const ancestor = lane.relationship?.fork_point?.commit;
         const origin = button("platform-origin", ancestor ? "Locate common ancestor " + ancestor : "Inspect workspace origin", () => {
+          setJourneyWorkspace(lane.worktree_id);
           if (ancestor) { locateObject("commit:" + ancestor); showCommit(ancestor); } else selectLane(lane);
         });
         origin.textContent = ancestor ? "Common ancestor · " + ancestor.slice(0,8) : "Origin unknown";
         cluster.append(origin);
         const riskNode = element("p", "workspace-risk"); populateRisk(riskNode, lane, facts, value); cluster.append(riskNode);
         // Active identities precede verbose observations; every factual reason remains in the card.
-        cluster.append(createAgentRoster(lane, value));
         const details = element("details", "workspace-details");
         const summary = element("summary", "", "Workspace details"); summary.dataset.objectId = "facts:" + lane.worktree_id;
         details.append(summary, element("p", "", "Creation point not recorded"), factsNode);
@@ -564,23 +670,22 @@
           if (details.open) expandedFacts.add(lane.worktree_id); else expandedFacts.delete(lane.worktree_id);
           rerenderWorkspace(lane.worktree_id);
         });
-        cluster.append(details);
         if (value.schema_version === "devmap/dock/4") {
           if (!facts?.head_oid || /^0+$/.test(facts.head_oid)) cluster.append(element("p", "unlinked", "No commits yet · workspace files and linked tasks are shown below"));
           else {
-            const head = button("task-disclosure", "Locate HEAD " + facts.head_oid, () => { locateObject("commit:" + facts.head_oid); showCommit(facts.head_oid); });
+            const head = button("task-disclosure", "Locate HEAD " + facts.head_oid, () => { setJourneyWorkspace(lane.worktree_id); locateObject("commit:" + facts.head_oid); showCommit(facts.head_oid); });
             head.textContent = "Locate HEAD · " + facts.head_oid.slice(0, 8); details.append(head);
           }
         }
         for (const plan of value.route_plans || []) if (plan.worktree_id === lane.worktree_id) {
           const destination = button("platform-origin", "Locate planned arrival for " + plan.goal, () => {
-            const zone = byId("relationship-map").metroLayout?.arrivals.find(a => a.route_ids.includes(plan.route_id));
-            if (zone) { setMapScale(1); setViewportPosition({left:Math.max(0,zone.x-40),top:Math.max(0,zone.y-80),behavior:"instant"}); }
-            showRoutePlan(plan);
+            locateArrival(plan);
           });
           destination.textContent = plan.abandoned ? "Plan abandoned" : "To " + (plan.target_ref?.replace("refs/heads/", "") || "unknown destination") + " · planned";
           cluster.append(destination); details.append(createRoutePlan(plan, lane, value));
         }
+        if (destinationCoverage(value) || !(value.route_plans || []).some(p => p.worktree_id === lane.worktree_id && !p.abandoned)) cluster.append(element("p", "platform-heading", destinationCoverage(value) || "No destination recorded"));
+        cluster.append(createAgentRoster(lane, value), details);
         return cluster;
       }
       function showRoutePlan(plan) {
@@ -594,7 +699,7 @@
       }
       function createRoutePlan(plan, lane, value) {
         const node = element("section", "route-plan"); node.dataset.routeId = plan.route_id;
-        const title = button("route-plan-title", "Inspect route plan " + plan.goal, () => showRoutePlan(plan));
+        const title = button("route-plan-title", "Inspect route plan " + plan.goal, () => { setJourneyWorkspace(lane.worktree_id); showRoutePlan(plan); });
         title.textContent = plan.goal; node.append(title);
         if (plan.abandoned) { node.append(element("p", "plan-state", "Abandoned plan · history preserved")); return node; }
         node.append(element("p", "plan-state", plan.delivery?.mode === "auto_merge" ? "Auto merge requested · checks unverified" : "Manual delivery"));
@@ -623,8 +728,7 @@
         const observedCount = [active.length + " developing", idle.length ? idle.length + " other passengers" : ""].filter(Boolean).join(" · ");
         const incomplete = tasks.some(chat => chat.capture_incomplete);
         const taskCountLabel = (tasksConfirmed(value) && !incomplete ? "" : "Last observed · ") + observedCount;
-        if (!expanded) { const count = element("p", "task-count-summary", taskCountLabel); count.dataset.observedCount = observedCount; count.dataset.captureIncomplete = String(incomplete); roster.append(count); }
-        if (active.length > 2 || idle.length) {
+        if (active.length + idle.length > 2) {
           const label = expanded ? "Collapse tasks" : "Show all passengers";
           const disclosure = button("task-disclosure", label + " · " + taskCountLabel + " · " + worktreeDisplayName(lane.workspace_path), () => {
             if (expanded) expandedWorkspaces.delete(lane.worktree_id); else expandedWorkspaces.add(lane.worktree_id);
@@ -758,6 +862,7 @@
       }
       function fitMap() {
         if (!byId("relationship-map").metroLayout) return;
+        setJourneyWorkspace(null);
         byId("selection-details").hidden = true;
         byId("edge-wayfinding").hidden = true;
         byId("overview-workspaces").hidden = false;
@@ -801,7 +906,9 @@
         const focusedTag = document.activeElement?.tagName;
         const cardScroll = new Map([...surface.querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card.scrollTop]));
         const records = workspaceRecords(value), width = Math.min(320, Math.max(200, viewport.clientWidth - 80));
+        if (!records.some(r => r.lane.worktree_id === journeyWorkspaceId)) { journeyWorkspaceId = null; journeyFocused = false; }
         if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
+          journeyWorkspaceId = value.current_worktree_id; journeyFocused = false;
           preferredWorkspaceByHead.clear();
           const current = records.find(record => record.lane.worktree_id === value.current_worktree_id);
           if (current) preferredWorkspaceByHead.set(current.facts?.head_oid || current.lane.head, current.lane.worktree_id);
@@ -829,7 +936,7 @@
             for (const boundary of layout.boundaries) fragment.append(createBoundary(boundary));
             for (const attachment of layout.attachments) { const card = cards.get(attachment.worktree_id); position(card, attachment); fragment.append(card); }
             for (const zone of layout.arrivals || []) {
-              const node = element("div", "arrival-zone"); position(node, zone); node.style.width = zone.width + "px";
+              const node = button("arrival-zone arrival-source", "View workspaces planning arrival at " + (zone.target_ref || "unspecified destination"), () => showArrivalSources(zone.target_ref)); position(node, zone); node.style.width = zone.width + "px";
               node.append(element("strong", "", "Planned arrival · " + (zone.target_ref?.replace("refs/heads/", "") || "unknown target")),
                 element("span", "", value.warnings.some(w => w.code === "planned_target_unavailable" && zone.route_ids.includes(w.subject_id)) ? "Destination unavailable · no assumed connection" : zone.available ? zone.route_ids.length + " planned routes · merge commit not yet known" : zone.target_ref ? "Target outside displayed history · merge commit not yet known" : "Destination not specified")); fragment.append(node);
             }
@@ -845,6 +952,7 @@
         } finally { stage.remove(); }
         for (const [id, card] of cards) card.scrollTop = cardScroll.get(id) || 0;
         surface.metroLayout = layout;
+        renderJourney(value);
         if (!layout) mapScale = 1;
         renderOverview(records, value); applyMapScale();
         byId("revision").textContent = "Revision " + value.revision + " · " + (layout ? "verified commit topology" : "compatibility snapshot");
@@ -964,6 +1072,7 @@
       }
       function locateWorkspace(id, value = lastSnapshot) {
         if (!value || !id) return;
+        setJourneyWorkspace(id, value);
         setMapScale(1);
         const record = value ? workspaceRecords(value).find(record => record.lane.worktree_id === id) : null;
         const head = record?.facts?.head_oid || record?.lane.head;
@@ -1153,6 +1262,7 @@
         }
       }
       function selectLane(lane, notify = true) {
+        setJourneyWorkspace(lane.worktree_id);
         selectedObjectId = "workspace:" + lane.worktree_id;
         selectedWorkspaceId = lane.worktree_id; selectedTaskId = null;
         const facts = lastSnapshot?.workspace_facts?.find(f => f.worktree_id === lane.worktree_id);
@@ -1169,12 +1279,22 @@
         if (notify && transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
       }
       function showTask(chat) {
+        setJourneyWorkspace(selectedWorkspaceId);
         const threadId = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id) ? chat.codex_thread_id : null;
         const lane = workspaceRecords(lastSnapshot).find(record => record.lane.worktree_id === selectedWorkspaceId)?.lane;
         showDetails(chat.display_title, [["Task ID", threadId || "No verified Codex task ID"], ["Workspace", lane?.workspace_path || "Unavailable"], ["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Last activity", chat.last_event_at], ["Task observation", observationLabel(lastSnapshot)], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]], null, threadId);
       }
       function refreshSelectedDetails() {
         if (byId("selection-details").hidden || !lastSnapshot) return;
+        const arrivalTarget = byId("selection-details").dataset.arrivalTarget;
+        if (arrivalTarget) {
+          const panel = byId("selection-details"), scroll = panel.scrollTop;
+          const focused = [...panel.querySelectorAll(".arrival-workspace")].find(n => n === document.activeElement)?.dataset.worktreeId;
+          const hadFocus = [...panel.querySelectorAll("button")].includes(document.activeElement);
+          showArrivalSources(JSON.parse(arrivalTarget), false); panel.scrollTop = scroll;
+          if (hadFocus) ([...panel.querySelectorAll(".arrival-workspace")].find(n => n.dataset.worktreeId === focused) || panel.querySelector(".dismiss-details"))?.focus({preventScroll:true});
+          return;
+        }
         const group = byId("selection-details").dataset.workspaceGroup;
         if (group) {
           const panel = byId("selection-details"), scroll = panel.scrollTop;
@@ -1216,6 +1336,7 @@
       function showDetails(titleText, rows, copyValue, copyTaskId) {
         const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
         delete section.dataset.workspaceGroup;
+        delete section.dataset.arrivalTarget;
         const list = document.createElement("dl"); list.className = "detail-grid";
         for (const [label, value] of rows) { const term = document.createElement("dt"); term.textContent = label; const detail = document.createElement("dd"); const code = document.createElement("code"); code.textContent = value; detail.append(code); list.append(term, detail); }
         const dismiss = button("dismiss-details", "Close selection details", () => { section.hidden = true; selectedObjectId = null; selectedWorkspaceId = null; selectedTaskId = null; byId("topology-viewport").focus(); });
@@ -1277,6 +1398,7 @@
       }
       function refreshDynamicState() {
         if (!lastSnapshot) return;
+        renderJourney(lastSnapshot);
         updateTaskFreshness(lastSnapshot);
         const records = workspaceRecords(lastSnapshot);
         const cards = new Map([...byId("relationship-map").querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card]));
@@ -1293,8 +1415,6 @@
             if (occupancy) occupancy.textContent = summary.state === "unattended" ? record.facts?.working_state === "clean" && record.facts?.integration === "included" ? "Unattended platform · review whether to clean up" : "Unattended platform" : "";
           }
           for (const state of card?.querySelectorAll(".conversation-state") || []) state.textContent = (tasksConfirmed(lastSnapshot) && state.dataset.captureIncomplete !== "true" ? "" : "Last observed ") + state.dataset.observedState;
-          const count = card?.querySelector(".task-count-summary");
-          if (count) count.textContent = (tasksConfirmed(lastSnapshot) && count.dataset.captureIncomplete !== "true" ? "" : "Last observed · ") + count.dataset.observedCount;
           for (const disclosure of card?.querySelectorAll(".task-disclosure") || []) if (disclosure.dataset.observedCount) {
             const qualifier = tasksConfirmed(lastSnapshot) && disclosure.dataset.captureIncomplete !== "true" ? "" : "Last observed · ";
             disclosure.setAttribute("aria-label", disclosure.textContent + " · " + qualifier + disclosure.dataset.observedCount + " · " + worktreeDisplayName(record.lane.workspace_path));
