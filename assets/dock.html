@@ -88,7 +88,7 @@
     .map-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 8px; color: var(--muted); font-size: .75rem; }
     .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend-rail { width: 24px; border-top: 2px solid var(--branch-blue); }
-    .legend-stem { width: 24px; border-top: 1px dashed var(--muted); }
+    .legend-stem { width: 24px; border-top: 2px dashed var(--muted); }
     .legend-commit { width: 10px; height: 10px; border: 2px solid var(--main-rail); border-radius: 50%; }
     .workspace-choice { display: block; width: 100%; border-top: 1px solid var(--line-soft); }
     .worktree-name, .worktree-stop .branch-meta { white-space: normal; overflow-wrap: anywhere; }
@@ -102,12 +102,21 @@
     .metro-connections { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
     .rail-edge { fill: none; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
     .rail-keyline { fill: none; stroke: var(--keyline); stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
-    .association { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 4 5; }
+    .route-plan { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); font-size: 12px; }
+    .route-plan-title { padding: 3px 0; text-align: left; font-weight: 650; overflow-wrap: anywhere; }
+    .future-route { list-style: none; padding: 0 0 0 10px; margin: 10px 0 6px 5px; }
+    .future-stop { position: relative; padding: 0 0 14px 15px; border-left: 2px dashed var(--muted); overflow-wrap: anywhere; line-height: 1.45; }
+    .future-stop:last-child { border-left-color: transparent; padding-bottom: 0; }
+    .future-stop::before { content: ""; position: absolute; left: -6px; top: 3px; width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; background: var(--surface, white); }
+    .future-stop.observed::before { background: var(--muted); }
+    .plan-state { color: var(--muted); margin: 5px 0; overflow-wrap: anywhere; }
+    .route-plan-list { display: grid; gap: 8px; margin-top: 10px; }
+    .association { fill: none; stroke: var(--muted); stroke-width: 1; }
     .station { position: absolute; z-index: 2; width: 44px; height: 44px; min-width: 44px; padding: 0; border: 0; transform: translate(-50%, -50%); background: transparent; border-radius: 50%; }
     .station:hover { background: var(--accent-soft); }
     .station-dot { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%, -50%); border: 3px solid var(--rail-color, var(--main-rail)); border-radius: 50%; background: var(--bg-canvas); }
     .station.light .station-dot { box-shadow: 0 0 0 1px var(--keyline), inset 0 0 0 1px var(--keyline); }
-    .station.boundary .station-dot { border-style: dashed; }
+    .station.boundary .station-dot { border-style: double; }
     .node-label, .ref-label, .boundary-label { position: absolute; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px; line-height: 1.2; white-space: nowrap; overflow: hidden; font-size: .875rem; }
     .node-label { font-size: .75rem; }
     .label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -195,7 +204,7 @@
           </div>
           <details class="branch-index"><summary>Branches <span id="branch-count">0</span></summary><nav class="branch-list" id="branch-list" aria-label="Branch index"></nav></details>
         </div>
-        <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Workspace / reference link</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
+        <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Future plan</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
         <div class="topology-viewport" id="topology-viewport" tabindex="0" aria-label="Scrollable repository topology">
           <div class="topology-world" id="topology-world"><div class="relationship-map topology-canvas topology-surface" id="relationship-map"><p class="empty">Waiting for repository topology and linked tasks…</p></div><div class="overview-markers" id="overview-markers" hidden></div></div>
         </div>
@@ -204,9 +213,10 @@
         <section class="selection-details" id="selection-details" aria-labelledby="selection-title" hidden></section>
         <p class="interaction-feedback" id="snapshot-feedback" role="status" aria-live="polite" hidden></p>
         <p class="interaction-feedback" id="interaction-feedback" role="status" aria-live="polite" hidden></p>
+        <details class="map-help" id="route-plan-panel" hidden><summary>Route plans</summary><div class="route-plan-list" id="route-plan-list"></div></details>
         <details class="map-help"><summary>Map key and observation rules</summary>
           <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
-          <p>Stations are commits. Colored rails follow verified parent relationships; thin dashed stems attach workspaces and references. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
+          <p>Stations are commits. Colored rails follow verified parent relationships; thin attachment stems identify workspaces and references. Dashed routes and hollow stops show future plans, never completed Git operations. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
           <p>Branch colors identify references. Warnings describe separate workspace facts. Task inventory is fresh for 120 seconds; idle attention starts after 30 minutes. Unknown observations never prove inactivity.</p>
         </details>
       </section>
@@ -261,7 +271,7 @@
       }
       function scheduleRefresh(delay = 2000) {
         clearTimeout(refreshTimer);
-        if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_dock_snapshot", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
+        if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_read_map", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
       }
       function acceptSnapshot(value) {
         const validation = Core.validateSnapshot(value);
@@ -367,7 +377,7 @@
       function swatch(identity) {
         const node = svg("svg", { class: "branch-swatch", viewBox: "0 0 28 10", "aria-hidden": "true" });
         if (identity.token === "branch-yellow") node.append(svg("path", { d: "M2 5 H26", class: "rail-keyline" }));
-        node.append(svg("path", { d: "M2 5 H26", stroke: "var(--" + identity.token + ")", "stroke-width": 5, "stroke-dasharray": strokePattern(identity.pattern), fill: "none" }));
+        node.append(svg("path", { d: "M2 5 H26", stroke: "var(--" + identity.token + ")", "stroke-width": 5, "stroke-dasharray": "", fill: "none" }));
         return node;
       }
       function position(node, rect) {
@@ -391,7 +401,7 @@
             defs.append(mask); group.setAttribute("mask", "url(#" + maskId + ")");
           }
           if (identity.token === "branch-yellow") group.append(svg("path", { d: routePath(edge.points), class: "rail-keyline" }));
-          group.append(svg("path", { d: routePath(edge.points), class: "rail-edge", stroke: "var(--" + identity.token + ")", "stroke-dasharray": strokePattern(identity.pattern) }));
+          group.append(svg("path", { d: routePath(edge.points), class: "rail-edge", stroke: "var(--" + identity.token + ")", "stroke-dasharray": "" }));
           root.append(group);
         }
         for (const record of [...layout.attachments, ...layout.refs, ...layout.boundaries]) if (record.stem) {
@@ -503,7 +513,34 @@
             head.textContent = "Locate HEAD · " + facts.head_oid.slice(0, 8); cluster.append(head);
           }
         }
+        for (const plan of value.route_plans || []) if (plan.worktree_id === lane.worktree_id) {
+          cluster.append(createRoutePlan(plan, lane, value));
+        }
         return cluster;
+      }
+      function showRoutePlan(plan) {
+        showDetails(plan.goal, [["Plan", plan.route_id], ["Revision", String(plan.revision)],
+          ["Delivery intent", plan.delivery?.mode || "manual"], ["Completion conditions", plan.delivery?.conditions.join(" / ") || "Not specified"],
+          ["Recorded authorization source", plan.delivery?.authorization_source || "Not recorded"],
+          ["Recorded start", plan.start_commit], ["Planned destination", plan.target_ref || "Not specified"],
+          ["Milestones", plan.milestones.join(" / ") || "None specified"], ["Plan source", plan.source],
+          ["Status", plan.abandoned ? "Abandoned plan" : "Planned, not proof of integration"], ["Updated", plan.updated_at]]);
+      }
+      function createRoutePlan(plan, lane, value) {
+        const node = element("section", "route-plan"); node.dataset.routeId = plan.route_id;
+        const title = button("route-plan-title", "Inspect route plan " + plan.goal, () => showRoutePlan(plan));
+        title.textContent = plan.goal; node.append(title);
+        if (plan.abandoned) { node.append(element("p", "plan-state", "Abandoned plan · history preserved")); return node; }
+        node.append(element("p", "plan-state", plan.delivery?.mode === "auto_merge" ? "Auto merge requested · checks unverified" : "Manual delivery"));
+        for (const condition of plan.delivery?.conditions || []) node.append(element("p", "plan-state", "Required · " + condition));
+        const route = element("ol", "future-route"); route.setAttribute("aria-label", "Remaining plan for " + plan.goal);
+        route.append(element("li", "future-stop observed", "Current HEAD · " + lane.head.slice(0, 8)));
+        for (const milestone of plan.milestones) route.append(element("li", "future-stop", milestone));
+        route.append(element("li", "future-stop", "Planned destination · " + (plan.target_ref?.replace("refs/heads/", "") || "Not specified")));
+        node.append(route);
+        const missing = value.warnings.some(w => w.subject_id === plan.route_id && w.code === "planned_target_unavailable");
+        node.append(element("p", "plan-state", missing ? "Destination is not currently available" : "Future intent · no automatic Git action"));
+        return node;
       }
       function createAgentRoster(lane, value) {
         const roster = element("div", "agent-roster"), tasks = uniqueTasks(lane);
@@ -609,7 +646,7 @@
           const height = stop.getBoundingClientRect().height;
           for (const p of placed) if (left < p.left + markerWidth + 12 && left + markerWidth + 12 > p.left && y < p.y + p.height + 12) y = p.y + p.height + 12;
           placed.push({ left, y, height }); stop.style.top = y + "px";
-          const stem = element("div", ""); stem.style.cssText = "position:absolute;border-left:1px dashed var(--muted);left:" + x + "px;top:" + top + "px;height:" + (y - top) + "px";
+          const stem = element("div", ""); stem.style.cssText = "position:absolute;border-left:1px solid var(--muted);left:" + x + "px;top:" + top + "px;height:" + (y - top) + "px";
           panel.append(stem);
           if (focused === oid) stop.focus({ preventScroll: true });
         }
@@ -743,12 +780,20 @@
         byId("metric-workspaces").textContent = String(value.counts?.workspaces ?? records.length);
         byId("metric-tasks").textContent = String(value.counts?.tasks ?? new Set(records.flatMap(r => uniqueTasks(r.lane).map(taskId))).size);
         renderAttention(records, value);
+        const planList = byId("route-plan-list"); planList.replaceChildren();
+        byId("route-plan-panel").hidden = !(value.route_plans || []).length;
+        for (const plan of value.route_plans || []) {
+          const item = button("route-plan-title", "Inspect route plan " + plan.goal, () => showRoutePlan(plan));
+          item.textContent = plan.goal + " · " + (plan.abandoned ? "Abandoned" : plan.target_ref?.replace("refs/heads/", "") || "Destination unknown");
+          planList.append(item);
+        }
         const coverage = byId("coverage");
         coverage.hidden = value.schema_version === "devmap/dock/4" && value.topology.complete && !value.truncated;
         coverage.textContent = value.schema_version === "devmap/dock/3" ? "Limited view · v3 snapshot has no verified commit topology or observation facts" : "Partial history · explicit boundary labels mark unavailable connections" + (value.truncated ? " · snapshot truncated" : "");
         const warning = byId("warnings");
         warning.hidden = !value.warnings.length;
-        warning.textContent = value.warnings.map(w => w.code + (w.subject_id ? " · " + w.subject_id : "")).join(" · ");
+        const warningLabels = { workspace_history_changed: "History changed since the last observation; actual Git state is preserved", workspace_history_unverified: "History change could not be verified", route_plans_unavailable: "Route plans unavailable; Git history is still shown", planned_target_unavailable: "Planned destination is unavailable", planned_workspace_unavailable: "Planned workspace is unavailable", route_plans_truncated: "Some route plans are outside this view" };
+        warning.textContent = value.warnings.map(w => (warningLabels[w.code] || w.code) + (w.subject_id ? " · " + w.subject_id : "")).join(" · ");
         const branches = byId("branch-list"); branches.replaceChildren();
         for (const ref of layout?.refs || []) {
           const control = button("branch-choice", "Locate reference " + ref.display_name, () => locateObject(ref.id));
@@ -1126,7 +1171,7 @@
         announce(message);
       }
       async function gitOnlyRefresh() {
-        if (transport === "mcp") callTool("devmap_dock_snapshot", {}); else await fetchSnapshot();
+        if (transport === "mcp") callTool("devmap_read_map", {}); else await fetchSnapshot();
         finishRefresh("Git refreshed · task names not resynced · Ask Codex: Refresh DevMap");
       }
       async function requestFullRefresh() {
@@ -1240,14 +1285,14 @@
             return;
           }
           pendingRequests.delete(message.id);
-          if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_dock_snapshot", {}); scheduleRefresh(); }
+          if (pending === "ui/initialize" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} }); callTool("devmap_read_map", {}); scheduleRefresh(); }
           else if (pending === "ui/message") { if (message.error) gitOnlyRefresh(); }
           else if (!acceptSnapshot(message.result?.structuredContent)) setOffline();
         }
       });
       document.addEventListener("visibilitychange", () => {
         clearTimeout(refreshTimer); clearTimeout(ageTimer); if (eventStream) eventStream.close();
-        if (document.visibilityState === "visible") { if (transport === "mcp") { callTool("devmap_dock_snapshot", {}); scheduleRefresh(); } else { fetchSnapshot(); connectEvents(); } scheduleAge(); }
+        if (document.visibilityState === "visible") { if (transport === "mcp") { callTool("devmap_read_map", {}); scheduleRefresh(); } else { fetchSnapshot(); connectEvents(); } scheduleAge(); }
       });
       byId("refresh").addEventListener("click", requestFullRefresh);
       byId("zoom-out").addEventListener("click", () => setMapScale(mapScale / 1.4));

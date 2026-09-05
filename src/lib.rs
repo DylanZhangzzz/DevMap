@@ -17,6 +17,7 @@ pub mod hook;
 pub mod journal;
 pub mod mcp;
 pub mod presence;
+pub mod route_plan;
 pub mod viewer;
 pub mod worktrees;
 

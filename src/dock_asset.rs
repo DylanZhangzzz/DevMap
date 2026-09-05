@@ -27,7 +27,15 @@ pub fn dock_html() -> &'static str {
             .map(str::trim_start)
             .collect::<Vec<_>>()
             .join("\n")
-            .replacen(PLACEHOLDER, CORE, 1)
+            .replacen(
+                PLACEHOLDER,
+                &CORE
+                    .lines()
+                    .map(str::trim_start)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                1,
+            )
     })
     .as_str()
 }

@@ -36,16 +36,10 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
     assert_eq!(server["startup_timeout_sec"], 10);
     assert_eq!(server["tool_timeout_sec"], 10);
     assert_eq!(server["default_tools_approval_mode"], "writes");
-    assert_eq!(server["tools"].as_object().unwrap().len(), 3);
-    assert_eq!(
-        server["tools"]["devmap_dock_snapshot"]["approval_mode"],
-        "auto"
-    );
-    assert_eq!(server["tools"]["devmap_open_dock"]["approval_mode"], "auto");
-    assert_eq!(
-        server["tools"]["devmap_start_browser_dock"]["approval_mode"],
-        "auto"
-    );
+    assert_eq!(server["tools"].as_object().unwrap().len(), 2);
+    assert_eq!(server["tools"]["devmap_read_map"]["approval_mode"], "auto");
+    assert_eq!(server["tools"]["devmap_open_map"]["approval_mode"], "auto");
+    assert!(server["tools"].get("devmap_set_route_plan").is_none());
     assert!(server.get("cwd").is_none());
     assert!(server.get("url").is_none());
 }
@@ -112,9 +106,9 @@ fn configured_command_launches_dock_over_stdio_without_browser_server() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"devmap_dock_snapshot"));
-    assert!(names.contains(&"devmap_open_dock"));
-    assert!(names.contains(&"devmap_start_browser_dock"));
+    assert!(names.contains(&"devmap_read_map"));
+    assert!(names.contains(&"devmap_open_map"));
+    assert!(names.contains(&"devmap_set_route_plan"));
 }
 
 #[test]
@@ -125,9 +119,10 @@ fn bundled_skill_has_a_narrow_honest_trigger() {
     let normalized = skill.to_ascii_lowercase();
     assert!(skill.contains("name: live-worktree-dock"));
     assert!(normalized.contains("show, open, or refresh"));
-    assert!(skill.contains("devmap_open_dock"));
-    assert!(skill.contains("devmap_dock_snapshot"));
-    assert!(skill.contains("devmap_start_browser_dock"));
+    assert!(skill.contains("devmap_open_map"));
+    assert!(skill.contains("devmap_read_map"));
+    assert!(skill.contains("devmap_set_route_plan"));
+    assert!(skill.contains("surface: browser"));
     assert!(skill.contains("list_threads"));
     assert!(skill.contains("codex_tasks"));
     assert!(skill.contains("`active`, `idle`, or `notLoaded`"));

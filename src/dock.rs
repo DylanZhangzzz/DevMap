@@ -14,7 +14,8 @@ use crate::error::DevMapError;
 use crate::events::CaptureGrade;
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::git_relationship::{
-    DevelopmentTarget, ForkPoint, GitRelationship, GitRelationshipResolver, IntegrationBranch,
+    DevelopmentTarget, ForkPoint, GitRelationship, GitRelationshipReport, GitRelationshipResolver,
+    IntegrationBranch,
 };
 use crate::git_topology::{GitTopologyCollector, TopologyBoundary, TopologyGraph};
 use crate::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
@@ -134,6 +135,7 @@ pub struct DockCounts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockReadModel {
+    pub route_plans: Vec<crate::route_plan::RoutePlan>,
     pub schema_version: &'static str,
     pub repository_id: String,
     pub revision: u64,
@@ -204,7 +206,21 @@ impl<R: RouteProvider> DockReducer<R> {
         now: OffsetDateTime,
         observed_tasks: &[ObservedTask],
     ) -> Result<DockReadModel, DevMapError> {
-        let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
+        // These independent read-only scans share the observed worktree inventory.
+        if !worktrees.iter().any(|worktree| worktree.is_current) {
+            return Err(DevMapError::InvalidPresence(
+                "current worktree is missing".into(),
+            ));
+        }
+        // Overlap Git process latency rather than serializing both scan pipelines.
+        let (topology, relationships) = std::thread::scope(|scope| {
+            let topology = scope.spawn(|| GitTopologyCollector::scan(workspace, &worktrees));
+            let relationships = GitRelationshipResolver::resolve(workspace, &worktrees);
+            Ok::<_, DevMapError>((
+                topology.join().expect("topology worker panicked")?,
+                relationships?,
+            ))
+        })?;
         self.reduce_with_inputs(
             workspace,
             worktrees,
@@ -217,6 +233,7 @@ impl<R: RouteProvider> DockReducer<R> {
                 complete: false,
             },
             topology,
+            Some(relationships),
         )
     }
 
@@ -231,6 +248,7 @@ impl<R: RouteProvider> DockReducer<R> {
         observed_tasks: &[ObservedTask],
         task_observation: TaskObservation,
         topology: TopologyGraph,
+        relationships: Option<GitRelationshipReport>,
     ) -> Result<DockReadModel, DevMapError> {
         let repository_id = repository_id(workspace);
         let current_worktree_id = worktrees
@@ -242,7 +260,10 @@ impl<R: RouteProvider> DockReducer<R> {
             .iter()
             .map(|row| (row.worktree_id.clone(), row))
             .collect::<HashMap<_, _>>();
-        let relationship_report = GitRelationshipResolver::resolve(workspace, &worktrees)?;
+        let relationship_report = match relationships {
+            Some(report) => report,
+            None => GitRelationshipResolver::resolve(workspace, &worktrees)?,
+        };
         let mut represented = HashSet::new();
         let mut entries = Vec::new();
         let mut warnings = presence
@@ -432,6 +453,7 @@ impl<R: RouteProvider> DockReducer<R> {
         }
 
         bound_model(DockReadModel {
+            route_plans: Vec::new(),
             schema_version: DOCK_SCHEMA_VERSION,
             repository_id,
             revision: 0,
@@ -518,6 +540,7 @@ impl DockReadModel {
         }
         #[derive(Serialize)]
         struct Content<'a> {
+            route_plans: &'a [crate::route_plan::RoutePlan],
             schema_version: &'a str,
             repository_id: &'a str,
             current_worktree_id: &'a str,
@@ -536,6 +559,7 @@ impl DockReadModel {
             truncated: bool,
         }
         let bytes = canonical_json(&Content {
+            route_plans: &self.route_plans,
             schema_version: self.schema_version,
             repository_id: &self.repository_id,
             current_worktree_id: &self.current_worktree_id,
@@ -681,8 +705,98 @@ impl DockService {
             &self.observed_tasks,
             task_observation,
             topology,
+            None,
         )?;
         next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
+        match crate::route_plan::RoutePlanStore::open(&self.workspace)
+            .and_then(|store| store.list())
+        {
+            Ok(plans) => next.route_plans = plans,
+            Err(_) => next.warnings.push(DockWarning {
+                code: "route_plans_unavailable".into(),
+                subject_id: None,
+            }),
+        }
+        let mut target_cache = BTreeMap::new();
+        for plan in &next.route_plans {
+            if !next
+                .lanes
+                .iter()
+                .any(|lane| lane.worktree_id == plan.worktree_id)
+            {
+                next.warnings.push(DockWarning {
+                    code: "planned_workspace_unavailable".into(),
+                    subject_id: Some(plan.route_id.clone()),
+                });
+            }
+            if let Some(target) = &plan.target_ref {
+                let exists = if let Some(exists) = target_cache.get(target) {
+                    *exists
+                } else {
+                    let exists = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&self.workspace.root)
+                        .args(["show-ref", "--verify", "--quiet", target])
+                        .output()?
+                        .status
+                        .success();
+                    target_cache.insert(target.clone(), exists);
+                    exists
+                };
+                if !exists {
+                    next.warnings.push(DockWarning {
+                        code: "planned_target_unavailable".into(),
+                        subject_id: Some(plan.route_id.clone()),
+                    });
+                }
+            }
+        }
+        if let Some(previous) = &self.snapshot {
+            for lane in &next.lanes {
+                let Some(old) = previous
+                    .lanes
+                    .iter()
+                    .find(|old| old.worktree_id == lane.worktree_id)
+                else {
+                    continue;
+                };
+                if old.head == lane.head {
+                    next.warnings.extend(
+                        previous
+                            .warnings
+                            .iter()
+                            .filter(|w| {
+                                w.subject_id.as_deref() == Some(lane.worktree_id.as_str())
+                                    && matches!(
+                                        w.code.as_str(),
+                                        "workspace_history_changed"
+                                            | "workspace_history_unverified"
+                                    )
+                            })
+                            .cloned(),
+                    );
+                } else if !old.head.is_empty() && !lane.head.is_empty() {
+                    let status = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&self.workspace.root)
+                        .args(["merge-base", "--is-ancestor", &old.head, &lane.head])
+                        .output()?
+                        .status;
+                    if !status.success() {
+                        next.warnings.push(DockWarning {
+                            code: if status.code() == Some(1) {
+                                "workspace_history_changed"
+                            } else {
+                                "workspace_history_unverified"
+                            }
+                            .into(),
+                            subject_id: Some(lane.worktree_id.clone()),
+                        });
+                    }
+                }
+            }
+        }
+        next = bound_model(next)?;
         let content_hash = next.content_hash()?;
         if self.content_hash.as_deref() != Some(&content_hash) {
             self.revision = self
@@ -1095,6 +1209,20 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     // Leave room for the service's final revision and observation envelope.
     const ENVELOPE_RESERVE: usize = 2048;
     let ceiling = MAX_DOCK_MODEL_BYTES - ENVELOPE_RESERVE;
+    while !model.route_plans.is_empty() && canonical_json(&model)?.len() > ceiling {
+        model.route_plans.pop();
+        model.truncated = true;
+        if !model
+            .warnings
+            .iter()
+            .any(|w| w.code == "route_plans_truncated")
+        {
+            model.warnings.push(DockWarning {
+                code: "route_plans_truncated".into(),
+                subject_id: None,
+            });
+        }
+    }
     let attached_heads = model
         .workspace_facts
         .iter()
@@ -1333,6 +1461,7 @@ mod budget_tests {
             "2026-09-05T00:00:00Z",
         );
         DockReadModel {
+            route_plans: Vec::new(),
             schema_version: DOCK_SCHEMA_VERSION,
             repository_id: format!("sha256-{}", "b".repeat(64)),
             revision: 1,

@@ -28,7 +28,7 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     assert!(html.contains("ui/initialize"));
     assert!(html.contains("ui/notifications/tool-result"));
     assert!(html.contains("ui/update-model-context"));
-    assert!(html.contains("devmap_dock_snapshot"));
+    assert!(html.contains("devmap_read_map"));
     assert!(html.contains("window.parent.postMessage"));
     assert!(!html.contains("https://"));
     // SVG namespace identifies elements; it is not an external request.

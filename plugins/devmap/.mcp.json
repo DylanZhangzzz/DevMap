@@ -2,15 +2,20 @@
   "mcpServers": {
     "devmap": {
       "command": "devmap",
-      "args": ["mcp"],
+      "args": [
+        "mcp"
+      ],
       "enabled": true,
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 10,
       "default_tools_approval_mode": "writes",
       "tools": {
-        "devmap_dock_snapshot": {"approval_mode": "auto"},
-        "devmap_open_dock": {"approval_mode": "auto"},
-        "devmap_start_browser_dock": {"approval_mode": "auto"}
+        "devmap_read_map": {
+          "approval_mode": "auto"
+        },
+        "devmap_open_map": {
+          "approval_mode": "auto"
+        }
       }
     }
   }

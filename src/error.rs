@@ -162,4 +162,13 @@ pub enum DevMapError {
 
     #[error("Common Ground is already approved; a future change must supersede it explicitly")]
     CommonGroundAlreadyApproved,
+
+    #[error("route plan: {0}")]
+    RoutePlan(String),
+
+    #[error("route plan revision conflict: current revision is {revision}")]
+    RoutePlanConflict {
+        revision: u64,
+        current_plan: Option<Box<crate::route_plan::RoutePlan>>,
+    },
 }

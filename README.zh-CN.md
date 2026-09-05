@@ -24,6 +24,18 @@
 > [!IMPORTANT]
 > DevMap 仍处于实验阶段，但当前仓库已经交付 Phase 1A 可信基础、Phase 1B Capture Kernel 与本地 Live Worktree Dock。Dock 是只读的运行视图；PR 证据链、跨机器 Presence、Merge Gate 和 Canonical 开发拓扑仍在规划中。
 
+## 地图优先开发版
+
+本分支为现有地图增加持久化路线计划。真实 Git 历史使用实线；工作区卡片中的剩余路线使用虚线，里程碑和目标站使用空心节点。计划表示意图，不代表提交已经发生或分支已经合并。目前目标站显示在工作区卡片内，尚未绘制跨越主干的未来合流线。
+
+插件保留一个 Skill，对外提供三个地图接口：`devmap_open_map`、`devmap_read_map`、`devmap_set_route_plan`。加上原有三个记录接口，共公开六个工具；旧 Dock 名称仍可兼容调用。计划写入只追加 Git 公共目录中的本地元数据，支持版本冲突检测和请求重试去重，不执行 Git 操作。
+
+Agent 使用 `devmap_read_map` 的 `view: agent` 读取当前工作区事实与交付约定，也可用准确的工作区 `entity_id` 指定位置。路线支持完成条件、人工或自动合并意图、授权来源；旧计划默认人工交付。自动合并意图必须有明确目标、完成条件和授权来源。地图显示同一份约定，但不把它当作检查已通过或可执行合并的证明；实际执行仍由 Agent 核对真实授权和最新 Git 状态后完成。
+
+以真实人工操作为准。地图提示计划目标或工作区消失，以及同一次持续观察中发现的非后继 HEAD 变化；这不是覆盖所有 cherry-pick、revert 的持久审计，也不推断人工操作是否合理。
+
+实现范围与验证结果见[开发记录](docs/superpowers/plans/2026-09-05-devmap-map-first.md)。更新本地程序和插件后，新建会话以加载新版工具。
+
 ## Live Worktree Dock
 
 多个 Agent 并行开发时，首先需要回答：**哪个 Worktree 正在工作、每条分支从哪里分叉、回到 `main` 前哪些状态需要关注？** DevMap 根据本地 Git 状态和明确提供的 Agent Presence 回答这些问题，不读取私密对话，也不猜测缺失的活动。

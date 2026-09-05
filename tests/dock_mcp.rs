@@ -101,15 +101,15 @@ fn dock_resource_and_decoupled_tools_are_advertised() {
         json!({"resources": {}, "tools": {}})
     );
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 7);
-    assert_eq!(MCP_TOOLS.len(), 7);
+    assert_eq!(tools.len(), 6);
+    assert_eq!(MCP_TOOLS.len(), 6);
     let snapshot = tools
         .iter()
-        .find(|tool| tool["name"] == DOCK_DATA_TOOL)
+        .find(|tool| tool["name"] == devmap::mcp::MAP_READ_TOOL)
         .unwrap();
     let render = tools
         .iter()
-        .find(|tool| tool["name"] == DOCK_RENDER_TOOL)
+        .find(|tool| tool["name"] == devmap::mcp::MAP_OPEN_TOOL)
         .unwrap();
     assert_eq!(snapshot["annotations"]["readOnlyHint"], true);
     assert_eq!(
@@ -149,11 +149,11 @@ fn render_tool_advertises_the_openai_output_template_compatibility_alias() {
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
     let snapshot = tools
         .iter()
-        .find(|tool| tool["name"] == DOCK_DATA_TOOL)
+        .find(|tool| tool["name"] == devmap::mcp::MAP_READ_TOOL)
         .unwrap();
     let render = tools
         .iter()
-        .find(|tool| tool["name"] == DOCK_RENDER_TOOL)
+        .find(|tool| tool["name"] == devmap::mcp::MAP_OPEN_TOOL)
         .unwrap();
 
     assert!(snapshot["_meta"].get("openai/outputTemplate").is_none());

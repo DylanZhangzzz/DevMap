@@ -24,6 +24,18 @@
 > [!IMPORTANT]
 > DevMap is experimental, but the current repository already ships the Phase 1A trust foundation, the Phase 1B capture kernel, and the local Live Worktree Dock. The Dock is a read-only operational view; PR evidence chains, cross-machine presence, merge gates, and the canonical development topology remain planned work.
 
+## Map-first development build
+
+This branch adds persistent route intent to the existing map. Actual Git history uses solid lines; each workspace's remaining plan uses a dashed timeline with hollow milestone and destination stops. Plans describe intent, not completed commits or evidence of integration. Planned destinations are currently shown inside workspace cards, not as speculative merge edges across the trunk.
+
+The plugin keeps one Skill and advertises three map tools: `devmap_open_map`, `devmap_read_map`, and `devmap_set_route_plan`. Together with the three existing capture tools, discovery returns six tools. Legacy Dock names remain callable aliases. Plan writes only append local metadata under the Git common directory, with revision checks and idempotent request IDs; they do not execute Git operations.
+
+Agents use `devmap_read_map` with `view: agent` for current-workspace facts and delivery intent, or pass an exact worktree `entity_id`. Routes support completion conditions, manual/auto-merge intent and an authorization source. Legacy plans default to manual. Auto-merge intent requires a target, conditions and authorization source; it is not proof of permission or passing checks. The map displays the same agreement. An executing Agent must verify actual user authorization and fresh Git state before delivery.
+
+Human operations remain authoritative. The viewer warns about unavailable planned targets/workspaces and non-descendant HEAD changes observed during the same live session. This is not a persistent audit of every cherry-pick or revert and does not decide whether a human action was reasonable.
+
+See the [implementation and verification record](docs/superpowers/plans/2026-09-05-devmap-map-first.md). After updating the local binary and plugin, start a new thread to load the updated tools.
+
 ## Live Worktree Dock
 
 Parallel Agent development creates an immediate coordination problem: **which worktree is active, where did each branch fork, and what needs attention before it returns to `main`?** DevMap answers that from local Git state and explicitly supplied Agent presence without reading private conversations or guessing missing activity.

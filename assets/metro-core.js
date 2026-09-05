@@ -38,7 +38,7 @@
     "branch-cyan",
     "branch-magenta",
   ]);
-  const BRANCH_PATTERNS = Object.freeze(["solid", "long-dash", "dot"]);
+  const BRANCH_PATTERNS = Object.freeze(["solid"]);
   const ATTENTION_REASONS = new Set([
     "uncommitted_without_active_task",
     "uncommitted_idle",
@@ -352,6 +352,32 @@
     }
   }
 
+  function validateRoutePlans(snapshot, errors) {
+    if (snapshot.route_plans === undefined) return;
+    if (!Array.isArray(snapshot.route_plans) || snapshot.route_plans.length > 64) { addError(errors, "invalid_route_plans"); return; }
+    const ids = new Set();
+    const text = (s, max) => typeof s === "string" && s.trim().length > 0 && s.length <= max && !/[\u0000-\u001f\u007f]/.test(s);
+    for (const plan of snapshot.route_plans) {
+      if (!isRecord(plan) || !/^route-[0-9a-f]{32}$/.test(plan.route_id) || ids.has(plan.route_id)
+        || plan.repository_id !== snapshot.repository_id || !validWorktreeId(plan.worktree_id)
+        || !safeOid(plan.start_commit) || !safeInteger(plan.revision, Number.MAX_SAFE_INTEGER) || plan.revision < 1
+        || !text(plan.goal, 2048) || !text(plan.source, 2048) || !text(plan.updated_at, 128)
+        || typeof plan.abandoned !== "boolean"
+        || !(plan.target_ref === null || (text(plan.target_ref, 256) && plan.target_ref.startsWith("refs/heads/")))
+        || !Array.isArray(plan.milestones) || plan.milestones.length > 12 || plan.milestones.some(item => !text(item, 256))) {
+        addError(errors, "invalid_route_plan");
+      }
+      if (isRecord(plan)) ids.add(plan.route_id);
+      if (isRecord(plan) && plan.delivery !== undefined) {
+        const d = plan.delivery;
+        if (!isRecord(d) || !["manual", "auto_merge"].includes(d.mode)
+          || !Array.isArray(d.conditions) || d.conditions.length > 12 || d.conditions.some(c => !text(c, 256))
+          || !(d.authorization_source == null || text(d.authorization_source, 2048))
+          || (d.mode === "auto_merge" && (!plan.target_ref || !d.conditions.length || !d.authorization_source))) addError(errors, "invalid_delivery");
+      }
+    }
+  }
+
   function validateSnapshot(snapshot) {
     const errors = [];
     if (!isRecord(snapshot)) return { valid: false, errors: ["snapshot_not_object"] };
@@ -364,6 +390,7 @@
     if (!boundedString(snapshot.generated_at, false)) addError(errors, "invalid_generated_at");
     if (!nullableStringField(snapshot.task_inventory_synced_at)) addError(errors, "invalid_task_inventory_time");
     if (typeof snapshot.truncated !== "boolean") addError(errors, "invalid_truncated");
+    validateRoutePlans(snapshot, errors);
     validateCompatibilityLists(snapshot, errors, snapshot.schema_version === "devmap/dock/4");
     if (snapshot.schema_version === "devmap/dock/3") return { valid: errors.length === 0, errors };
 
@@ -503,6 +530,7 @@
       hash = Math.imul(hash, 16777619) >>> 0;
     }
     return {
+      identityKey: identity,
       colorToken: BRANCH_COLOR_TOKENS[hash % BRANCH_COLOR_TOKENS.length],
       pattern: BRANCH_PATTERNS[Math.floor(hash / BRANCH_COLOR_TOKENS.length) % BRANCH_PATTERNS.length],
     };

@@ -588,7 +588,7 @@ test('branch identity is stable, hashes repository plus full ref, and reserves c
   assert.notDeepEqual(branchColorKey('sha256-repository-two', 'refs/heads/feature/auth'), first);
   assert.notDeepEqual(branchColorKey('sha256-repository-one', 'refs/heads/feature/api'), first);
   assert.ok(['branch-red', 'branch-blue', 'branch-green', 'branch-yellow', 'branch-cyan', 'branch-magenta'].includes(first.colorToken));
-  assert.ok(['solid', 'long-dash', 'dot'].includes(first.pattern));
+  assert.equal(first.pattern, 'solid', 'dashes are reserved for future intent');
   assert.notEqual(first.colorToken, 'main-charcoal');
 });
 
@@ -599,4 +599,20 @@ test('the dependency-free core installs the same API as a browser global', () =>
   assert.equal(typeof context.globalThis.DevMapMetroCore.validateSnapshot, 'function');
   assert.equal(typeof context.globalThis.DevMapMetroCore.classifyWorkspace, 'function');
   assert.equal(typeof context.globalThis.DevMapMetroCore.branchColorKey, 'function');
+});
+
+
+test('route plans are bounded intent and cannot impersonate repository facts', () => {
+  const value = v4Snapshot();
+  const plan = {route_id:'route-0123456789abcdef0123456789abcdef', repository_id:value.repository_id,
+    revision:1, worktree_id:value.current_worktree_id, start_commit:oid('a'), goal:'Login',
+    target_ref:'refs/heads/main', milestones:['Verify'], source:'User plan', abandoned:false, updated_at:'2026-09-05T00:00:00Z'};
+  value.route_plans = [plan];
+  assert.equal(validateSnapshot(value).valid, true);
+  value.route_plans = [{...plan, milestones:Array(13).fill('Too many')}];
+  assert.equal(validateSnapshot(value).valid, false);
+  value.route_plans = [{...plan, repository_id:'wrong-repository'}];
+  assert.equal(validateSnapshot(value).valid, false);
+  value.route_plans = [plan, plan];
+  assert.equal(validateSnapshot(value).valid, false);
 });

@@ -23,14 +23,17 @@ pub const DOCK_DATA_TOOL: &str = "devmap_dock_snapshot";
 pub const DOCK_RENDER_TOOL: &str = "devmap_open_dock";
 pub const DOCK_BROWSER_TOOL: &str = "devmap_start_browser_dock";
 
-pub const MCP_TOOLS: [&str; 7] = [
-    "devmap_context",
+pub const MAP_OPEN_TOOL: &str = "devmap_open_map";
+pub const MAP_READ_TOOL: &str = "devmap_read_map";
+pub const MAP_PLAN_TOOL: &str = "devmap_set_route_plan";
+
+pub const MCP_TOOLS: [&str; 6] = [
+    MAP_OPEN_TOOL,
+    MAP_READ_TOOL,
+    MAP_PLAN_TOOL,
     "devmap_record_requirement",
     "devmap_record_decision",
     "devmap_record_evidence",
-    DOCK_DATA_TOOL,
-    DOCK_RENDER_TOOL,
-    DOCK_BROWSER_TOOL,
 ];
 
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -662,7 +665,15 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
     if serde_json::to_vec(&arguments).is_ok_and(|bytes| bytes.len() > MAX_MCP_ARGUMENT_BYTES) {
         return invalid_params(id, "tools/call arguments exceed the configured byte limit");
     }
-    if !MCP_TOOLS.contains(&name) {
+    if matches!(name, MAP_OPEN_TOOL | MAP_READ_TOOL | MAP_PLAN_TOOL) {
+        return map_tool_response(runtime, id, name, arguments);
+    }
+    if !MCP_TOOLS.contains(&name)
+        && !matches!(
+            name,
+            "devmap_context" | DOCK_DATA_TOOL | DOCK_RENDER_TOOL | DOCK_BROWSER_TOOL
+        )
+    {
         return invalid_params(id, format!("Unknown tool: {name}"));
     }
 
@@ -723,6 +734,156 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
     match call_tool(&runtime.workspace, name, &arguments) {
         Ok(structured) => json_rpc_result(id, tool_result(structured)),
         Err(error) => json_rpc_result(id, tool_error(error)),
+    }
+}
+
+fn map_tool_response(
+    runtime: &mut McpRuntime,
+    id: Value,
+    name: &str,
+    mut arguments: Map<String, Value>,
+) -> Value {
+    if name == MAP_PLAN_TOOL {
+        let result =
+            serde_json::from_value::<crate::route_plan::PlanInput>(Value::Object(arguments))
+                .map_err(|e| DevMapError::RoutePlan(e.to_string()))
+                .and_then(|input| {
+                    crate::route_plan::RoutePlanStore::open(&runtime.workspace)?.set(input)
+                })
+                .and_then(|plan| Ok(tool_result(serde_json::to_value(plan)?)));
+        return json_rpc_result(id, result.unwrap_or_else(tool_error));
+    }
+    let allowed = if name == MAP_OPEN_TOOL {
+        &["codex_tasks", "codex_tasks_complete", "surface"][..]
+    } else {
+        &["codex_tasks", "codex_tasks_complete", "entity_id", "view"][..]
+    };
+    if let Err(error) = ensure_fields(&arguments, allowed) {
+        return json_rpc_result(id, tool_error(error));
+    }
+    let surface = arguments.remove("surface").unwrap_or(json!("app"));
+    if surface != "app" && surface != "browser" {
+        return json_rpc_result(id, tool_error(DevMapError::InvalidDomain("surface")));
+    }
+    let entity = arguments.remove("entity_id");
+    if entity
+        .as_ref()
+        .is_some_and(|v| v.as_str().is_none_or(|s| s.is_empty() || s.len() > 128))
+    {
+        return json_rpc_result(id, tool_error(DevMapError::InvalidDomain("entity_id")));
+    }
+    let view = arguments.remove("view").unwrap_or(json!("map"));
+    if view != "map" && view != "context" && view != "agent" {
+        return json_rpc_result(id, tool_error(DevMapError::InvalidDomain("view")));
+    }
+    if view == "context" {
+        if entity.is_some() || !arguments.is_empty() {
+            return json_rpc_result(
+                id,
+                tool_error(DevMapError::InvalidDomain("context view arguments")),
+            );
+        }
+        return json_rpc_result(
+            id,
+            call_tool(&runtime.workspace, "devmap_context", &Map::new())
+                .map(tool_result)
+                .unwrap_or_else(tool_error),
+        );
+    }
+    let alias = if name == MAP_OPEN_TOOL {
+        if surface == "browser" {
+            DOCK_BROWSER_TOOL
+        } else {
+            DOCK_RENDER_TOOL
+        }
+    } else {
+        DOCK_DATA_TOOL
+    };
+    let params = json!({"name": alias, "arguments": arguments});
+    let response = call_tool_response(runtime, id.clone(), Some(&params));
+    if view == "agent" {
+        let Some(model) = response
+            .get("result")
+            .and_then(|r| r.get("structuredContent"))
+        else {
+            return response;
+        };
+        let workspace_id = entity.as_ref().unwrap_or(&model["current_worktree_id"]);
+        let workspace = model["lanes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|lane| &lane["worktree_id"] == workspace_id);
+        let Some(workspace) = workspace else {
+            return json_rpc_result(
+                id,
+                tool_error(DevMapError::RoutePlan(
+                    "agent workspace not present in current bounded map".into(),
+                )),
+            );
+        };
+        let plans: Vec<_> = model["route_plans"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|plan| &plan["worktree_id"] == workspace_id)
+            .collect();
+        return json_rpc_result(
+            id,
+            tool_result(json!({
+                "repository_id":model["repository_id"], "revision":model["revision"],
+            "generated_at":model["generated_at"], "workspace":workspace,
+            "workspace_facts":model["workspace_facts"].as_array().into_iter().flatten().find(|facts| &facts["worktree_id"] == workspace_id),
+                "route_plans":plans, "warnings":model["warnings"], "truncated":model["truncated"],
+                "execution":{"checks_status":"unverified", "merge_ready":false,
+                    "authorization_verified":false,
+                    "guidance":"Delivery is recorded intent. Verify authorization against the user's instructions, select one active route, check its completion conditions and fresh source/target Git state before execution. Human changes prevail. DevMap does not execute merges or certify readiness."}
+            })),
+        );
+    }
+    let Some(entity_id) = entity.as_ref().and_then(Value::as_str) else {
+        return response;
+    };
+    let Some(model) = response
+        .get("result")
+        .and_then(|r| r.get("structuredContent"))
+    else {
+        return response;
+    };
+    let found = model["route_plans"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["route_id"] == entity_id)
+        .or_else(|| {
+            model["lanes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| p["worktree_id"] == entity_id)
+        })
+        .or_else(|| {
+            model["topology"]["commits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| p["oid"] == entity_id)
+        });
+    match found {
+        Some(value) => json_rpc_result(
+            id,
+            tool_result(json!({
+                "repository_id": model["repository_id"], "revision": model["revision"],
+                "generated_at": model["generated_at"], "entity": value,
+                "warnings": model["warnings"], "truncated": model["truncated"]
+            })),
+        ),
+        None => json_rpc_result(
+            id,
+            tool_error(DevMapError::RoutePlan(
+                "entity not present in current bounded map".into(),
+            )),
+        ),
     }
 }
 
@@ -1211,6 +1372,59 @@ fn required_string_array(
 }
 
 fn tool_descriptors() -> Vec<Value> {
+    let mut open = dock_tool_descriptor(MAP_OPEN_TOOL, true);
+    open["description"] = json!(
+        "Open the DevMap map. Use surface browser only for an explicit browser/right-panel request; default app uses host placement. Never changes source Git."
+    );
+    open["inputSchema"]["properties"]["surface"] =
+        json!({"type":"string", "enum":["app","browser"]});
+    let mut read = dock_tool_descriptor(MAP_READ_TOOL, false);
+    read["description"] = json!(
+        "Read the bounded map. View agent returns delivery intent and observed workspace facts for the current worktree, or an exact worktree entity_id. It never certifies merge readiness. View context reads capture context."
+    );
+    read["inputSchema"]["properties"]["entity_id"] =
+        json!({"type":"string","minLength":1,"maxLength":128});
+    read["inputSchema"]["properties"]["view"] =
+        json!({"type":"string","enum":["map","context","agent"]});
+    let mut plan = tool_descriptor(
+        MAP_PLAN_TOOL,
+        "Record or revise explicit route intent as local DevMap metadata. Never creates a Git branch, commit or merge. Use a stable request_id for retries and expected_revision for concurrent edits. Read worktree_id from the map.",
+        &[
+            "request_id",
+            "expected_revision",
+            "worktree_id",
+            "goal",
+            "source",
+        ],
+        json!({
+            "request_id":{"type":"string","minLength":1,"maxLength":128},
+            "route_id":{"type":["string","null"],"minLength":1,"maxLength":128},
+            "expected_revision":{"type":"integer","minimum":0},
+            "worktree_id":{"type":"string","minLength":1,"maxLength":128},
+            "goal":{"type":"string","minLength":1,"maxLength":2048},
+            "source":{"type":"string","minLength":1,"maxLength":2048,"description":"Explicit instruction or plan source; not proof of Git execution or authenticated authorship."},
+            "target_ref":{"type":["string","null"],"minLength":1,"maxLength":256,"description":"Local repository target refs/heads/name, or null when unknown."},
+            "milestones":{"type":"array","maxItems":12,"items":{"type":"string","minLength":1,"maxLength":256}},
+            "delivery":{"type":"object","additionalProperties":false,"required":["mode"],"description":"Full replacement; omission resets to manual. Auto merge requires target_ref, conditions and explicit authorization_source. Recorded intent, not authenticated permission.","properties":{
+                "mode":{"type":"string","enum":["manual","auto_merge"]},
+                "conditions":{"type":"array","maxItems":12,"items":{"type":"string","minLength":1,"maxLength":256}},
+                "authorization_source":{"type":["string","null"],"minLength":1,"maxLength":2048}
+            }},
+            "abandoned":{"type":"boolean"}
+        }),
+    );
+    plan["annotations"] =
+        json!({"readOnlyHint":false,"destructiveHint":false,"openWorldHint":false});
+    let mut descriptors = vec![open, read, plan];
+    descriptors.extend(legacy_tool_descriptors().into_iter().filter(|d| {
+        d["name"]
+            .as_str()
+            .is_some_and(|n| n.starts_with("devmap_record_"))
+    }));
+    descriptors
+}
+
+fn legacy_tool_descriptors() -> Vec<Value> {
     vec![
         tool_descriptor(
             "devmap_context",
@@ -1408,6 +1622,14 @@ fn dock_tool_result(model: &DockReadModel, renders_ui: bool) -> Value {
 }
 
 fn tool_error(error: DevMapError) -> Value {
+    if let DevMapError::RoutePlanConflict {
+        revision,
+        ref current_plan,
+    } = error
+    {
+        return json!({"content":[{"type":"text","text":error.to_string()}],"isError":true,
+            "structuredContent":{"error_code":"revision_conflict","current_revision":revision,"current_plan":current_plan}});
+    }
     json!({
         "content": [{"type": "text", "text": error.to_string()}],
         "isError": true

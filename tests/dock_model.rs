@@ -1,5 +1,21 @@
 mod support;
 
+#[test]
+fn empty_worktree_inventory_returns_error_without_panicking() {
+    let fixture = support::dock_reducer_fixture();
+    let result = devmap::dock::DockReducer::new(devmap::dock::NoRoutes).reduce(
+        &fixture.workspace,
+        vec![],
+        fixture.presence,
+        std::collections::BTreeMap::new(),
+        fixture.now,
+    );
+    assert!(matches!(
+        result,
+        Err(devmap::error::DevMapError::InvalidPresence(_))
+    ));
+}
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::process::{Command, Stdio};
@@ -836,6 +852,7 @@ fn dock_v4_has_exact_envelope_and_unique_counts() {
             "observation_revision",
             "repository_id",
             "revision",
+            "route_plans",
             "schema_version",
             "stale_or_uninstrumented",
             "task_inventory_synced_at",

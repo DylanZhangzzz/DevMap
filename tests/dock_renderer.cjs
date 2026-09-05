@@ -831,3 +831,32 @@ test('hundreds of active, idle and historical tasks stay reachable inside measur
   }
 });
 }
+
+
+test('future route stays separate from actual commit topology', () => {
+  const ui = harness(), value = snapshot();
+  value.route_plans = [{route_id:'route-0123456789abcdef0123456789abcdef', repository_id:value.repository_id,
+    revision:1, worktree_id:value.current_worktree_id, start_commit:value.lanes[0].head,
+    goal:'Login improvement', target_ref:'refs/heads/main', milestones:['Verify login'], source:'Explicit user plan', abandoned:false, updated_at:stamp}];
+  assert.equal(ui.acceptSnapshot(value), true);
+  const map = ui.ids.get('relationship-map');
+  assert.ok(map.textContent.includes('Login improvement'));
+  assert.ok(map.textContent.includes('Planned destination'));
+  assert.equal(map.querySelectorAll('.future-route').length, 1);
+  assert.ok(map.querySelectorAll('.rail-edge').every(edge => !edge.getAttribute('stroke-dasharray')));
+  assert.equal(ui.messages.filter(message => message.method === 'tools/call').length, 0);
+});
+
+test('delivery intent is visible without claiming completion or permission', () => {
+  const ui = harness(), value = snapshot();
+  value.route_plans = [{route_id:'route-0123456789abcdef0123456789abcdef', repository_id:value.repository_id,
+    revision:1, worktree_id:value.current_worktree_id, start_commit:value.lanes[0].head,
+    goal:'Login', target_ref:'refs/heads/main', milestones:[], source:'User plan', abandoned:false, updated_at:stamp,
+    delivery:{mode:'auto_merge',conditions:['Login tests pass'],authorization_source:'User instruction'}}];
+  assert.equal(ui.acceptSnapshot(value), true);
+  const map = ui.ids.get('relationship-map');
+  assert.ok(map.textContent.includes('Auto merge requested'));
+  assert.ok(map.textContent.includes('Login tests pass'));
+  value.route_plans[0].delivery.conditions = [];
+  assert.equal(ui.acceptSnapshot(value), false);
+});
