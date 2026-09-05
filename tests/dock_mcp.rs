@@ -80,6 +80,98 @@ fn initialize() -> Value {
 }
 
 #[test]
+fn observed_subagents_remain_attached_to_the_parent_chat_without_adding_passengers() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let task = json!({"id":"01a00000-0000-7000-8000-000000000001", "title":"Parent", "status":"active", "lifecycle":"present", "cwd":repo.path(), "updatedAt":1_788_600_000_u64, "hostId":"local", "kind":"codex", "subagents":[{"id":"review","name":"Review","status":"working","observedAt":1_788_600_000_u64}]});
+    let response = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[task.clone()],"codex_tasks_complete":true}),
+        ))
+        .unwrap();
+    let model = &response["result"]["structuredContent"];
+    assert_eq!(model["counts"]["tasks"], 1, "{response}");
+    assert_eq!(
+        model["lanes"][0]["chats"][0]["subagents"][0]["display_name"],
+        "Review"
+    );
+    assert_eq!(
+        model["lanes"][0]["chats"][0]["subagents"][0]["status"],
+        "working"
+    );
+    let mut invalid = task.clone();
+    invalid["subagents"][0]["status"] = json!("invented");
+    let rejected = runtime
+        .handle(&call(
+            json!(3),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[invalid]}),
+        ))
+        .unwrap();
+    assert_eq!(rejected["result"]["isError"], true, "{rejected}");
+    let mut duplicate = task.clone();
+    duplicate["subagents"]
+        .as_array_mut()
+        .unwrap()
+        .push(task["subagents"][0].clone());
+    let rejected = runtime
+        .handle(&call(
+            json!(4),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[duplicate]}),
+        ))
+        .unwrap();
+    assert_eq!(rejected["result"]["isError"], true, "{rejected}");
+    let mut empty = task.clone();
+    empty["subagents"] = json!([]);
+    let cleared = runtime
+        .handle(&call(
+            json!(5),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[empty]}),
+        ))
+        .unwrap();
+    assert_eq!(
+        cleared["result"]["structuredContent"]["lanes"][0]["chats"][0]["subagents"],
+        json!([])
+    );
+    let mut parent = task.clone();
+    let child_id = "01a00000-0000-7000-8000-000000000002";
+    parent["subagents"][0]["id"] = json!(child_id);
+    let mut independent = task.clone();
+    independent["id"] = json!(child_id);
+    independent.as_object_mut().unwrap().remove("subagents");
+    let observed = runtime
+        .handle(&call(
+            json!(6),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[parent, independent]}),
+        ))
+        .unwrap();
+    assert_eq!(
+        observed["result"]["structuredContent"]["counts"]["tasks"],
+        2
+    );
+    let mut omitted = task.clone();
+    omitted.as_object_mut().unwrap().remove("subagents");
+    let refreshed = runtime
+        .handle(&call(
+            json!(7),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[omitted]}),
+        ))
+        .unwrap();
+    assert!(
+        refreshed["result"]["structuredContent"]["lanes"][0]["chats"][0]
+            .get("subagents")
+            .is_none()
+    );
+}
+
+#[test]
 fn dock_resource_and_decoupled_tools_are_advertised() {
     let repo = support::committed_repo();
     let responses = run_stream(

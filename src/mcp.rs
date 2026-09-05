@@ -1049,6 +1049,7 @@ fn parse_codex_tasks(
                 "updatedAt",
                 "hostId",
                 "kind",
+                "subagents",
             ],
         )?;
         if required_string(row, "kind")? != "codex" {
@@ -1095,6 +1096,7 @@ fn parse_codex_tasks(
         .map_err(|_| DevMapError::InvalidDomain("codex_tasks.updatedAt"))?
         .format(&Rfc3339)?;
         tasks.push(ObservedTask {
+            subagents: parse_subagents(row.get("subagents"))?,
             lifecycle,
             session_id,
             display_title: required_string(row, "title")?,
@@ -1106,6 +1108,56 @@ fn parse_codex_tasks(
         });
     }
     Ok(Some(ObservedTaskInventory { tasks, complete }))
+}
+
+// Nested membership is an explicit host observation of this chat's direct
+// collaborators. It does not create another chat identity or passenger.
+fn parse_subagents(
+    value: Option<&Value>,
+) -> Result<Option<Vec<crate::dock::DockSubagent>>, DevMapError> {
+    let Some(value) = value else { return Ok(None) };
+    let rows = value
+        .as_array()
+        .filter(|rows| rows.len() <= 32)
+        .ok_or(DevMapError::InvalidDomain("codex_tasks.subagents"))?;
+    let mut ids = std::collections::HashSet::new();
+    let mut agents = Vec::with_capacity(rows.len());
+    for row in rows {
+        let row = row
+            .as_object()
+            .ok_or(DevMapError::InvalidDomain("codex_tasks.subagents"))?;
+        ensure_fields(row, &["id", "name", "status", "observedAt"])?;
+        let id = required_string(row, "id")?;
+        let display_name = required_string(row, "name")?;
+        if id.len() > 256 || display_name.len() > 256 || !ids.insert(id.clone()) {
+            return Err(DevMapError::InvalidDomain("codex_tasks.subagents.identity"));
+        }
+        let status = match required_string(row, "status")?.as_str() {
+            "working" => PresenceStatus::Working,
+            "waiting" => PresenceStatus::Waiting,
+            "idle" => PresenceStatus::Idle,
+            "completed" => PresenceStatus::Completed,
+            "unknown" => PresenceStatus::Unknown,
+            _ => return Err(DevMapError::InvalidDomain("codex_tasks.subagents.status")),
+        };
+        let seconds = row
+            .get("observedAt")
+            .and_then(Value::as_i64)
+            .filter(|seconds| *seconds >= 0)
+            .ok_or(DevMapError::InvalidDomain(
+                "codex_tasks.subagents.observedAt",
+            ))?;
+        let observed_at = OffsetDateTime::from_unix_timestamp(seconds)
+            .map_err(|_| DevMapError::InvalidDomain("codex_tasks.subagents.observedAt"))?
+            .format(&Rfc3339)?;
+        agents.push(crate::dock::DockSubagent {
+            id,
+            display_name,
+            status,
+            observed_at,
+        });
+    }
+    Ok(Some(agents))
 }
 
 fn call_tool(
@@ -1547,7 +1599,17 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                             "cwd": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
                             "updatedAt": {"type": "integer", "minimum": 0},
                             "hostId": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
-                            "kind": {"type": "string", "const": "codex"}
+                            "kind": {"type": "string", "const": "codex"},
+                            "subagents": {
+                                "type":"array", "maxItems":32,
+                                "description":"Optional explicitly observed direct collaborators of this exact parent chat. Never infer membership from names, cwd, or proximity. Omit when unavailable; these are not additional passengers. Independent chats must still appear in codex_tasks.",
+                                "items":{"type":"object","properties":{
+                                    "id":{"type":"string","minLength":1,"maxLength":256},
+                                    "name":{"type":"string","minLength":1,"maxLength":256},
+                                    "status":{"type":"string","enum":["working","waiting","idle","completed","unknown"]},
+                                    "observedAt":{"type":"integer","minimum":0,"description":"Unix seconds when this relationship and status were actually observed."}
+                                },"required":["id","name","status","observedAt"],"additionalProperties":false}
+                            }
                         },
                         "required": ["id", "title", "status", "cwd", "updatedAt", "hostId", "kind"],
                         "additionalProperties": false

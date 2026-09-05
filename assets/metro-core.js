@@ -250,6 +250,12 @@
       && safeCodexThreadId(chat.codex_thread_id)
       && boundedString(chat.display_title, false)
       && boundedString(chat.actor_id, false)
+      && (chat.subagents === undefined || (boundedArray(chat.subagents, 32)
+        && new Set(chat.subagents.map(a => a?.id)).size === chat.subagents.length
+        && chat.subagents.every(a => isRecord(a) && boundedString(a.id, false) && a.id.length <= 256
+          && boundedString(a.display_name, false) && a.display_name.length <= 256
+          && ["working","waiting","idle","completed","unknown"].includes(a.status)
+          && boundedString(a.observed_at, false) && Number.isFinite(Date.parse(a.observed_at)))))
       && boundedString(chat.host, false)
       && nullableStringField(chat.host_status)
       && safeRouteId(chat.route_id)
@@ -743,6 +749,91 @@
     return { nodes, edges, attachments: workspaceOutput, lanes, refs, boundaries, obstacles, crossings, width, height };
   }
 
+  // Display-only projection: keep every station and parent route while fitting
+  // their geometry independently of the measured workspace and metadata shelves.
+  function projectTopology(layout, options) {
+    if (!isRecord(options)) throw new TypeError("Invalid projection options");
+    const dimension = value => {
+      if (!Number.isFinite(value) || value < 160 || value > 16384) {
+        throw new TypeError("Invalid projection dimension (160..16384)");
+      }
+      return value;
+    };
+    const width = dimension(options.width), height = dimension(options.height);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const include = p => {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    };
+    layout.nodes.forEach(include);
+    for (const edge of layout.edges) edge.points.forEach(include);
+    const axis = (value, min, max, low, high) => max > min
+      ? low + (value - min) / (max - min) * (high - low) : (low + high) / 2;
+    // Emphasize live heads and junctions without treating horizontal distance as
+    // elapsed time. Interpolate all intervening history, including rail bends.
+    const heads = new Set(layout.attachments.map(a => a.head_oid));
+    const anchorXs = [...new Set([minX, maxX, ...layout.nodes
+      .filter(n => heads.has(n.id) || n.transfer || n.kind === "boundary" || n.boundary_ids.length)
+      .map(n => n.x)])].filter(Number.isFinite).sort((a, b) => a - b);
+    const projectX = value => {
+      if (anchorXs.length < 3) return axis(value, minX, maxX, 32, width - 32);
+      let low = 0, high = anchorXs.length - 1;
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (value < anchorXs[middle]) high = middle;
+        else low = middle;
+      }
+      const interval = (width - 64) / (anchorXs.length - 1);
+      return axis(value, anchorXs[low], anchorXs[high], 32 + low * interval, 32 + high * interval);
+    };
+    const project = p => ({
+      x: projectX(p.x),
+      y: axis(p.y, minY, maxY, 40, height - 32),
+    });
+    const nodes = layout.nodes.map(n => ({ ...n, ...project(n), boundary_ids: [...n.boundary_ids] }));
+    const edges = layout.edges.map(e => ({ ...e, points: e.points.map(project), gaps: [] }));
+    const crossings = railCrossings(edges, nodes);
+    return { width, height, nodes, edges, crossings, lanes: layout.lanes,
+      attachments: [], refs: [], boundaries: [], journeys: [] };
+  }
+
+  // Route geometry consumes identity only. Passenger/detail expansion is never
+  // an input; labels remain beside their HEAD instead of below a metadata shelf.
+  function layoutRouteMap(graph, attachments, options = {}) {
+    const base = layoutTopology(graph, attachments.map(a => ({...a,width:64,height:32})), options);
+    const vertical = options.vertical !== false;
+    const heads = new Set(base.attachments.map(a=>a.head_oid));
+    const keys = base.nodes.filter(n=>heads.has(n.id)||n.transfer||n.kind==='boundary');
+    const count = new Set(keys.map(n=>n.x)).size + 2;
+    const length = Math.min(15000, Math.max(240, count * 116));
+    const breadth = Math.max(160, Math.min(240, (options.width || 500) * .4));
+    const projected = projectTopology(base, {width:length,height:breadth});
+    const point = p => vertical ? {x:p.y,y:p.x+24} : {...p};
+    const nodes = projected.nodes.map(n=>({...n,...point(n)}));
+    const edges = projected.edges.map(e=>({...e,points:e.points.map(point),gaps:[]}));
+    const crossings = railCrossings(edges,nodes);
+    const groups = new Map();
+    for (const a of base.attachments) {
+      const node = nodes.find(n=>n.id===a.head_oid), key = node?.id || a.worktree_id;
+      if (!groups.has(key)) groups.set(key,{node,items:[]});
+      groups.get(key).items.push(a);
+    }
+    const labelWidth = vertical ? Math.max(120, Math.min(300,(options.width || 500)-breadth-24)) : 196;
+    const output = [], placed = [];
+    for (const group of [...groups.values()].sort((a,b)=>(a.node?.rank ?? Infinity)-(b.node?.rank ?? Infinity))) {
+      const node=group.node;
+      const x=vertical ? breadth+16 : node?.x || 32;
+      let y=vertical ? (node?.y || length+40)-22 : (node?.y || breadth)+28;
+      for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+60 && y+60>p.y) y=p.y+60;
+      const rect={x,y,width:labelWidth,height:52}; placed.push(rect);
+      for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [point(projected.nodes.find(n=>n.id===node.id)),{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
+    }
+    const refs=base.refs.map(r=>({...r,...nodes.find(n=>n.id===r.oid),id:r.id,oid:r.oid,width:24,height:24,stem:null}));
+    const width=Math.max(vertical ? options.width || 400 : length,...placed.map(r=>r.x+r.width+8));
+    const height=Math.max(vertical ? length+64 : breadth+64,...placed.map(r=>r.y+r.height+24));
+    return {...base,nodes,edges,crossings,refs,attachments:output,boundaries:[],obstacles:placed,width,height,orientation:vertical?'vertical':'horizontal'};
+  }
+
   // Sweep vertical channels across horizontal rails. Gaps erase only the named
   // under-route (SVG mask or split path), never a surface-colored global overlay.
   function railCrossings(edges, nodes) {
@@ -782,6 +873,21 @@
   function layoutJourneys(layout, plans = []) {
     if (!Array.isArray(plans) || plans.length > 64) throw new TypeError("Invalid route plans");
     const active = plans.filter(p => !p.abandoned && layout.attachments.some(a => a.worktree_id === p.worktree_id));
+    if (layout.orientation) {
+      const arrivals=[], journeys=[], groups=new Map(), vertical=layout.orientation==='vertical';
+      for (const plan of active) {
+        let zone=groups.get(plan.target_ref);
+        if(!zone) {
+          zone={target_ref:plan.target_ref,available:layout.refs.some(r=>r.ref_name===plan.target_ref),x:vertical?48:layout.width+48,y:vertical?layout.height+48+groups.size*104:48+groups.size*104,width:240,height:72,route_ids:[]};
+          groups.set(plan.target_ref,zone);arrivals.push(zone);
+        }
+        zone.route_ids.push(plan.route_id);
+        const a=layout.attachments.find(a=>a.worktree_id===plan.worktree_id), n=layout.nodes.find(n=>n.id===a.head_oid), start=n?{x:n.x,y:n.y}:{x:a.x,y:a.y};
+        const points=vertical?[start,{x:16,y:start.y},{x:16,y:zone.y+24},{x:zone.x,y:zone.y+24}]:[start,{x:start.x,y:16},{x:zone.x-16,y:16},{x:zone.x-16,y:zone.y+24},{x:zone.x,y:zone.y+24}];
+        journeys.push({route_id:plan.route_id,worktree_id:plan.worktree_id,target_ref:plan.target_ref,points});
+      }
+      return {arrivals,journeys,width:Math.max(layout.width,...arrivals.map(a=>a.x+a.width+24)),height:Math.max(layout.height,...arrivals.map(a=>a.y+a.height+24))};
+    }
     const arrivals = [], journeys = [], groups = new Map();
     const zoneX = layout.width + 80 + active.length * 12;
     for (const [index, plan] of active.entries()) {
@@ -823,6 +929,8 @@
     summarizePassengers,
     branchColorKey,
     layoutTopology,
+    projectTopology,
+    layoutRouteMap,
     layoutJourneys,
   });
 });

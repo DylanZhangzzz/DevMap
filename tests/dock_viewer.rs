@@ -33,6 +33,7 @@ fn body(response: &str) -> &str {
 
 fn observed_task(workspace: &std::path::Path, title: &str) -> ObservedTask {
     ObservedTask {
+        subagents: None,
         lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: "01a00000-0000-7000-8000-000000000001".into(),
         display_title: title.into(),

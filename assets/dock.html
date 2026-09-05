@@ -50,6 +50,10 @@
     .map-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 4px 0; flex: none; }
     .map-navigation > * { flex: none; }
     .map-navigation .control { padding: 4px 8px; }
+    .map-tools { position: relative; }
+    .map-tools > summary { min-height: 44px; padding: 10px 8px; cursor: pointer; }
+    .map-tools-panel{position:absolute;z-index:20;right:0;top:100%;width:300px;max-width:calc(100vw - 32px);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+    .map-tools-panel > * { margin: 4px 0; }
     .pan-controls { display: inline-flex; align-items: center; gap: 4px; }
     .zoom-controls { display: inline-flex; gap: 4px; }
     .zoom-controls button { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -80,11 +84,30 @@
     [data-overview="true"] .rail-keyline { stroke-width: calc(3px / var(--map-scale)); }
     [data-overview="true"] mask path { stroke-width: calc(4px / var(--map-scale)); stroke-linecap: square; }
     .overview-markers { position: absolute; inset: 0; pointer-events: none; }
+    .topology-surface[data-overview="true"] { visibility: hidden; }
+    .overview-markers .rail-edge { stroke-width: 3; }
+    .overview-markers .rail-keyline { stroke-width: 6; }
+    .overview-station { position: absolute; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; }
+    .overview-station::before { content: ""; display: block; width: 10px; height: 10px; margin: auto; border: 2px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
+    .overview-station.transfer::before { outline: 2px solid var(--rail-color); outline-offset: 2px; }
+    .overview-station span { position: absolute; bottom: 16px; left: -8px; white-space: nowrap; font-size: 11px; background: var(--bg-canvas); color: var(--text); }
+    .overview-arrival { position: absolute; width: 216px; padding: 10px; border: 1px dashed var(--muted); border-radius: 6px; background: var(--surface); text-align: left; pointer-events: auto; font-size: .75rem; }
+    .overview-arrival strong, .overview-arrival span { display: block; overflow-wrap: anywhere; }
+    .overview-arrival strong { font-size: .875rem; margin-bottom: 4px; }
+    .overview-marker .branch-meta { display: block; overflow-wrap: anywhere; }
+    .overview-marker .overview-passengers { white-space: normal; }
+    .passenger-icon { display: inline-flex; width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; color: var(--muted); flex: none; }
+    .task-heading .passenger-icon { margin-top: 2px; }
+    .subagent-group { margin: 0 0 8px 14px; padding: 0 0 0 10px; border-left: 1px solid var(--line); font-size: 12px; }
+    .subagent-group summary { padding: 6px 0; color: var(--muted); cursor: pointer; }
+    .subagent-group ul { list-style: none; padding: 0; margin: 0; }
+    .subagent-row { padding: 5px 0; overflow-wrap: anywhere; }
+    .subagent-row strong, .subagent-state { display: block; }
+    .subagent-state { color: var(--muted); font-size: 11px; }
     .overview-marker { position: absolute; z-index: 1; width: 236px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); text-align: left; padding: 8px 10px; pointer-events: auto; font-size: .75rem; }
     .overview-marker strong { display: block; font-size: .875rem; overflow-wrap: anywhere; }
     .overview-marker .workspace-risk { display: block; margin: 4px 0 0; }
     .overview-marker.current { background: var(--accent-soft); border-color: var(--accent); }
-    .overview-marker .marker-action { display: block; color: var(--accent); margin-top: 4px; }
     .map-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 8px; color: var(--muted); font-size: .75rem; }
     .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend-rail { width: 24px; border-top: 2px solid var(--branch-blue); }
@@ -176,16 +199,16 @@
     .workspace-details summary { cursor:pointer; min-height:32px; }
     .workspace-risk:empty { display:none; }
     .platform-occupancy:empty { display:none; }
-    .task-heading::before { content:""; width:12px; height:18px; flex:none; margin-top:2px; background:radial-gradient(circle at 50% 4px,var(--muted) 3px,transparent 3.5px),radial-gradient(ellipse at 50% 17px,var(--muted) 6px,transparent 6.5px); }
-    .active .task-heading::before { filter:contrast(1.6); }
     .transfer .station-dot { width:24px; height:24px; border:5px double var(--rail-color); }
     .future-connection { fill:none; stroke:var(--muted); stroke-width:2; stroke-dasharray:7 6; }
     .arrival-zone { position:absolute; border-left:2px dashed var(--muted); padding:0 12px; color:var(--muted); font-size:.75rem; }
     .arrival-zone strong { display:block; font-size:.875rem; color:var(--text); }
     .arrival-zone::before { content:""; position:absolute; width:12px; height:12px; left:-7px; top:-6px; border:2px solid var(--muted); border-radius:50%; background:var(--bg-canvas); }
     .journey-context { flex:none; border-block:1px solid var(--line-soft); padding:6px 0; max-height:28vh; overflow:auto; }
-    .journey-heading { display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px; font-size:.75rem; }
+    .journey-heading{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:.75rem;}
     .journey-heading strong { overflow-wrap:anywhere; }
+    .journey-heading > [data-journey-action="focus"] { margin-left:auto; }
+    .passenger-compact { display:none; }
     .journey-stops { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
     .journey-stop { font-size:.75rem; color:var(--accent); padding:4px 8px; }
     .journey-unknown { font-size:.75rem; color:var(--muted); padding:4px 8px; }
@@ -195,6 +218,49 @@
     .worktree-cluster[data-journey-muted="true"]:is(:hover,:focus-within) { opacity:1; }
     .worktree-cluster[data-journey-muted="true"] > :not(.worktree-identity):not(.platform-heading:first-child) { display:none; }
     .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) { display:none; }
+    @container dock (max-width: 760px) {
+      .map-navigation{position:relative;}.map-tools{position:static;}
+      .selection-details { max-height:32vh; }
+      .journey-heading > .journey-passengers { display:none; }
+      .attention-summary[data-empty="true"] { display:none; }
+      .zoom-controls { flex-wrap:wrap; }
+      .journey-context { max-height:22vh; padding:4px 0; }
+      .journey-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; }
+      .journey-heading>strong{grid-column:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+      .journey-heading > .journey-passengers { grid-column:1; }
+      .journey-heading>[data-journey-action="focus"]{grid-column:2;grid-row:1/3;margin:0;}
+      .journey-passengers .passenger-full { display:none; }
+      .journey-passengers .passenger-compact { display:inline; }
+      .journey-stops { flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-inline:contain; }
+      .journey-stops > * { flex:none; white-space:nowrap; }
+      .journey-stop, .journey-unknown { padding-inline:6px; }
+      .worktree-cluster > .workspace-risk { margin-block:6px; }
+      .map-legend { margin-bottom:4px; gap:4px 12px; }
+    }
+    .route-map .rail-edge{stroke-width:4;}
+    .route-platform{position:absolute;text-align:left;padding:3px 8px;min-height:52px;border:0;border-radius:0;background:var(--bg-canvas);}
+    .route-platform strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.875rem;}
+    .platform-meta{display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--muted);white-space:nowrap;}
+    .route-platform.current{background:var(--accent-soft);box-shadow:inset 0 -2px var(--accent);}
+    .platform-current{position:absolute;bottom:100%;left:8px;color:var(--accent);font-size:10px;}
+    .route-platform[data-journey-muted="true"]{opacity:.55;}
+    .route-station{position:absolute;width:24px;height:24px;min-height:24px;padding:0;border:0;background:transparent;transform:translate(-50%,-50%);}
+    .route-station::before{content:"";display:block;width:4px;height:4px;margin:auto;border-radius:50%;background:var(--rail-color);}
+    .route-station.key::before{width:12px;height:12px;background:var(--surface);border:3px solid var(--rail-color);}
+    .route-station.transfer::before{outline:2px solid var(--rail-color);outline-offset:2px;}
+    .junction-label{position:absolute;left:14px;bottom:18px;font-size:10px;white-space:nowrap;color:var(--text);background:var(--bg-canvas);}
+    .map-direction,.line-name{position:absolute;font-size:.75rem;color:var(--muted);white-space:nowrap;}
+    .line-name{font-weight:700;color:var(--text);}
+    .workspace-inspector{position:relative;border:0;max-height:none!important;overflow:visible!important;padding:0;}
+    .selection-details{padding:8px 0;overscroll-behavior:contain;}
+    .selection-details .detail-grid:empty{display:none;}
+    .selection-details .worktree-identity{padding-inline:8px;}
+    .selection-details .platform-heading:first-child{display:none;}
+    .workspace-inspector>.worktree-identity,.workspace-inspector>.platform-origin,.workspace-inspector>.platform-heading:not(.passenger-count):not(.platform-occupancy){display:none;}
+    .selection-details>.copy-hash{float:right;margin:0 4px;}
+    .selection-details>.dismiss-details{position:sticky;top:0;z-index:2;background:var(--surface);}
+    .workspace-inspector>.passenger-count{margin:4px 0;font-weight:400;}
+    .journey-heading>[data-journey-action="focus"]{min-height:32px;}
   </style>
 </head>
 <body>
@@ -223,12 +289,15 @@
             <button class="control" id="zoom-fit" type="button" disabled>Full map</button>
           </div>
           <button class="control" id="locate-current" type="button" aria-label="Locate current workspace" disabled>Locate current</button>
+          <details class="map-tools" id="map-tools"><summary id="map-tools-trigger">More</summary><div class="map-tools-panel">
+          <button class="control" id="overview-toggle" type="button" aria-controls="overview-workspaces" aria-expanded="false" hidden>Workspaces</button>
           <div class="pan-controls" role="group" aria-label="Pan repository topology">
             <span class="pan-label">Pan</span>
             <button class="control" id="pan-left" type="button" aria-label="Pan topology left">Left</button>
             <button class="control" id="pan-right" type="button" aria-label="Pan topology right">Right</button>
           </div>
           <details class="branch-index"><summary>Branches <span id="branch-count">0</span></summary><nav class="branch-list" id="branch-list" aria-label="Branch index"></nav></details>
+          </div></details>
         </div>
         <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Future plan</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
         <section class="journey-context" id="journey-context" aria-label="Selected workspace journey" hidden></section>
@@ -243,7 +312,7 @@
         <details class="map-help" id="route-plan-panel" hidden><summary>Route plans</summary><div class="route-plan-list" id="route-plan-list"></div></details>
         <details class="map-help"><summary>Map key and observation rules</summary>
           <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
-          <p>Journey endpoints stay above the map while you inspect a station. Focus journey compacts other platforms; long routes retain readable endpoint links. Select a planned arrival to find its source workspaces.</p>
+          <p>Journey endpoints stay above the map while you inspect a station. Focus journey locates its endpoints; long routes retain readable endpoint links. Select a planned arrival to find its source workspaces.</p>
           <p>Stations are commits. Colored rails follow verified parent relationships; thin attachment stems identify workspaces and references. Dashed routes and hollow stops show future plans, never completed Git operations. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
           <p>Double-ring stations mark observed forks or merges. Worktree platforms attach at HEAD; passengers are existing unarchived chats, counted once including their Agent. Finished, idle and unloaded chats remain passengers. Common ancestor means current shared history, not a recorded creation point.</p>
           <p>Branch colors identify references. A fresh, complete chat inventory is required to confirm an unattended platform. Unattended work warns when uncommitted or unmerged changes remain. Inventory is fresh for 120 seconds. Missing observations never prove deletion; cleanup always needs review.</p>
@@ -269,9 +338,10 @@
       let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
       let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
       let mapScale = 1;
+      let overviewListOpen = false;
       let journeyWorkspaceId = null, journeyFocused = false;
       const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set();
-      const preferredWorkspaceByHead = new Map();
+      const expandedSubagents = new Set();
       const byId = (id) => document.getElementById(id);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
       const safeCodexThreadId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -358,6 +428,7 @@
         for (const id of [...expandedWorkspaces]) if (!workspaces.has(id)) expandedWorkspaces.delete(id);
         for (const id of [...expandedConversationHistory]) if (!workspaces.has(id)) expandedConversationHistory.delete(id);
         for (const id of [...expandedFacts]) if (!workspaces.has(id)) expandedFacts.delete(id);
+        for (const id of [...expandedSubagents]) if (!tasks.has(id)) expandedSubagents.delete(id);
         if (selectedObjectId?.startsWith("plan:") && !(value.route_plans || []).some(p => "plan:" + p.route_id === selectedObjectId)) {
           unavailable.push("Selected route plan is no longer available"); selectedObjectId = null;
         }
@@ -387,7 +458,38 @@
         const summary = Core.summarizePassengers(uniqueTasks(lane).map(chat => ({id:taskId(chat),lifecycle:chat.lifecycle,isChat:!!chat.codex_thread_id,status:effectiveConversationState(chat)})), passengerObservation(value), Date.now());
         node.textContent = (summary.state === "unknown" ? "Passengers unknown · " + summary.observedCount + " last observed" : summary.observedCount + " passengers · observed") + [[summary.developing,"developing"],[summary.waiting,"waiting"],[summary.completed,"finished"],[summary.unknown,"activity unknown"]].filter(([count]) => count > 0).map(([count,label]) => " · " + count + " " + label).join("");
         if (!value.task_observation?.complete) node.textContent += " · partial inventory";
+        const text = node.textContent; node.replaceChildren(passengerIcon(), element("span", "", text));
         return summary;
+      }
+      function passengerIcon() {
+        const icon = element("span", "passenger-icon"); icon.setAttribute("aria-hidden", "true");
+        const drawing = svg("svg", {viewBox:"0 0 20 20",width:16,height:16,fill:"none",stroke:"currentColor","stroke-width":1.5});
+        drawing.append(svg("circle", {cx:10,cy:5,r:3}), svg("path", {d:"M4 18v-3a6 6 0 0 1 12 0v3M7 18v-4M13 18v-4"}));
+        icon.append(drawing); return icon;
+      }
+      function subagentLabel(agent) {
+        const stamp = instant(agent.observed_at), age = stamp === null ? Infinity : Date.now() - stamp;
+        const label = {working:"Working",waiting:"Waiting",idle:"Idle",completed:"Completed",unknown:"Status unknown"}[agent.status];
+        return (age < -30000 || age > 5 * 60 * 1000 ? "Last observed · " : "") + label;
+      }
+      function appendConversation(roster, chat, worktreeId, value) {
+        const task = createTask(chat, worktreeId, value); task.dataset.objectId = "task:" + taskId(chat); roster.append(task);
+        if (!chat.subagents?.length) return;
+        const group = element("details", "subagent-group"), summary = element("summary", "", "Collaborating agents · " + chat.subagents.length + " observed");
+        const id = taskId(chat); group.dataset.parentTaskId = id; summary.dataset.objectId = "subagents:" + id;
+        group.open = expandedSubagents.has(id);
+        group.addEventListener("toggle", () => {
+          if (group.open === expandedSubagents.has(id)) return;
+          if (group.open) expandedSubagents.add(id); else expandedSubagents.delete(id);
+          rerenderWorkspace(worktreeId);
+        });
+        const list = element("ul", ""); list.setAttribute("aria-label", "Observed collaborators of " + chat.display_title);
+        for (const agent of chat.subagents) {
+          const row = element("li", "subagent-row"); row.dataset.subagentId = agent.id;
+          const state = element("span", "subagent-state", subagentLabel(agent)); state.dataset.status = agent.status; state.dataset.observedAt = agent.observed_at;
+          row.append(element("strong", "", agent.display_name), state); list.append(row);
+        }
+        group.append(summary, list); roster.append(group);
       }
       function setJourneyWorkspace(id, value = lastSnapshot) {
         const reflow = journeyFocused && id !== journeyWorkspaceId;
@@ -403,23 +505,25 @@
       function renderJourney(value) {
         const panel = byId("journey-context");
         const lane = value && workspaceRecords(value).find(r => r.lane.worktree_id === journeyWorkspaceId)?.lane;
-        for (const card of byId("relationship-map").querySelectorAll(".worktree-cluster")) {
-          card.dataset.journeyMuted = String(!!lane && journeyFocused && card.dataset.worktreeId !== journeyWorkspaceId);
+        for (const card of byId("relationship-map").querySelectorAll(".route-platform")) {
+          card.dataset.journeyMuted = String(!!lane && journeyFocused && card.dataset.worktreeId !== journeyWorkspaceId && card.dataset.headOid !== lane.head);
           card.dataset.journeyFocused = String(!!lane && journeyFocused && card.dataset.worktreeId === journeyWorkspaceId);
         }
         panel.hidden = !lane;
         if (!lane) { journeyWorkspaceId = null; panel.replaceChildren(); delete panel.dataset.signature; return; }
-        const count = element("span", ""); populatePassengers(count, lane, value);
+        const count = element("span", "journey-passengers"), passengers = populatePassengers(count, lane, value);
+        count.title = count.textContent; count.children[1].className = "passenger-full";
+        count.append(element("span", "passenger-compact", passengers.state === "unknown" ? "Passengers unknown · " + passengers.observedCount + " observed" : passengers.observedCount + " passengers · observed"));
         const plans = (value.route_plans || []).filter(p => p.worktree_id === lane.worktree_id && !p.abandoned);
         const signature = JSON.stringify([lane.workspace_path,lane.branch,lane.head,lane.relationship?.fork_point,plans,count.textContent,value.warnings,journeyFocused]);
         if (panel.dataset.signature !== signature) {
           const focused = [...panel.querySelectorAll("[data-journey-action]")].find(n => n === document.activeElement)?.dataset.journeyAction;
-          const scroll = panel.scrollTop;
+          const scroll = panel.scrollTop, endpointScroll = panel.querySelector(".journey-stops")?.scrollLeft || 0;
           const heading = element("div", "journey-heading");
           const name = element("strong", "", worktreeDisplayName(lane.workspace_path)); name.title = lane.workspace_path;
           heading.append(name,count);
           const stops = element("nav", "journey-stops"); stops.setAttribute("aria-label", "Journey endpoints");
-          const add = (id, text, action) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; stops.append(control); };
+          const add = (id, text, action, host = stops) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; host.append(control); };
           const ancestor = lane.relationship?.fork_point?.commit;
           if (ancestor) add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
           else stops.append(element("span", "journey-unknown", "Origin not recorded"));
@@ -431,8 +535,9 @@
           }
           const coverage = destinationCoverage(value);
           if (coverage || !plans.length) stops.append(element("span", "journey-unknown", coverage || "No destination recorded"));
-          add("focus", journeyFocused ? "Show platform" : "Focus journey", () => focusJourney());
+          add("focus", journeyFocused ? "Show platform" : "Focus journey", () => focusJourney(), heading);
           panel.replaceChildren(heading,stops); panel.dataset.signature = signature; panel.scrollTop = scroll;
+          stops.scrollLeft = endpointScroll;
           if (focused) [...panel.querySelectorAll("[data-journey-action]")].find(n => n.dataset.journeyAction === focused)?.focus({preventScroll:true});
         }
       }
@@ -513,7 +618,7 @@
         if (rect.width !== undefined) node.style.width = rect.width + "px";
       }
       function routePath(points) { return points.map((p, i) => (i ? "L" : "M") + p.x + " " + p.y).join(" "); }
-      function connectionLayer(layout) {
+      function connectionLayer(layout, maskPrefix = "metro-gap-") {
         const root = svg("svg", { class: "metro-connections", width: layout.width, height: layout.height, "aria-hidden": "true" });
         const defs = svg("defs"); root.append(defs);
         const lanes = new Map(layout.lanes.map(lane => [lane.id, lane]));
@@ -522,7 +627,7 @@
           group.dataset.fromOid = edge.from_oid; group.dataset.toOid = edge.to_oid;
           const identity = laneIdentity(lanes.get(edge.lane_id));
           if (edge.gaps.length) {
-            const maskId = "metro-gap-" + index;
+            const maskId = maskPrefix + index;
             const mask = svg("mask", { id: maskId, maskUnits: "userSpaceOnUse", x: 0, y: 0, width: layout.width, height: layout.height });
             mask.append(svg("rect", { width: layout.width, height: layout.height, fill: "white" }));
             for (const gap of edge.gaps) mask.append(svg("path", { d: routePath(gap.points), stroke: "black", "stroke-width": 12, "stroke-linecap": "butt" }));
@@ -724,7 +829,7 @@
         const history = tasks.filter(chat => conversationCategory(chat) === "history");
         const expanded = expandedWorkspaces.has(lane.worktree_id);
         const visible = expanded ? [...active, ...idle] : [...active, ...idle].slice(0, 2);
-        for (const chat of visible) { const node = createTask(chat, lane.worktree_id, value); node.dataset.objectId = "task:" + taskId(chat); roster.append(node); }
+        for (const chat of visible) appendConversation(roster, chat, lane.worktree_id, value);
         const observedCount = [active.length + " developing", idle.length ? idle.length + " other passengers" : ""].filter(Boolean).join(" · ");
         const incomplete = tasks.some(chat => chat.capture_incomplete);
         const taskCountLabel = (tasksConfirmed(value) && !incomplete ? "" : "Last observed · ") + observedCount;
@@ -739,7 +844,7 @@
         }
         if (history.length) {
           const open = expandedConversationHistory.has(lane.worktree_id);
-          if (open) for (const chat of history) { const node = createTask(chat, lane.worktree_id, value); node.dataset.objectId = "task:" + taskId(chat); roster.append(node); }
+          if (open) for (const chat of history) appendConversation(roster, chat, lane.worktree_id, value);
           const disclosure = button("historical-conversations", (open ? "Collapse history" : "+" + history.length + " previous tasks"), () => {
             if (open) expandedConversationHistory.delete(lane.worktree_id); else expandedConversationHistory.add(lane.worktree_id);
             rerenderWorkspace(lane.worktree_id);
@@ -763,71 +868,71 @@
         return layout ? Math.min(1, Math.max(1, viewport.clientWidth - 32) / layout.width, Math.max(1, viewport.clientHeight - 32) / layout.height) : 1;
       }
       function applyMapScale() {
-        const surface = byId("relationship-map"), layout = surface.metroLayout, world = byId("topology-world");
-        const overview = !!layout && mapScale < .6;
-        surface.dataset.scale = String(mapScale); surface.dataset.overview = String(overview);
-        surface.style.setProperty("--map-scale", String(mapScale));
-        surface.style.transform = layout ? "scale(" + mapScale + ")" : "none";
-        world.style.width = layout ? Math.max(layout.width * mapScale + 32, overview ? byId("topology-viewport").clientWidth : 0) + "px" : "100%";
-        world.style.height = layout ? layout.height * mapScale + 32 + "px" : "auto";
-        byId("overview-workspaces").hidden = !overview || (!byId("selection-details").hidden && !!byId("selection-details").dataset.workspaceGroup);
-        byId("zoom-reset").textContent = Math.round(mapScale * 1000) / 10 + "%";
-        for (const id of ["zoom-in", "zoom-out", "zoom-reset", "zoom-fit"]) byId(id).disabled = !layout;
-        byId("zoom-in").disabled = !layout || mapScale >= 2;
-        byId("zoom-out").disabled = !layout || mapScale <= fitScale();
-        renderOverviewMarkers();
+        const surface=byId("relationship-map"), layout=surface.metroLayout, world=byId("topology-world");
+        surface.dataset.scale=String(mapScale); surface.dataset.overview="false";
+        surface.style.setProperty("--map-scale",String(mapScale));
+        surface.style.transform=layout?"scale("+mapScale+")":"none";
+        world.style.width=layout?layout.width*mapScale+32+"px":"100%";
+        world.style.height=layout?layout.height*mapScale+32+"px":"auto";
+        byId("overview-markers").hidden=true;
+        byId("overview-toggle").hidden=!layout;
+        byId("overview-toggle").setAttribute("aria-expanded",String(overviewListOpen));
+        byId("overview-workspaces").hidden=!overviewListOpen;
+        byId("zoom-reset").textContent=Math.round(mapScale*100)+"%";
+        for(const id of ["zoom-in","zoom-out","zoom-reset","zoom-fit"]) byId(id).disabled=!layout;
+        byId("zoom-in").disabled=!layout||mapScale>=2;
+        byId("zoom-out").disabled=!layout||mapScale<=.75;
       }
-      function renderOverviewMarkers() {
-        const surface = byId("relationship-map"), panel = byId("overview-markers"), viewport = byId("topology-viewport");
-        const focused = document.activeElement?.dataset.headOid;
-        panel.hidden = surface.dataset.overview !== "true"; panel.replaceChildren();
-        if (panel.hidden) return;
-        const groups = new Map(), placed = [], layout = surface.metroLayout;
-        const markerWidth = Math.min(236, Math.max(140, viewport.clientWidth - 32));
-        for (const [i, row] of (surface.overviewRows || []).entries()) {
-          const oid = layout.attachments.find(a => a.worktree_id === row.lane.worktree_id)?.head_oid;
-          if (!layout.nodes.some(n => n.id === oid)) continue;
-          if (!groups.has(oid)) groups.set(oid, []);
-          groups.get(oid).push({ ...row, number: i + 1 });
+      function renderPlatforms(records,value,layout) {
+        const nodes=[], groups=new Map();
+        for(const record of records) {
+          const a=layout.attachments.find(a=>a.worktree_id===record.lane.worktree_id);
+          if(!a) continue;
+          const key=layout.nodes.some(n=>n.id===a.head_oid)?a.head_oid:a.worktree_id;
+          if(!groups.has(key)) groups.set(key,[]);
+          groups.get(key).push({...record,a});
         }
-        for (const [oid, rows] of groups) {
-          const node = layout.nodes.find(n => n.id === oid), x = 16 + node.x * mapScale, top = 16 + node.y * mapScale;
-          const left = Math.max(8, Math.min(x - markerWidth / 2, viewport.clientWidth - markerWidth - 8));
-          let y = top + 20;
-          const stop = button("overview-marker" + (rows.some(r => r.current) ? " current" : ""), (rows.length === 1 ? "View workspace " : "Expand " + rows.length + " workspaces · ") + rows.map(r => r.lane.workspace_path).join(", "), () => {
-            if (rows.length === 1) zoomWorkspace(rows[0].lane.worktree_id);
-            else showWorkspaceChoices(oid, rows);
+        for(const [key,rows] of groups) {
+          const current=rows.some(r=>r.lane.worktree_id===value.current_worktree_id), first=rows[0];
+          const stop=graphButton("route-platform"+(current?" current":""), "View workspace "+rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")+" · "+r.lane.worktree_id).join(", "),()=>{
+            if(rows.length===1) selectLane(first.lane);
+            else showWorkspaceChoices(key,(byId("relationship-map").overviewRows||[]).filter(r=>rows.some(row=>row.lane.worktree_id===r.lane.worktree_id)));
           });
-          stop.dataset.headOid = oid; stop.dataset.workspaceCount = String(rows.length);
-          stop.style.width = markerWidth + "px"; stop.style.left = left + "px";
-          const name = rows.length === 1 ? worktreeDisplayName(rows[0].lane.workspace_path) || rows[0].lane.worktree_id : rows.length + " workspaces at this commit";
-          stop.append(element("strong", "", name));
-          if (rows.some(r => r.current)) stop.append(element("span", "current-pill", "Current workspace"));
-          stop.append(element("span", "branch-meta", rows.length === 1 ? "Branch · " + (rows[0].lane.branch || "Detached HEAD") : rows.map(r => worktreeDisplayName(r.lane.workspace_path)).join(" · ")));
-          if (rows.length === 1) {
-            stop.append(element("span", "branch-meta", rows[0].count));
-            if (rows[0].risk) stop.append(element("span", "workspace-risk", rows[0].risk));
-          } else {
-            const facts = [...new Set(rows.map(r => r.risk).filter(Boolean))];
-            if (facts.length) stop.append(element("span", "workspace-risk", "Includes: " + facts.join(" · ")));
-          }
-          stop.append(element("span", "marker-action", rows.length === 1 ? "View workspace" : "Expand workspaces"));
-          panel.append(stop);
-          const height = stop.getBoundingClientRect().height;
-          for (const p of placed) if (left < p.left + markerWidth + 12 && left + markerWidth + 12 > p.left && y < p.y + p.height + 12) y = p.y + p.height + 12;
-          placed.push({ left, y, height }); stop.style.top = y + "px";
-          const stem = element("div", ""); stem.style.cssText = "position:absolute;border-left:1px solid var(--muted);left:" + x + "px;top:" + top + "px;height:" + (y - top) + "px";
-          panel.append(stem);
-          if (focused === oid) stop.focus({ preventScroll: true });
+          stop.dataset.worktreeId=first.lane.worktree_id; stop.dataset.objectId="workspace:"+first.lane.worktree_id;
+          stop.dataset.headOid=first.a.head_oid;stop.dataset.workspaceCount=String(rows.length);
+          stop.title=rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")).join("\n");
+          position(stop,first.a);stop.style.width=first.a.width+"px";
+          const named=rows.find(r=>r.lane.worktree_id===value.current_worktree_id)||first;
+          const name=named.lane.workspace_path.replaceAll("\\","/").split("/").filter(Boolean).at(-1)+(rows.length>1?" +"+(rows.length-1):"");
+          stop.append(element("strong","",name));
+          const label=element("span","platform-meta");
+          const full=element("span"), count=populatePassengers(full,{chats:rows.flatMap(r=>uniqueTasks(r.lane))},value);
+          label.title=full.textContent;
+          label.append(passengerIcon(),element("span","",count.state==="unknown"?count.observedCount+" observed · unknown":count.observedCount+" passengers"));
+          if(current)stop.append(element("span","platform-current","Current"));
+          stop.dataset.journeyMuted=String(journeyFocused&&!rows.some(r=>r.lane.worktree_id===journeyWorkspaceId));
+          if(!layout.nodes.some(n=>n.id===first.a.head_oid))label.textContent="Position unavailable";
+          if(rows.some(r=>workspaceAttention(r.lane,r.facts,value).level==="attention")) {label.append(warningIcon());stop.title+=" · Needs attention";}
+          stop.append(label); nodes.push(stop);
         }
-        byId("topology-world").style.height = Math.max(parseFloat(byId("topology-world").style.height), ...placed.map(p => p.y + p.height + 16)) + "px";
+        return nodes;
+      }
+      function routeStation(node,layout,value) {
+        const key=node.transfer||node.kind==="boundary"||layout.attachments.some(a=>a.head_oid===node.id)||layout.refs.some(r=>r.oid===node.id&&/^refs\/heads\/(main|master)$/.test(r.ref_name));
+        const identity=laneIdentity(layout.lanes.find(l=>l.id===node.lane_id));
+        const label=(node.transfer?node.transfer+" station · ":"")+(value.topology.commits.find(c=>c.oid===node.id)?.subject||"History boundary")+" · "+node.id;
+        const control=graphButton("route-station"+(key?" key":"")+(node.transfer?" transfer":""),label,()=>showCommit(node.id));
+        control.dataset.commitOid=node.id;control.dataset.objectId="commit:"+node.id;control.title=label;
+        position(control,node);control.style.setProperty("--rail-color","var(--"+identity.token+")");
+        if(node.transfer||node.kind==="boundary") control.append(element("span","junction-label",(node.transfer||"Boundary")+" · "+node.id.slice(0,7)));
+        return control;
       }
       function showWorkspaceChoices(oid, rows) {
         const panel = byId("selection-details");
         panel.dataset.workspaceGroup = oid;
         byId("overview-workspaces").hidden = true;
         panel.replaceChildren(); panel.hidden = false;
-        const close = button("dismiss-details", "Close workspace choices", () => { panel.hidden = true; byId("overview-workspaces").hidden = mapScale >= .6; [...byId("overview-markers").querySelectorAll(".overview-marker")].find(n => n.dataset.headOid === oid)?.focus({ preventScroll: true }); });
+        const close = button("dismiss-details", "Close workspace choices", () => { panel.hidden = true; byId("overview-workspaces").hidden = !overviewListOpen; [...byId("relationship-map").querySelectorAll(".route-platform")].find(n => n.dataset.headOid === oid)?.focus({ preventScroll: true }); });
         close.textContent = "Close";
         const title = element("h2", "", rows.length + " workspaces at the same commit"); title.id = "selection-title";
         panel.append(close, title, element("p", "overview-help", "Choose a workspace to see its tasks and changes."));
@@ -842,14 +947,15 @@
         close.focus({ preventScroll: true });
       }
       function zoomWorkspace(id) {
-        selectedWorkspaceId = id; selectedTaskId = null; selectedObjectId = "workspace:" + id;
-        byId("selection-details").hidden = true; locateWorkspace(id);
-        const target = [...byId("relationship-map").querySelectorAll(".worktree-identity")].find(n => n.dataset.objectId === selectedObjectId);
-        if (target) selectGraphObject(target, () => target.focus({ preventScroll: true }));
+        const lane=lastSnapshot && workspaceRecords(lastSnapshot).find(r=>r.lane.worktree_id===id)?.lane;
+        if(!lane)return;
+        locateWorkspace(id);selectLane(lane);
+        byId("selection-details").querySelector(".dismiss-details")?.focus({preventScroll:true});
       }
       function setMapScale(next) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
         if (!surface.metroLayout || !Number.isFinite(next)) return;
+
         const rect = selectedRect(surface.metroLayout, selectedObjectId);
         let screen = { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 };
         if (rect) {
@@ -857,7 +963,7 @@
           if (point.x >= 0 && point.x <= viewport.clientWidth && point.y >= 0 && point.y <= viewport.clientHeight) screen = point;
         }
         const anchor = { x: (viewport.scrollLeft + screen.x - 16) / mapScale, y: (viewport.scrollTop + screen.y - 16) / mapScale };
-        mapScale = Math.min(2, Math.max(Math.min(mapScale, fitScale()), next)); applyMapScale();
+        mapScale = Math.min(2, Math.max( .75, next)); applyMapScale();
         setViewportPosition({ left: Math.max(0, 16 + anchor.x * mapScale - screen.x), top: Math.max(0, 16 + anchor.y * mapScale - screen.y), behavior: "instant" });
       }
       function fitMap() {
@@ -865,8 +971,7 @@
         setJourneyWorkspace(null);
         byId("selection-details").hidden = true;
         byId("edge-wayfinding").hidden = true;
-        byId("overview-workspaces").hidden = false;
-        mapScale = fitScale(); applyMapScale();
+        mapScale = 1; applyMapScale();
         setViewportPosition({ left: 0, top: 0, behavior: "instant" });
       }
       function renderOverview(records, value) {
@@ -880,6 +985,8 @@
         });
         const signature = JSON.stringify([rows, value.current_worktree_id]);
         byId("relationship-map").overviewRows = rows;
+        byId("relationship-map").overviewSnapshot = value;
+        byId("overview-toggle").textContent = "Workspaces " + rows.length;
         if (panel.dataset.signature === signature) return;
         const focused = document.activeElement?.dataset.overviewId, scroll = panel.scrollTop;
         panel.dataset.signature = signature; panel.replaceChildren(element("p", "overview-help", "All workspaces · choose a name to view tasks and changes."));
@@ -898,60 +1005,44 @@
           if (focused === lane.worktree_id) control.focus({ preventScroll: true });
         }
         panel.scrollTop = scroll;
-        renderOverviewMarkers();
+
       }
       function renderSnapshot(value) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
-        const focusedId = document.activeElement?.dataset.objectId;
-        const focusedTag = document.activeElement?.tagName;
-        const cardScroll = new Map([...surface.querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card.scrollTop]));
-        const records = workspaceRecords(value), width = Math.min(320, Math.max(200, viewport.clientWidth - 80));
-        if (!records.some(r => r.lane.worktree_id === journeyWorkspaceId)) { journeyWorkspaceId = null; journeyFocused = false; }
-        if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
-          journeyWorkspaceId = value.current_worktree_id; journeyFocused = false;
-          preferredWorkspaceByHead.clear();
-          const current = records.find(record => record.lane.worktree_id === value.current_worktree_id);
-          if (current) preferredWorkspaceByHead.set(current.facts?.head_oid || current.lane.head, current.lane.worktree_id);
-        }
-        const stage = element("div", "measurement-world"), cards = new Map();
-        let layout = null, candidateKey = null;
-        const oldRect = selectedRect(surface.metroLayout, selectedObjectId);
-        const savedViewport = { ...viewportPosition };
-        const offset = oldRect ? { x: 16 + oldRect.x * mapScale - savedViewport.left, y: 16 + oldRect.y * mapScale - savedViewport.top } : null;
-        try {
-          for (const { lane, facts } of records) { const card = createWorkspace(lane, facts, value, width); cards.set(lane.worktree_id, card); stage.append(card); }
-          viewport.append(stage);
-          const dimensions = records.map(({ lane, facts }) => {
-            const box = cards.get(lane.worktree_id).getBoundingClientRect();
-            return { worktree_id: lane.worktree_id, head_oid: facts?.head_oid ?? lane.head, width: Math.ceil(box.width), height: Math.ceil(box.height) };
-          });
-          if (value.schema_version === "devmap/dock/4") {
-            const preferredWorkspaces = [...preferredWorkspaceByHead].filter(([head, id]) => dimensions.some(a => a.worktree_id === id && a.head_oid === head)).map(([, id]) => id);
-            candidateKey = JSON.stringify([value.repository_id, value.topology, dimensions, preferredWorkspaces, value.route_plans]);
-            layout = geometryCache?.key === candidateKey ? geometryCache.layout : Core.layoutTopology(value.topology, dimensions, { repositoryId: value.repository_id, rowGap: 48, columnGap: 96, preferredWorkspaces });
-            if (geometryCache?.key !== candidateKey) layout = {...layout,...Core.layoutJourneys(layout, value.route_plans || [])};
-            const fragment = document.createDocumentFragment(); fragment.append(connectionLayer(layout));
-            for (const node of layout.nodes) fragment.append(...createStation(node, layout, value));
-            for (const ref of layout.refs) fragment.append(createRef(ref));
-            for (const boundary of layout.boundaries) fragment.append(createBoundary(boundary));
-            for (const attachment of layout.attachments) { const card = cards.get(attachment.worktree_id); position(card, attachment); fragment.append(card); }
-            for (const zone of layout.arrivals || []) {
-              const node = button("arrival-zone arrival-source", "View workspaces planning arrival at " + (zone.target_ref || "unspecified destination"), () => showArrivalSources(zone.target_ref)); position(node, zone); node.style.width = zone.width + "px";
-              node.append(element("strong", "", "Planned arrival · " + (zone.target_ref?.replace("refs/heads/", "") || "unknown target")),
-                element("span", "", value.warnings.some(w => w.code === "planned_target_unavailable" && zone.route_ids.includes(w.subject_id)) ? "Destination unavailable · no assumed connection" : zone.available ? zone.route_ids.length + " planned routes · merge commit not yet known" : zone.target_ref ? "Target outside displayed history · merge commit not yet known" : "Destination not specified")); fragment.append(node);
-            }
-            if (!records.length && !layout.nodes.length) fragment.append(element("p", "empty", "No commits or workspaces observed. Refresh after opening a repository."));
-            // Commit only after validation, measurement and all candidate rendering succeed.
-            surface.replaceChildren(fragment); surface.className = "relationship-map topology-canvas topology-surface";
-            surface.style.width = layout.width + "px"; surface.style.height = layout.height + "px";
-            geometryCache = { key: candidateKey, layout };
-          } else {
-            surface.replaceChildren(...cards.values()); surface.className = "relationship-map topology-canvas topology-surface limited-world";
-            surface.style.width = "100%"; surface.style.height = "auto"; geometryCache = null;
+        const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
+        const savedViewport={...viewportPosition}, records=workspaceRecords(value);
+        const oldRect=selectedRect(surface.metroLayout,selectedObjectId);
+        const offset=oldRect?{x:16+oldRect.x*mapScale-savedViewport.left,y:16+oldRect.y*mapScale-savedViewport.top}:null;
+        if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=value.current_worktree_id;journeyFocused=false;}
+        const dimensions=records.map(({lane,facts})=>({worktree_id:lane.worktree_id,head_oid:facts?.head_oid??lane.head,width:196,height:52}));
+        let layout=null;
+        if(value.schema_version==="devmap/dock/4") {
+          const options={repositoryId:value.repository_id,width:Math.max(360,viewport.clientWidth-32),vertical:viewport.clientWidth<=760};
+          const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
+          layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
+          if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[])};
+          const fragment=document.createDocumentFragment();fragment.append(connectionLayer(layout));
+          for(const node of layout.nodes)fragment.append(routeStation(node,layout,value));
+          fragment.append(...renderPlatforms(records,value,layout));
+          const direction=element("span","map-direction",layout.orientation==="vertical"?"History ↓ Present":"History → Present");
+          position(direction,{x:32,y:0});fragment.append(direction);
+          for(const lane of layout.lanes.filter(l=>l.role==="main")) {
+            const first=layout.nodes.find(n=>n.lane_id===lane.id);
+            if(first) {const label=element("span","line-name",lane.ref_name?.replace(/^refs\/heads\//,"")||"Mainline");position(label,{x:first.x+12,y:first.y-28});fragment.append(label);}
           }
-        } finally { stage.remove(); }
-        for (const [id, card] of cards) card.scrollTop = cardScroll.get(id) || 0;
-        surface.metroLayout = layout;
+          for(const zone of layout.arrivals||[]) {
+            const control=button("arrival-zone arrival-source","View workspaces planning arrival at "+(zone.target_ref||"unspecified destination"),()=>showArrivalSources(zone.target_ref));
+            position(control,zone);control.style.width=zone.width+"px";
+            control.append(element("strong","","Planned arrival · "+(zone.target_ref?.replace(/^refs\/heads\//,"")||"unspecified")),element("span","",value.warnings.some(w=>w.code==="planned_target_unavailable"&&zone.route_ids.includes(w.subject_id))?"Destination unavailable":!zone.target_ref?"Destination not specified":zone.available?"Merge commit not yet known":"Target outside displayed history"));fragment.append(control);
+          }
+          if(!layout.nodes.length&&!records.length)fragment.append(element("p","empty","No commits or workspaces observed."));
+          surface.replaceChildren(fragment);surface.className="relationship-map topology-canvas topology-surface route-map";
+          surface.style.width=layout.width+"px";surface.style.height=layout.height+"px";geometryCache={key,layout};
+        } else {
+          surface.replaceChildren(...records.map(({lane,facts})=>createWorkspace(lane,facts,value,280)));surface.className="relationship-map topology-canvas topology-surface limited-world";
+          surface.style.width="100%";surface.style.height="auto";geometryCache=null;
+        }
+        surface.metroLayout=layout;
         renderJourney(value);
         if (!layout) mapScale = 1;
         renderOverview(records, value); applyMapScale();
@@ -995,13 +1086,22 @@
         if (focusedId) {
           const control = [...surface.querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusedId && n.tagName === focusedTag);
           control?.focus({ preventScroll: true });
+          if (!control && focusedId.startsWith("subagents:")) {
+            const parentId = focusedId.slice("subagents:".length);
+            const worktree = records.find(r => uniqueTasks(r.lane).some(chat => taskId(chat) === parentId))?.lane.worktree_id;
+            const controls = [...surface.querySelectorAll("[data-object-id]")];
+            const parent = controls.find(n => n.dataset.objectId === "task:" + parentId)
+              || controls.find(n => n.dataset.objectId === "workspace:" + worktree && n.className.includes("worktree-identity"));
+            (parent || viewport).focus({preventScroll:true});
+          }
         }
-        observeCards(cards);
+
       }
       function renderAttention(records, value) {
         const flagged = records.map(record => ({ ...record, attention: workspaceAttention(record.lane, record.facts, value) })).filter(r => r.attention.level === "attention");
         byId("metric-open").textContent = String(flagged.length);
         const summary = byId("attention-summary");
+        summary.dataset.empty = String(!flagged.length);
         const signature = JSON.stringify(flagged.map(record => [record.lane.worktree_id, record.lane.workspace_path, record.attention.reasons, record.attention.activeCount]));
         summary.hidden = false;
         if (summary.dataset.attentionSignature === signature) return;
@@ -1042,6 +1142,7 @@
       function renderEdgeWayfinding() {
         const viewport = byId("topology-viewport"), layout = byId("relationship-map").metroLayout;
         const panel = byId("edge-wayfinding"), list = byId("edge-list");
+        if (mapScale < .6) { panel.hidden = true; return; }
         const bounds = { left: (viewport.scrollLeft - 16) / mapScale, right: (viewport.scrollLeft + viewport.clientWidth - 16) / mapScale, top: (viewport.scrollTop - 16) / mapScale, bottom: (viewport.scrollTop + viewport.clientHeight - 16) / mapScale };
         const inside = p => p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom;
         // All routes are orthogonal. A crossing segment can be visible even when
@@ -1070,51 +1171,21 @@
           list.append(row);
         }
       }
-      function locateWorkspace(id, value = lastSnapshot) {
-        if (!value || !id) return;
-        setJourneyWorkspace(id, value);
-        setMapScale(1);
-        const record = value ? workspaceRecords(value).find(record => record.lane.worktree_id === id) : null;
-        const head = record?.facts?.head_oid || record?.lane.head;
-        let layout = byId("relationship-map").metroLayout;
-        const siblings = layout?.attachments.filter(a => a.head_oid === head) || [];
-        if (siblings.length > 1 && siblings.reduce((first, a) => a.y < first.y ? a : first).worktree_id !== id) {
-          preferredWorkspaceByHead.set(head, id);
-          renderSnapshot(value);
-          layout = byId("relationship-map").metroLayout;
-        }
-        const station = layout?.nodes.find(node => node.id === head);
-        const attachment = layout?.attachments.find(a => a.worktree_id === id);
-        if (station && attachment) {
-          const viewport = byId("topology-viewport");
-          const left = Math.min(station.x - 22, attachment.x), right = Math.max(station.x + 22, attachment.x + attachment.width);
-          setViewportPosition({ left: Math.max(0, 16 + left - Math.max(8, (viewport.clientWidth - (right - left)) / 2)), top: Math.max(0, 16 + station.y - 24), behavior: "instant" });
-        } else locateObject("workspace:" + id);
-        const card = [...byId("relationship-map").querySelectorAll("[data-worktree-id]")].find(card => card.dataset.worktreeId === id);
-        if (card) card.scrollTop = 0;
+      function locateWorkspace(id,value=lastSnapshot) {
+        if(!value||!id)return;
+        setJourneyWorkspace(id,value);setMapScale(1);
+        const layout=byId("relationship-map").metroLayout, a=layout?.attachments.find(a=>a.worktree_id===id);
+        const n=layout?.nodes.find(n=>n.id===a?.head_oid);
+        if(a) {
+          const viewport=byId("topology-viewport"),left=Math.min(n?.x??a.x,a.x),right=a.x+a.width;
+          setViewportPosition({left:Math.max(0,16+left-Math.max(8,(viewport.clientWidth-(right-left))/2)),top:Math.max(0,(n?.y??a.y)-Math.min(130,viewport.clientHeight*.3)),behavior:"instant"});
+        }else locateObject("workspace:"+id);
       }
       function rerenderWorkspace(id) {
-        if (!lastSnapshot) return;
-        const focusId = document.activeElement?.dataset.objectId;
-        selectedObjectId = "workspace:" + id; renderSnapshot(lastSnapshot);
-        const control = [...byId("relationship-map").querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusId);
-        control?.focus({ preventScroll: true });
-      }
-      let cardObserver = null;
-      function observeCards(cards) {
-        if (typeof ResizeObserver !== "function") return;
-        cardObserver?.disconnect();
-        cardObserver = new ResizeObserver(entries => {
-          const layout = byId("relationship-map").metroLayout;
-          const changed = entries.some(entry => {
-            const box = entry.target.getBoundingClientRect();
-            const previous = layout?.attachments.find(a => a.worktree_id === entry.target.dataset.worktreeId);
-            return previous && (Math.abs(box.height / mapScale - previous.height) > 1 || Math.abs(box.width / mapScale - previous.width) > 1);
-          });
-          if (!changed || resizeFrame !== null || !lastSnapshot) return;
-          resizeFrame = requestAnimationFrame(() => { resizeFrame = null; renderSnapshot(lastSnapshot); });
-        });
-        for (const card of cards.values()) cardObserver.observe(card);
+        if(!lastSnapshot)return;
+        if(lastSnapshot.schema_version==="devmap/dock/3") {renderSnapshot(lastSnapshot);return;}
+        const lane=workspaceRecords(lastSnapshot).find(r=>r.lane.worktree_id===id)?.lane;
+        if(lane) refreshSelectedDetails();
       }
       function directTaskUrl(chat) {
         return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && chat.association_source === "codex_task_cwd" && safeCodexThreadId(chat.codex_thread_id)
@@ -1138,6 +1209,7 @@
         node.dataset.navigable = String(navigable);
         const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
         const heading = element("span", "task-heading");
+        if (chat.codex_thread_id && chat.lifecycle === "present") heading.append(passengerIcon());
         heading.append(title, element("span", "task-onward", navigable ? "Open task" : "Inspect only"));
         const facts = document.createElement("span"); facts.className = "conversation-facts";
         const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
@@ -1266,15 +1338,14 @@
         selectedObjectId = "workspace:" + lane.worktree_id;
         selectedWorkspaceId = lane.worktree_id; selectedTaskId = null;
         const facts = lastSnapshot?.workspace_facts?.find(f => f.worktree_id === lane.worktree_id);
-        const taskTitles = uniqueTasks(lane).map(chat => chat.display_title).join(", ") || "No linked task observed";
-        showDetails(worktreeDisplayName(lane.workspace_path) || lane.worktree_id, [
-          ["Workspace", lane.workspace_path || "Canonical path unavailable"], ["Workspace ID", lane.worktree_id],
-          ["Branch", lane.branch || "Detached HEAD"], ["HEAD", facts?.head_oid || lane.head || "No commits yet"],
-          ["Working tree", facts?.working_state || "Unknown"], ["Target inclusion", facts?.integration || "Unknown"],
-          ["Target", facts?.target_ref || "Unknown"], ["Publication", facts?.upstream || "Unknown"],
-          ["Git observed", facts?.git_observed_at || "Unknown"], ["Task observation", observationLabel(lastSnapshot)],
-          ["Tasks", taskTitles]
-        ], facts?.head_oid || lane.head);
+        showDetails(worktreeDisplayName(lane.workspace_path)||lane.worktree_id,[],facts?.head_oid||lane.head);
+        const card=createWorkspace(lane,facts,lastSnapshot,Math.max(240,byId("selection-details").clientWidth));
+        card.classList.add("workspace-inspector");card.style.width="100%";
+        const identity=element("dl","detail-grid");
+        for(const [key,text] of [["Workspace",lane.workspace_path],["Branch",lane.branch||"Detached HEAD"],["HEAD",facts?.head_oid||lane.head]])identity.append(element("dt","",key),element("dd","",text));
+        card.querySelector(".workspace-details").append(identity);
+        for(const boundary of lastSnapshot.topology?.boundaries||[]) if(boundary.oid===lane.head)card.querySelector(".workspace-details").append(element("p","",BOUNDARIES[boundary.reason]));
+        byId("selection-details").append(card);
         const route = lane.chats.find(chat => chat.route_id)?.route_id || "none";
         if (notify && transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
       }
@@ -1310,6 +1381,8 @@
         }
         if (!selectedObjectId) return;
         const section = byId("selection-details"), scrollTop = section.scrollTop;
+        const focusedId=[...section.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
+        const cardScroll=section.querySelector(".workspace-inspector")?.scrollTop||0;
         const focusedControl = [...section.querySelectorAll("button")].find(node => node === document.activeElement);
         const focusedAction = focusedControl && {
           className: focusedControl.className,
@@ -1329,7 +1402,13 @@
           if (plan) showRoutePlan(plan);
         }
         section.scrollTop = scrollTop;
-        if (focusedAction) [...section.querySelectorAll("button")].find(node => node.className === focusedAction.className
+        const card=section.querySelector(".workspace-inspector");if(card)card.scrollTop=cardScroll;
+        if(focusedId) {
+          const nodes=[...section.querySelectorAll("[data-object-id]")];
+          const target=nodes.find(n=>n.dataset.objectId===focusedId&&n.tagName===focusedTag)||nodes.find(n=>n.dataset.objectId==="task:"+focusedId.replace(/^subagents:/,""));
+          (target||section.querySelector(".dismiss-details"))?.focus({preventScroll:true});
+        }
+        if (!focusedId && focusedAction) [...section.querySelectorAll("button")].find(node => node.className === focusedAction.className
           && (node.dataset.endpointOid || null) === focusedAction.endpointOid
           && (node.dataset.navigationAction || null) === focusedAction.navigationAction)?.focus({ preventScroll: true });
       }
@@ -1401,7 +1480,7 @@
         renderJourney(lastSnapshot);
         updateTaskFreshness(lastSnapshot);
         const records = workspaceRecords(lastSnapshot);
-        const cards = new Map([...byId("relationship-map").querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card]));
+        const cards = new Map([...byId(lastSnapshot.schema_version==="devmap/dock/3"?"relationship-map":"selection-details").querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card]));
         for (const record of records) {
           const card = cards.get(record.lane.worktree_id);
           const facts = card?.querySelector(".workspace-facts");
@@ -1415,6 +1494,7 @@
             if (occupancy) occupancy.textContent = summary.state === "unattended" ? record.facts?.working_state === "clean" && record.facts?.integration === "included" ? "Unattended platform · review whether to clean up" : "Unattended platform" : "";
           }
           for (const state of card?.querySelectorAll(".conversation-state") || []) state.textContent = (tasksConfirmed(lastSnapshot) && state.dataset.captureIncomplete !== "true" ? "" : "Last observed ") + state.dataset.observedState;
+          for (const state of card?.querySelectorAll(".subagent-state") || []) state.textContent = subagentLabel({status:state.dataset.status,observed_at:state.dataset.observedAt});
           for (const disclosure of card?.querySelectorAll(".task-disclosure") || []) if (disclosure.dataset.observedCount) {
             const qualifier = tasksConfirmed(lastSnapshot) && disclosure.dataset.captureIncomplete !== "true" ? "" : "Last observed · ";
             disclosure.setAttribute("aria-label", disclosure.textContent + " · " + qualifier + disclosure.dataset.observedCount + " · " + worktreeDisplayName(record.lane.workspace_path));
@@ -1422,6 +1502,13 @@
         }
         renderAttention(records, lastSnapshot);
         renderOverview(records, lastSnapshot);
+        const surface=byId("relationship-map");
+        if(surface.metroLayout) {
+          const focus=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId;
+          for(const n of surface.querySelectorAll(".route-platform")) n.remove();
+          surface.append(...renderPlatforms(records,lastSnapshot,surface.metroLayout));
+          if(focus) [...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===focus)?.focus({preventScroll:true});
+        }
         refreshSelectedDetails();
       }
       function setOnline() { const node = byId("connection"); node.className = "connection"; node.textContent = "GIT LIVE · observed now"; refreshDynamicState(); scheduleAge(); }
@@ -1502,11 +1589,18 @@
       byId("zoom-in").addEventListener("click", () => setMapScale(mapScale * 1.4));
       byId("zoom-reset").addEventListener("click", () => setMapScale(1));
       byId("zoom-fit").addEventListener("click", fitMap);
+      byId("overview-toggle").addEventListener("click", () => { overviewListOpen = !overviewListOpen; applyMapScale(); });
+      byId("map-tools").addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); byId("map-tools").open = false; byId("map-tools-trigger").focus(); }
+      });
       byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
       window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
       document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
       installPanControls(byId("topology-viewport"));
-      if (typeof ResizeObserver === "function") new ResizeObserver(renderEdgeWayfinding).observe(byId("topology-viewport"));
+      if (typeof ResizeObserver === "function") {
+        let width=byId("topology-viewport").clientWidth;
+        new ResizeObserver(()=>{const next=byId("topology-viewport").clientWidth;if(next!==width&&lastSnapshot){width=next;renderSnapshot(lastSnapshot);}renderEdgeWayfinding();}).observe(byId("topology-viewport"));
+      }
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();
   </script>

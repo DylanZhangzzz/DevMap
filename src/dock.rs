@@ -66,7 +66,17 @@ pub struct DockEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DockSubagent {
+    pub id: String,
+    pub display_name: String,
+    pub status: PresenceStatus,
+    pub observed_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockChat {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagents: Option<Vec<DockSubagent>>,
     pub lifecycle: TaskLifecycle,
     pub session_id: String,
     pub codex_thread_id: Option<String>,
@@ -88,6 +98,7 @@ pub struct DockChat {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedTask {
+    pub subagents: Option<Vec<DockSubagent>>,
     pub lifecycle: TaskLifecycle,
     pub session_id: String,
     pub display_title: String,
@@ -372,6 +383,7 @@ impl<R: RouteProvider> DockReducer<R> {
                         chat.status = task.status;
                         chat.status_source = StatusSource::HostExplicit;
                         chat.lifecycle = task.lifecycle;
+                        chat.subagents = task.subagents.clone();
                         chat.confidence = Confidence::Observed;
                         chat.last_event_at = task.updated_at.clone();
                     } else {
@@ -947,6 +959,7 @@ fn compare_entries(left: &DockEntry, right: &DockEntry) -> std::cmp::Ordering {
 fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
     let actor_id = entry.actor_id.clone()?;
     Some(DockChat {
+        subagents: None,
         lifecycle: TaskLifecycle::Unknown,
         session_id: entry.session_id.clone()?,
         codex_thread_id: None,
@@ -969,6 +982,7 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
 
 fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
     DockChat {
+        subagents: task.subagents.clone(),
         lifecycle: task.lifecycle,
         session_id: task.session_id.clone(),
         codex_thread_id: Some(task.session_id.clone()),

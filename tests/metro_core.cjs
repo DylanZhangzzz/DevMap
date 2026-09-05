@@ -14,12 +14,30 @@ const {
   classifyWorkspace,
   branchColorKey,
   layoutTopology,
+  projectTopology,
 } = require(CORE_PATH);
 
 const oid = (character) => character.repeat(40);
 
 const TOPOLOGY = require('./fixtures/metro/topology.json');
 const BOUNDARIES = require('./fixtures/metro/boundaries.json');
+
+test('route map keeps true topology and workspace positions independent of detail dimensions', () => {
+  const core = require(CORE_PATH);
+  const map = size => core.layoutRouteMap(TOPOLOGY.graph, TOPOLOGY.attachments.map(a => ({...a,width:size,height:size})), {repositoryId:'repo',width:500,vertical:true});
+  const a = map(200), b = map(800);
+  assert.deepEqual(a.nodes.map(n=>[n.id,n.x,n.y]), b.nodes.map(n=>[n.id,n.x,n.y]));
+  assert.deepEqual(a.attachments, b.attachments);
+  assert.equal(a.edges.length, TOPOLOGY.graph.edges.length);
+  assert.equal(a.nodes.length, new Set(TOPOLOGY.graph.commits.map(c=>c.oid)).size);
+  for (const e of a.edges) {
+    const from=a.nodes.find(n=>n.id===e.from_oid), to=a.nodes.find(n=>n.id===e.to_oid);
+    assert.ok(from.y < to.y, 'ancestry proceeds downward');
+    assert.deepEqual(e.points[0], {x:from.x,y:from.y});
+    assert.deepEqual(e.points.at(-1), {x:to.x,y:to.y});
+  }
+  assert.equal(a.attachments.length, TOPOLOGY.attachments.length);
+});
 
 test('passengers describe chat existence, independent of running state', () => {
   const core = require(CORE_PATH), obs = {complete:true,observedAtMs:1000};
@@ -59,6 +77,116 @@ test('future journeys end outside history and never create commit edges', () => 
 });
 const layoutOptions = { rowGap: 96, columnGap: 96, repositoryId: 'synthetic-repository' };
 const point = (node) => ({ x: node.x, y: node.y });
+
+test('overview projection retains every ancestry endpoint, route identity, and boundary annotation', () => {
+  for (const fixture of [TOPOLOGY, BOUNDARIES]) {
+    const layout = layoutTopology(fixture.graph, fixture.attachments, layoutOptions);
+    Object.assign(layout, require(CORE_PATH).layoutJourneys(layout, [{
+      route_id: 'overview-route', worktree_id: fixture.attachments[0].worktree_id,
+      target_ref: layout.refs[0]?.ref_name, abandoned: false,
+    }]));
+    const before = structuredClone(layout);
+    const projected = projectTopology(layout, { width: 520, height: 240 });
+    assert.notEqual(projected, layout);
+    assert.equal(projected.width, 520);
+    assert.equal(projected.height, 240);
+    assert.deepEqual(projected.nodes.map(n => [n.id, n.kind, n.transfer, n.lane_id, n.boundary_ids]),
+      layout.nodes.map(n => [n.id, n.kind, n.transfer, n.lane_id, n.boundary_ids]));
+    assert.deepEqual(projected.edges.map(({ points, gaps, ...identity }) => identity),
+      layout.edges.map(({ points, gaps, ...identity }) => identity));
+    assert.deepEqual(projected.lanes, layout.lanes);
+    for (const field of ['attachments', 'refs', 'boundaries', 'journeys']) assert.deepEqual(projected[field], []);
+    const nodes = new Map(projected.nodes.map(n => [n.id, n]));
+    for (const edge of projected.edges) {
+      assert.deepEqual(edge.points[0], point(nodes.get(edge.from_oid)));
+      assert.deepEqual(edge.points.at(-1), point(nodes.get(edge.to_oid)));
+      assert.equal(edge.points.length, layout.edges.find(e => e.id === edge.id).points.length);
+    }
+    const points = [...projected.nodes, ...projected.edges.flatMap(e => e.points)];
+    assert.ok(points.every(p => Number.isFinite(p.x) && Number.isFinite(p.y)
+      && p.x >= 32 && p.x <= projected.width - 32 && p.y >= 40 && p.y <= projected.height - 32));
+    assert.ok(Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)) >= projected.width * .8);
+    assert.ok(Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) >= projected.height * .6);
+    assert.deepEqual(layout, before, 'projection must leave original geometry, gaps and labels unchanged');
+  }
+});
+
+test('overview recomputes crossing identities and bounded visible gaps on projected rails', () => {
+  const layout = layoutTopology(TOPOLOGY.graph, TOPOLOGY.attachments, layoutOptions);
+  const projected = projectTopology(layout, { width: 720, height: 320 });
+  assert.ok(projected.crossings.length > 0);
+  assert.equal(projected.crossings.length, layout.crossings.length);
+  assert.ok(projected.crossings.every(c => !layout.crossings.some(old => old.id === c.id)));
+  let checked = 0;
+  for (const one of projected.edges) for (const two of projected.edges) {
+    if (one.id >= two.id) continue;
+    for (const [a, b] of segments(one)) for (const [c, d] of segments(two)) {
+      if ((a.y === b.y) === (c.y === d.y)) continue;
+      const p = a.y === b.y ? { x: c.x, y: a.y } : { x: a.x, y: c.y };
+      if (!inSegment(p, a, b) || !inSegment(p, c, d)) continue;
+      if (projected.nodes.some(n => n.x === p.x && n.y === p.y)) continue;
+      assert.ok(projected.crossings.some(x => x.x === p.x && x.y === p.y
+        && [x.over_id, x.under_id].includes(one.id) && [x.over_id, x.under_id].includes(two.id)));
+      checked++;
+    }
+  }
+  assert.ok(checked > 0);
+  for (const crossing of projected.crossings) {
+    const under = projected.edges.find(e => e.id === crossing.under_id);
+    const gap = under.gaps.find(g => g.crossing_id === crossing.id);
+    assert.deepEqual(gap.points, crossing.gap);
+    const [a, b] = segments(under)[gap.segment_index];
+    assert.ok(gap.points.every(p => inSegment(p, a, b)));
+    assert.ok(crossing.gap[1].x > crossing.gap[0].x);
+    assert.ok(crossing.gap[1].x - crossing.gap[0].x <= 12.000001);
+  }
+});
+
+test('overview spaces clustered worktree heads evenly while retaining the order of every rail point', () => {
+  const commits = Array.from({ length: 20 }, (_, i) => ({
+    oid: (i + 1).toString(16).padStart(40, '0'),
+    parents: i ? [i.toString(16).padStart(40, '0')] : [], subject: null, authored_at: null,
+  }));
+  const graph = { commits, refs: [], boundaries: [], complete: true,
+    edges: commits.slice(1).map(c => ({ id: c.parents[0] + ':' + c.oid, from_oid: c.parents[0], to_oid: c.oid })) };
+  const heads = commits.slice(-3);
+  const layout = layoutTopology(graph, heads.map((c, i) => ({ worktree_id: 'cluster-' + i, head_oid: c.oid })));
+  const projected = projectTopology(layout, { width: 640, height: 240 });
+  const anchorXs = [commits[0], ...heads].map(c => projected.nodes.find(n => n.id === c.oid).x);
+  const distances = anchorXs.slice(1).map((x, i) => x - anchorXs[i]);
+  assert.ok(Math.max(...distances) / Math.min(...distances) < 1.01, 'salient heads should receive even display spacing');
+  const oldPoints = [...layout.nodes, ...layout.edges.flatMap(e => e.points)];
+  const newPoints = [...projected.nodes, ...projected.edges.flatMap(e => e.points)];
+  const ordered = oldPoints.map((p, i) => [p.x, newPoints[i].x]).sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < ordered.length; i++) {
+    const [previous, current] = [ordered[i - 1], ordered[i]];
+    assert.equal(Math.sign(current[1] - previous[1]), Math.sign(current[0] - previous[0]));
+  }
+});
+
+test('overview rejects invalid viewport dimensions and handles empty and single-node history', () => {
+  const empty = layoutTopology({ commits: [], refs: [], boundaries: [], edges: [], complete: true });
+  for (const value of [undefined, null, '400', NaN, Infinity, -1, 0, 159, 16385]) {
+    for (const field of ['width', 'height']) {
+      assert.throws(() => projectTopology(empty, { width: 400, height: 240, [field]: value }), /dimension/i);
+    }
+  }
+  for (const options of [undefined, null, []]) assert.throws(() => projectTopology(empty, options), /options/i);
+  for (const size of [160, 16384]) {
+    const result = projectTopology(empty, { width: size, height: size });
+    assert.equal(result.width, size);
+    assert.equal(result.height, size);
+    assert.deepEqual(result.nodes, []);
+    assert.deepEqual(result.edges, []);
+    assert.deepEqual(result.crossings, []);
+  }
+  const single = layoutTopology({ commits: [validGraph().commits[0]], refs: [], boundaries: [], edges: [], complete: true });
+  const projected = projectTopology(single, { width: 400, height: 240 });
+  assert.equal(projected.nodes.length, 1);
+  assert.ok(Number.isFinite(projected.nodes[0].x) && Number.isFinite(projected.nodes[0].y));
+  assert.ok(projected.nodes[0].x > 32 && projected.nodes[0].x < 368);
+  assert.ok(projected.nodes[0].y > 40 && projected.nodes[0].y < 208);
+});
 test('compact ref shelf keeps two connected workspace routes within one desktop scene', () => {
   const a = oid('a'), b = oid('b'), c = oid('c');
   const graph = { commits: [{ oid: a, parents: [], subject: null, authored_at: null }, { oid: b, parents: [a], subject: null, authored_at: null }, { oid: c, parents: [a], subject: null, authored_at: null }], refs: [{ ref_name: 'refs/heads/main', display_name: 'main', oid: b, kind: 'branch' }, { ref_name: 'refs/tags/v1', display_name: 'v1', oid: b, kind: 'tag' }, { ref_name: 'refs/heads/feature', display_name: 'feature', oid: c, kind: 'branch' }], edges: [{ id: 'ab', from_oid: a, to_oid: b }, { id: 'ac', from_oid: a, to_oid: c }], boundaries: [], complete: true };
@@ -296,6 +424,12 @@ test('the supported 2048-commit chain lays out without recursive stack growth or
   assert.equal(layout.nodes.at(-1).rank, 2047);
   assert.ok(layout.width > 2048 * 48);
   assert.ok(Number.isFinite(layout.width) && Number.isFinite(layout.height));
+  const projected = projectTopology(layout, { width: 640, height: 240 });
+  assert.equal(projected.nodes.length, 2048);
+  assert.equal(projected.edges.length, 2047);
+  assert.deepEqual(projected.nodes.map(n => n.id), layout.nodes.map(n => n.id));
+  assert.deepEqual(projected.edges.map(e => [e.id, e.from_oid, e.to_oid]), layout.edges.map(e => [e.id, e.from_oid, e.to_oid]));
+  assert.ok(projected.nodes.every((n, i) => !i || n.x > projected.nodes[i - 1].x));
 });
 
 function validGraph() {

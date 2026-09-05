@@ -27,6 +27,7 @@ use devmap::worktrees::repository_id;
 
 fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask {
     ObservedTask {
+        subagents: None,
         lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: "01a00000-0000-7000-8000-000000000001".into(),
         display_title: title.into(),
@@ -327,6 +328,12 @@ fn verified_inventory_promotes_matching_presence_without_losing_capture_evidence
         .find(|row| row.worktree_id == record.worktree_id)
         .unwrap();
     let task = ObservedTask {
+        subagents: Some(vec![devmap::dock::DockSubagent {
+            id: "review".into(),
+            display_name: "Review".into(),
+            status: PresenceStatus::Waiting,
+            observed_at: "2026-09-02T11:59:00Z".into(),
+        }]),
         lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: id.into(),
         display_title: "Verified renamed task".into(),
@@ -353,6 +360,7 @@ fn verified_inventory_promotes_matching_presence_without_losing_capture_evidence
         .find(|chat| chat.session_id == id)
         .unwrap();
     assert_eq!(chat.codex_thread_id.as_deref(), Some(id));
+    assert_eq!(chat.subagents.as_ref().unwrap()[0].id, "review");
     assert_eq!(chat.association_source, "codex_task_cwd");
     assert_eq!(chat.last_event_at, "2026-09-02T11:59:00Z");
     assert_eq!(chat.status, PresenceStatus::Idle);
@@ -896,6 +904,7 @@ fn bounded_output_marks_a_partially_retained_task_roster() {
     let mut service = DockService::open(repo.path()).unwrap();
     let tasks = (0..100)
         .map(|index| ObservedTask {
+            subagents: None,
             lifecycle: devmap::dock::TaskLifecycle::Present,
             session_id: format!("01a00000-0000-7000-8000-{index:012}"),
             display_title: format!("task-{index}-{}", "x".repeat(16 * 1024)),
