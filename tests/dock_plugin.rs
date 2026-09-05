@@ -125,7 +125,7 @@ fn bundled_skill_has_a_narrow_honest_trigger() {
     assert!(skill.contains("surface: browser"));
     assert!(skill.contains("list_threads"));
     assert!(skill.contains("codex_tasks"));
-    assert!(skill.contains("`active`, `idle`, or `notLoaded`"));
+    assert!(skill.contains("`active`, `idle`, `waiting`, `completed`, or `notLoaded`"));
     assert!(skill.contains("kind` is `codex`"));
     assert!(skill.contains("Open the local Codex task with id"));
     assert!(skill.contains("navigate_to_codex_page"));

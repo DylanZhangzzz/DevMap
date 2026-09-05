@@ -39,7 +39,8 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     );
     assert!(!html.contains("localStorage"));
     assert!(!html.contains("sessionStorage"));
-    assert!(html.len() < 128 * 1024);
+    // Includes bounded future-route geometry and platform interactions.
+    assert!(html.len() < 144 * 1024);
 }
 
 #[test]
@@ -86,7 +87,7 @@ fn dock_task_navigation_uses_only_a_validated_codex_thread_id() {
 #[test]
 fn dock_task_navigation_does_not_turn_presence_only_records_into_links() {
     let html = dock_html();
-    assert!(html.contains("if (!chat.codex_thread_id)"));
+    assert!(html.contains("if (!chat.codex_thread_id || chat.lifecycle === \"deleted\")"));
     assert!(html.contains("node.dataset.navigable"));
     assert!(html.contains("agent-task-node ${category} ${stateValue}`"));
     assert!(html.contains("graphButton("));

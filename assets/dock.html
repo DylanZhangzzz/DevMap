@@ -169,6 +169,21 @@
     }
     @media (prefers-reduced-motion: reduce) { .topology-viewport { scroll-behavior: auto; } }
     .workspace-risk { font-size: .75rem; padding: 0 8px; color: var(--warning); }
+    .worktree-cluster { border-top: 4px solid var(--accent); background: var(--bg-canvas); }
+    .platform-heading { display:flex; justify-content:space-between; gap:8px; margin:0; padding:4px 8px; font-size:.75rem; color:var(--muted); }
+    .passenger-count { font-weight:700; color:var(--text); }
+    .platform-origin { display:block; width:100%; padding:4px 8px; font-size:.75rem; color:var(--accent); }
+    .workspace-details { padding:4px 8px; color:var(--muted); font-size:.75rem; }
+    .workspace-details summary { cursor:pointer; min-height:32px; }
+    .workspace-risk:empty { display:none; }
+    .platform-occupancy:empty { display:none; }
+    .task-heading::before { content:""; width:12px; height:18px; flex:none; margin-top:2px; background:radial-gradient(circle at 50% 4px,var(--muted) 3px,transparent 3.5px),radial-gradient(ellipse at 50% 17px,var(--muted) 6px,transparent 6.5px); }
+    .active .task-heading::before { filter:contrast(1.6); }
+    .transfer .station-dot { width:24px; height:24px; border:5px double var(--rail-color); }
+    .future-connection { fill:none; stroke:var(--muted); stroke-width:2; stroke-dasharray:7 6; }
+    .arrival-zone { position:absolute; border-left:2px dashed var(--muted); padding:0 12px; color:var(--muted); font-size:.75rem; }
+    .arrival-zone strong { display:block; font-size:.875rem; color:var(--text); }
+    .arrival-zone::before { content:""; position:absolute; width:12px; height:12px; left:-7px; top:-6px; border:2px solid var(--muted); border-radius:50%; background:var(--bg-canvas); }
   </style>
 </head>
 <body>
@@ -217,7 +232,8 @@
         <details class="map-help"><summary>Map key and observation rules</summary>
           <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
           <p>Stations are commits. Colored rails follow verified parent relationships; thin attachment stems identify workspaces and references. Dashed routes and hollow stops show future plans, never completed Git operations. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
-          <p>Branch colors identify references. Warnings describe separate workspace facts. Task inventory is fresh for 120 seconds; idle attention starts after 30 minutes. Unknown observations never prove inactivity.</p>
+          <p>Double-ring stations mark observed forks or merges. Worktree platforms attach at HEAD; passengers are existing unarchived chats, counted once including their Agent. Finished, idle and unloaded chats remain passengers. Common ancestor means current shared history, not a recorded creation point.</p>
+          <p>Branch colors identify references. A fresh, complete chat inventory is required to confirm an unattended platform. Unattended work warns when uncommitted or unmerged changes remain. Inventory is fresh for 120 seconds. Missing observations never prove deletion; cleanup always needs review.</p>
         </details>
       </section>
       <p class="warnings" id="warnings" role="status" hidden></p>
@@ -240,21 +256,18 @@
       let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
       let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
       let mapScale = 1;
-      const expandedWorkspaces = new Set(), expandedConversationHistory = new Set();
+      const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set();
       const preferredWorkspaceByHead = new Map();
-      const activeConversationStates = new Set(["starting", "working", "waiting", "active"]);
       const byId = (id) => document.getElementById(id);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
       const safeCodexThreadId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
       const instant = (value) => { const ms = Date.parse(value); return Number.isFinite(ms) ? ms : null; };
       const taskId = (chat) => chat.codex_thread_id || chat.session_id;
       const REASONS = {
-        uncommitted_without_active_task: "Uncommitted changes · no active task observed",
-        uncommitted_idle: "Uncommitted changes · linked tasks idle at least 30 minutes",
-        not_included: "Commits not included in target",
+        unattended_work: "Unattended work · no passengers; uncommitted or unmerged changes remain",
         unprotected_head: "Detached work lacks a stable ref",
         concurrent_writes: "Concurrent writing observed",
-        task_activity_unknown: "Task activity unknown",
+        task_activity_unknown: "Passenger presence unknown",
         git_state_unknown: "Working state unknown",
         shared_workspace: "Shared workspace"
       };
@@ -304,7 +317,7 @@
       function conversationInstant(chat) { return instant(chat.last_event_at) || 0; }
       function conversationCategory(chat) {
         const state = effectiveConversationState(chat);
-        return activeConversationStates.has(state) ? "active" : state === "idle" ? "idle" : "history";
+        return chat.lifecycle === "present" ? ["active","working","starting"].includes(state) ? "active" : "idle" : "history";
       }
       function compareConversations(a, b) {
         const rank = { active: 0, idle: 1, history: 2 };
@@ -330,6 +343,10 @@
         }
         for (const id of [...expandedWorkspaces]) if (!workspaces.has(id)) expandedWorkspaces.delete(id);
         for (const id of [...expandedConversationHistory]) if (!workspaces.has(id)) expandedConversationHistory.delete(id);
+        for (const id of [...expandedFacts]) if (!workspaces.has(id)) expandedFacts.delete(id);
+        if (selectedObjectId?.startsWith("plan:") && !(value.route_plans || []).some(p => "plan:" + p.route_id === selectedObjectId)) {
+          unavailable.push("Selected route plan is no longer available"); selectedObjectId = null;
+        }
         return unavailable;
       }
       function workspaceRecords(value) {
@@ -347,9 +364,16 @@
           workingState: facts?.working_state || "unknown", integration: facts?.integration || "unknown",
           headRefCoverage: facts?.head_ref_coverage || "unknown", detached: facts?.detached === true, upstream: facts?.upstream || "unknown"
         }, uniqueTasks(lane).map(chat => ({
-          id: taskId(chat), status: effectiveConversationState(chat), lastActivityMs: instant(chat.last_event_at),
+          id: taskId(chat), lifecycle: chat.lifecycle, isChat: !!chat.codex_thread_id, status: effectiveConversationState(chat), lastActivityMs: instant(chat.last_event_at),
           writeObservedAtMs: writers.get(taskId(chat)) ?? writers.get(chat.session_id) ?? null
-        })), { complete: value.task_observation?.complete === true, observedAtMs: instant(value.task_observation?.observed_at) }, Date.now());
+        })), passengerObservation(value), Date.now());
+      }
+      function passengerObservation(value) { return {complete:value.task_observation?.scope === "unarchived_chats" && value.task_observation.complete === true,observedAtMs:instant(value.task_observation?.observed_at)}; }
+      function populatePassengers(node, lane, value) {
+        const summary = Core.summarizePassengers(uniqueTasks(lane).map(chat => ({id:taskId(chat),lifecycle:chat.lifecycle,isChat:!!chat.codex_thread_id,status:effectiveConversationState(chat)})), passengerObservation(value), Date.now());
+        node.textContent = (summary.state === "unknown" ? "Passengers unknown · " + summary.observedCount + " last observed" : summary.observedCount + " passengers · observed") + " · " + summary.developing + " developing · " + summary.waiting + " waiting · " + summary.completed + " finished · " + summary.unknown + " activity unknown";
+        if (!value.task_observation?.complete) node.textContent += " · partial inventory";
+        return summary;
       }
       function element(tag, className, text) {
         const node = document.createElement(tag); node.className = className;
@@ -408,6 +432,10 @@
           const path = svg("path", { d: routePath(record.stem.points), class: "association" });
           path.dataset.associationId = record.stem.id; root.append(path);
         }
+        for (const route of layout.journeys || []) {
+          const path = svg("path", {class:"future-connection",d:routePath(route.points)});
+          path.dataset.routeId = route.route_id; root.append(path);
+        }
         return root;
       }
       function createStation(node, layout, value) {
@@ -421,6 +449,13 @@
         const caption = graphButton("node-label", label, () => showCommit(node.id));
         caption.dataset.objectId = "commit:" + node.id; caption.title = label;
         caption.append(element("span", "label-text", node.kind === "boundary" ? "Boundary" : node.id.slice(0, 8)));
+        if (node.transfer) {
+          control.className += " transfer";
+          control.title = (node.transfer === "merge" ? "Merge station" : "Fork station") + " · " + label;
+          caption.title = control.title;
+          control.setAttribute("aria-label", control.title);
+          caption.querySelector(".label-text").textContent = (node.transfer === "merge" ? "Merge · " : "Fork · ") + node.id.slice(0,8);
+        }
         position(caption, node.label_rect); return [control, caption];
       }
       function createRef(ref) {
@@ -467,7 +502,7 @@
           if (facts.detached) lines.push([facts.head_ref_coverage === "protected" ? "Detached checkout · protected by a stable ref" : "Detached checkout", ""]);
           const attention = workspaceAttention(lane, facts, value);
           for (const reason of attention.reasons) if (reason !== "git_state_unknown") {
-            lines.push([reason === "shared_workspace" ? attention.activeCount + " active tasks · shared workspace" : REASONS[reason], reason === "shared_workspace" ? "" : reason === "task_activity_unknown" ? "unknown" : "attention"]);
+            lines.push([reason === "shared_workspace" ? "Multiple passengers · shared workspace" : REASONS[reason], reason === "shared_workspace" ? "" : reason === "task_activity_unknown" ? "unknown" : "attention"]);
           }
         }
         lines.push([value.schema_version === "devmap/dock/4" ? observationLabel(value) : "Task observation unavailable in limited view", ""]);
@@ -502,23 +537,54 @@
         // The stable ID disambiguates repeated directory basenames; full path is accessible.
         branch.append(element("span", "workspace-short-id", " · " + lane.worktree_id.slice(-8)));
         const factsNode = element("div", "workspace-facts"); populateFacts(factsNode, lane, facts, value);
-        cluster.append(workspace);
+        cluster.append(element("div", "platform-heading", "Worktree platform · HEAD " + lane.head.slice(0,8)), workspace);
+        const passengerCount = element("p", "platform-heading passenger-count");
+        const passengers = populatePassengers(passengerCount, lane, value);
+        cluster.append(passengerCount);
+        const occupancy = element("p", "platform-heading platform-occupancy");
+        occupancy.textContent = passengers.state === "unattended" ? facts?.working_state === "clean" && facts?.integration === "included" ? "Unattended platform · review whether to clean up" : "Unattended platform" : "";
+        cluster.append(occupancy);
+        const targetName = facts?.target_ref?.replace("refs/heads/", "") || "target";
+        cluster.append(element("p", "platform-heading", facts?.integration === "included" ? "HEAD included in " + targetName : facts?.integration === "ahead" ? "Work ahead of " + targetName : facts?.integration === "terminal" ? "Mainline platform" : "Integration unknown"));
+        const ancestor = lane.relationship?.fork_point?.commit;
+        const origin = button("platform-origin", ancestor ? "Locate common ancestor " + ancestor : "Inspect workspace origin", () => {
+          if (ancestor) { locateObject("commit:" + ancestor); showCommit(ancestor); } else selectLane(lane);
+        });
+        origin.textContent = ancestor ? "Common ancestor · " + ancestor.slice(0,8) : "Origin unknown";
+        cluster.append(origin);
         const riskNode = element("p", "workspace-risk"); populateRisk(riskNode, lane, facts, value); cluster.append(riskNode);
         // Active identities precede verbose observations; every factual reason remains in the card.
-        cluster.append(createAgentRoster(lane, value), factsNode);
+        cluster.append(createAgentRoster(lane, value));
+        const details = element("details", "workspace-details");
+        const summary = element("summary", "", "Workspace details"); summary.dataset.objectId = "facts:" + lane.worktree_id;
+        details.append(summary, element("p", "", "Creation point not recorded"), factsNode);
+        details.open = expandedFacts.has(lane.worktree_id);
+        details.addEventListener("toggle", () => {
+          if (details.open === expandedFacts.has(lane.worktree_id)) return;
+          if (details.open) expandedFacts.add(lane.worktree_id); else expandedFacts.delete(lane.worktree_id);
+          rerenderWorkspace(lane.worktree_id);
+        });
+        cluster.append(details);
         if (value.schema_version === "devmap/dock/4") {
           if (!facts?.head_oid || /^0+$/.test(facts.head_oid)) cluster.append(element("p", "unlinked", "No commits yet · workspace files and linked tasks are shown below"));
           else {
             const head = button("task-disclosure", "Locate HEAD " + facts.head_oid, () => { locateObject("commit:" + facts.head_oid); showCommit(facts.head_oid); });
-            head.textContent = "Locate HEAD · " + facts.head_oid.slice(0, 8); cluster.append(head);
+            head.textContent = "Locate HEAD · " + facts.head_oid.slice(0, 8); details.append(head);
           }
         }
         for (const plan of value.route_plans || []) if (plan.worktree_id === lane.worktree_id) {
-          cluster.append(createRoutePlan(plan, lane, value));
+          const destination = button("platform-origin", "Locate planned arrival for " + plan.goal, () => {
+            const zone = byId("relationship-map").metroLayout?.arrivals.find(a => a.route_ids.includes(plan.route_id));
+            if (zone) { setMapScale(1); setViewportPosition({left:Math.max(0,zone.x-40),top:Math.max(0,zone.y-80),behavior:"instant"}); }
+            showRoutePlan(plan);
+          });
+          destination.textContent = plan.abandoned ? "Plan abandoned" : "To " + (plan.target_ref?.replace("refs/heads/", "") || "unknown destination") + " · planned";
+          cluster.append(destination); details.append(createRoutePlan(plan, lane, value));
         }
         return cluster;
       }
       function showRoutePlan(plan) {
+        selectedObjectId = "plan:" + plan.route_id; selectedWorkspaceId = null; selectedTaskId = null;
         showDetails(plan.goal, [["Plan", plan.route_id], ["Revision", String(plan.revision)],
           ["Delivery intent", plan.delivery?.mode || "manual"], ["Completion conditions", plan.delivery?.conditions.join(" / ") || "Not specified"],
           ["Recorded authorization source", plan.delivery?.authorization_source || "Not recorded"],
@@ -552,14 +618,14 @@
         const idle = tasks.filter(chat => conversationCategory(chat) === "idle");
         const history = tasks.filter(chat => conversationCategory(chat) === "history");
         const expanded = expandedWorkspaces.has(lane.worktree_id);
-        const visible = expanded ? [...active, ...idle] : active.slice(0, 2);
+        const visible = expanded ? [...active, ...idle] : [...active, ...idle].slice(0, 2);
         for (const chat of visible) { const node = createTask(chat, lane.worktree_id, value); node.dataset.objectId = "task:" + taskId(chat); roster.append(node); }
-        const observedCount = [active.length + (active.length === 1 ? " active task" : " active tasks"), idle.length ? idle.length + " idle" : ""].filter(Boolean).join(" · ");
+        const observedCount = [active.length + " developing", idle.length ? idle.length + " other passengers" : ""].filter(Boolean).join(" · ");
         const incomplete = tasks.some(chat => chat.capture_incomplete);
         const taskCountLabel = (tasksConfirmed(value) && !incomplete ? "" : "Last observed · ") + observedCount;
         if (!expanded) { const count = element("p", "task-count-summary", taskCountLabel); count.dataset.observedCount = observedCount; count.dataset.captureIncomplete = String(incomplete); roster.append(count); }
         if (active.length > 2 || idle.length) {
-          const label = expanded ? "Collapse tasks" : "Show all active and idle tasks";
+          const label = expanded ? "Collapse tasks" : "Show all passengers";
           const disclosure = button("task-disclosure", label + " · " + taskCountLabel + " · " + worktreeDisplayName(lane.workspace_path), () => {
             if (expanded) expandedWorkspaces.delete(lane.worktree_id); else expandedWorkspaces.add(lane.worktree_id);
             rerenderWorkspace(lane.worktree_id);
@@ -701,10 +767,10 @@
       function renderOverview(records, value) {
         const panel = byId("overview-workspaces");
         const rows = records.map(({ lane, facts }) => {
-          const tasks = uniqueTasks(lane), active = tasks.filter(task => activeConversationStates.has(effectiveConversationState(task))).length;
+          const countNode = element("span"); populatePassengers(countNode, lane, value);
           const risk = element("span", "workspace-risk"); populateRisk(risk, lane, facts, value);
           const integration = facts?.integration === "ahead" ? "Commits not included in " + (facts.target_ref?.replace(/^refs\/heads\//, "") || "target") : "";
-          const count = (tasksConfirmed(value) && tasks.every(task => !task.capture_incomplete) ? "" : "Last observed · ") + tasks.length + " tasks · " + active + " active";
+          const count = countNode.textContent;
           return { lane, count, current: lane.worktree_id === value.current_worktree_id, risk: [risk.textContent, integration].filter(Boolean).join(" · ") };
         });
         const signature = JSON.stringify([rows, value.current_worktree_id]);
@@ -754,13 +820,19 @@
           });
           if (value.schema_version === "devmap/dock/4") {
             const preferredWorkspaces = [...preferredWorkspaceByHead].filter(([head, id]) => dimensions.some(a => a.worktree_id === id && a.head_oid === head)).map(([, id]) => id);
-            candidateKey = JSON.stringify([value.repository_id, value.topology, dimensions, preferredWorkspaces]);
+            candidateKey = JSON.stringify([value.repository_id, value.topology, dimensions, preferredWorkspaces, value.route_plans]);
             layout = geometryCache?.key === candidateKey ? geometryCache.layout : Core.layoutTopology(value.topology, dimensions, { repositoryId: value.repository_id, rowGap: 48, columnGap: 96, preferredWorkspaces });
+            if (geometryCache?.key !== candidateKey) layout = {...layout,...Core.layoutJourneys(layout, value.route_plans || [])};
             const fragment = document.createDocumentFragment(); fragment.append(connectionLayer(layout));
             for (const node of layout.nodes) fragment.append(...createStation(node, layout, value));
             for (const ref of layout.refs) fragment.append(createRef(ref));
             for (const boundary of layout.boundaries) fragment.append(createBoundary(boundary));
             for (const attachment of layout.attachments) { const card = cards.get(attachment.worktree_id); position(card, attachment); fragment.append(card); }
+            for (const zone of layout.arrivals || []) {
+              const node = element("div", "arrival-zone"); position(node, zone); node.style.width = zone.width + "px";
+              node.append(element("strong", "", "Planned arrival · " + (zone.target_ref?.replace("refs/heads/", "") || "unknown target")),
+                element("span", "", value.warnings.some(w => w.code === "planned_target_unavailable" && zone.route_ids.includes(w.subject_id)) ? "Destination unavailable · no assumed connection" : zone.available ? zone.route_ids.length + " planned routes · merge commit not yet known" : zone.target_ref ? "Target outside displayed history · merge commit not yet known" : "Destination not specified")); fragment.append(node);
+            }
             if (!records.length && !layout.nodes.length) fragment.append(element("p", "empty", "No commits or workspaces observed. Refresh after opening a repository."));
             // Commit only after validation, measurement and all candidate rendering succeed.
             surface.replaceChildren(fragment); surface.className = "relationship-map topology-canvas topology-surface";
@@ -936,10 +1008,11 @@
         for (const card of cards.values()) cardObserver.observe(card);
       }
       function directTaskUrl(chat) {
-        return transport === "browser" && chat.host === "local" && chat.association_source === "codex_task_cwd" && safeCodexThreadId(chat.codex_thread_id)
+        return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && chat.association_source === "codex_task_cwd" && safeCodexThreadId(chat.codex_thread_id)
           ? "codex://threads/" + chat.codex_thread_id : null;
       }
       function createTask(chat, worktreeId, value) {
+        const navigable = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id);
         const stateValue = effectiveConversationState(chat);
         const category = conversationCategory(chat);
         const directUrl = directTaskUrl(chat);
@@ -950,20 +1023,20 @@
           `Open Codex task: ${chat.display_title}`, directUrl, activate,
         ) : graphButton(
           `task-node conversation-node agent-task-node ${category} ${stateValue}`,
-          chat.codex_thread_id ? `Open Codex task: ${chat.display_title}` : `Inspect conversation: ${chat.display_title}`,
+          navigable ? `Open Codex task: ${chat.display_title}` : `Inspect conversation: ${chat.display_title}`,
           activate,
         );
-        node.dataset.navigable = String(safeCodexThreadId(chat.codex_thread_id));
+        node.dataset.navigable = String(navigable);
         const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
         const heading = element("span", "task-heading");
-        heading.append(title, element("span", "task-onward", safeCodexThreadId(chat.codex_thread_id) ? "Open task" : "Inspect only"));
+        heading.append(title, element("span", "task-onward", navigable ? "Open task" : "Inspect only"));
         const facts = document.createElement("span"); facts.className = "conversation-facts";
         const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
         const state = document.createElement("span"); state.className = "task-state conversation-state";
         state.dataset.observedState = stateValue.toUpperCase();
         state.textContent = (tasksConfirmed(value) && !chat.capture_incomplete ? "" : "Last observed ") + state.dataset.observedState;
         state.dataset.captureIncomplete = String(chat.capture_incomplete === true);
-        facts.append(agent, state);
+        facts.append(agent, state, element("span", "", "Chat · " + (chat.lifecycle || "unknown")));
         const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
         const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
         node.append(heading, facts, context, audit); return node;
@@ -973,7 +1046,7 @@
         selectedTaskId = taskId(chat);
         selectedObjectId = "task:" + selectedTaskId;
         showTask(chat);
-        if (!chat.codex_thread_id) {
+        if (!chat.codex_thread_id || chat.lifecycle === "deleted") {
           announce("Conversation details selected · no verified Codex task link");
           return;
         }
@@ -1096,7 +1169,7 @@
         if (notify && transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
       }
       function showTask(chat) {
-        const threadId = safeCodexThreadId(chat.codex_thread_id) ? chat.codex_thread_id : null;
+        const threadId = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id) ? chat.codex_thread_id : null;
         const lane = workspaceRecords(lastSnapshot).find(record => record.lane.worktree_id === selectedWorkspaceId)?.lane;
         showDetails(chat.display_title, [["Task ID", threadId || "No verified Codex task ID"], ["Workspace", lane?.workspace_path || "Unavailable"], ["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Last activity", chat.last_event_at], ["Task observation", observationLabel(lastSnapshot)], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]], null, threadId);
       }
@@ -1131,6 +1204,10 @@
           const record = records.find(record => record.lane.worktree_id === selectedWorkspaceId);
           if (record) selectLane(record.lane, false);
         } else if (selectedObjectId.startsWith("commit:")) showCommit(selectedObjectId.slice(7));
+        else if (selectedObjectId.startsWith("plan:")) {
+          const plan = (lastSnapshot.route_plans || []).find(p => "plan:" + p.route_id === selectedObjectId);
+          if (plan) showRoutePlan(plan);
+        }
         section.scrollTop = scrollTop;
         if (focusedAction) [...section.querySelectorAll("button")].find(node => node.className === focusedAction.className
           && (node.dataset.endpointOid || null) === focusedAction.endpointOid
@@ -1209,6 +1286,12 @@
           if (facts) populateFacts(facts, record.lane, record.facts, lastSnapshot);
           const risk = card?.querySelector(".workspace-risk");
           if (risk) populateRisk(risk, record.lane, record.facts, lastSnapshot);
+          const passengerNode = card?.querySelector(".passenger-count");
+          if (passengerNode) {
+            const summary = populatePassengers(passengerNode, record.lane, lastSnapshot);
+            const occupancy = card.querySelector(".platform-occupancy");
+            if (occupancy) occupancy.textContent = summary.state === "unattended" ? record.facts?.working_state === "clean" && record.facts?.integration === "included" ? "Unattended platform · review whether to clean up" : "Unattended platform" : "";
+          }
           for (const state of card?.querySelectorAll(".conversation-state") || []) state.textContent = (tasksConfirmed(lastSnapshot) && state.dataset.captureIncomplete !== "true" ? "" : "Last observed ") + state.dataset.observedState;
           const count = card?.querySelector(".task-count-summary");
           if (count) count.textContent = (tasksConfirmed(lastSnapshot) && count.dataset.captureIncomplete !== "true" ? "" : "Last observed · ") + count.dataset.observedCount;

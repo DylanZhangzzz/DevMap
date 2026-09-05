@@ -13,6 +13,85 @@ fn call(runtime: &mut McpRuntime, name: &str, arguments: Value) -> Value {
 }
 
 #[test]
+fn passenger_lifecycle_is_exposed_to_agents_and_controls_unattended_work() {
+    let repo = support::committed_repo();
+    std::fs::write(repo.path().join("unfinished.txt"), "work").unwrap();
+    let mut runtime = initialized_runtime(repo.path());
+    let mut task = json!({"id":"01a00000-0000-7000-8000-000000000001","title":"Paused chat","status":"idle","lifecycle":"present","cwd":repo.path(),"updatedAt":1,"hostId":"local","kind":"codex"});
+    let implicit = call(
+        &mut runtime,
+        "devmap_read_map",
+        json!({"view":"agent","codex_tasks":[]}),
+    );
+    assert_eq!(
+        implicit["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
+        "unknown"
+    );
+    for status in ["idle", "completed", "waiting", "notLoaded"] {
+        task["status"] = json!(status);
+        let result = call(
+            &mut runtime,
+            "devmap_read_map",
+            json!({"view":"agent","codex_tasks":[task],"codex_tasks_complete":true}),
+        );
+        assert_eq!(
+            result["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
+            "occupied",
+            "{result}"
+        );
+    }
+    for (lifecycle, state, risk) in [
+        ("present", "occupied", false),
+        ("archived", "unattended", true),
+        ("deleted", "unattended", true),
+        ("unknown", "unknown", false),
+    ] {
+        task["lifecycle"] = json!(lifecycle);
+        let result = call(
+            &mut runtime,
+            "devmap_read_map",
+            json!({"view":"agent","codex_tasks":[task],"codex_tasks_complete":true}),
+        );
+        assert_ne!(result["result"]["isError"], true, "{result}");
+        let summary = &result["result"]["structuredContent"]["workspace_facts"]["passengers"];
+        assert_eq!(
+            result["result"]["structuredContent"]["task_observation"]["scope"],
+            "unarchived_chats"
+        );
+        assert_eq!(summary["state"], state, "{result}");
+        assert_eq!(summary["unattended_work"], risk, "{result}");
+    }
+    let result = call(
+        &mut runtime,
+        "devmap_read_map",
+        json!({"view":"agent","codex_tasks":[],"codex_tasks_complete":false}),
+    );
+    assert_eq!(
+        result["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
+        "unknown"
+    );
+    let result = call(
+        &mut runtime,
+        "devmap_read_map",
+        json!({"view":"agent","codex_tasks":[],"codex_tasks_complete":true}),
+    );
+    assert_eq!(
+        result["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
+        "unattended"
+    );
+    task.as_object_mut().unwrap().remove("lifecycle");
+    let result = call(
+        &mut runtime,
+        "devmap_read_map",
+        json!({"view":"agent","codex_tasks":[task],"codex_tasks_complete":true}),
+    );
+    assert_eq!(
+        result["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
+        "unknown"
+    );
+}
+
+#[test]
 fn agent_context_keeps_delivery_intent_separate_from_observed_facts() {
     let repo = support::committed_repo();
     let before = support::source_snapshot(repo.path());

@@ -27,6 +27,7 @@ use devmap::worktrees::repository_id;
 
 fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask {
     ObservedTask {
+        lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: "01a00000-0000-7000-8000-000000000001".into(),
         display_title: title.into(),
         host: "local".into(),
@@ -35,6 +36,25 @@ fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask 
         status: PresenceStatus::Working,
         updated_at: "2026-09-03T10:00:00Z".into(),
     }
+}
+
+#[test]
+fn passenger_snapshot_expires_without_changing_chat_lifecycle() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let first = service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Waiting owner")], now)
+        .unwrap();
+    assert_eq!(first.workspace_facts[0].passengers.state, "occupied");
+    let stale = service.refresh(now + time::Duration::seconds(121)).unwrap();
+    assert_eq!(stale.workspace_facts[0].passengers.state, "unknown");
+    assert_eq!(stale.workspace_facts[0].passengers.observed_count, 1);
+    assert!(!stale.workspace_facts[0].passengers.unattended_work);
+    assert_eq!(
+        stale.lanes[0].chats[0].lifecycle,
+        devmap::dock::TaskLifecycle::Present
+    );
 }
 
 fn import_linear_history(repo: &std::path::Path, commit_count: usize) {
@@ -307,6 +327,7 @@ fn verified_inventory_promotes_matching_presence_without_losing_capture_evidence
         .find(|row| row.worktree_id == record.worktree_id)
         .unwrap();
     let task = ObservedTask {
+        lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: id.into(),
         display_title: "Verified renamed task".into(),
         host: "local".into(),
@@ -875,6 +896,7 @@ fn bounded_output_marks_a_partially_retained_task_roster() {
     let mut service = DockService::open(repo.path()).unwrap();
     let tasks = (0..100)
         .map(|index| ObservedTask {
+            lifecycle: devmap::dock::TaskLifecycle::Present,
             session_id: format!("01a00000-0000-7000-8000-{index:012}"),
             display_title: format!("task-{index}-{}", "x".repeat(16 * 1024)),
             host: "local".into(),
@@ -901,6 +923,14 @@ fn bounded_output_marks_a_partially_retained_task_roster() {
     assert!(model.truncated);
     assert!(!model.task_observation.complete);
     assert_eq!(model.counts.tasks, 100);
+    assert!(
+        model
+            .workspace_facts
+            .iter()
+            .all(|facts| facts.passengers.state == "unknown"
+                && !facts.passengers.unattended_work
+                && !facts.passengers.cleanup_review)
+    );
 }
 
 #[test]

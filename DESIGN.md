@@ -258,6 +258,14 @@ Controls use gently compact 6px corners. Workspace groups, task rows, the inspec
 - **Facts:** Flexible metadata rows with warning and unknown glyphs shown beside their factual text.
 - **Overflow:** A long expanded inventory scrolls inside the workspace group rather than clipping or increasing the world without bound.
 
+### Transfer Platforms and Planned Arrivals
+
+- A worktree platform attaches to its observed HEAD. Its compact face shows identity, observed passenger counts, integration state, shared-ancestor navigation, task rows, and delivery destination. Detailed facts remain available in a keyboard-accessible disclosure.
+- One existing unarchived chat counts as one passenger, including its executing Agent. Completed, idle and unloaded chats still count. Archived/deleted records remain outside the passenger roster; legacy existence is unknown. Developing, waiting, finished and unknown activity are distinct from presence. A complete fresh inventory is required to confirm an unattended platform. Unattended uncommitted or unmerged work raises attention; clean included work only suggests cleanup review.
+- Double-ring stations identify forks and merges present in retained commit topology. A current common ancestor never claims to be a recorded worktree creation point.
+- Dashed journeys leave the platform for a labeled planned arrival area outside commit history. They add no commit, ancestry edge, or claimed completed merge. Missing retained target geometry remains distinct from an explicitly unavailable target.
+- The self-contained resource budget is 144 KiB, including platform and arrival navigation; no external UI dependencies are added.
+
 ### Task Rows
 
 - **Structure:** Full-width row with a soft top divider, 8px padding, and a minimum 44px target.

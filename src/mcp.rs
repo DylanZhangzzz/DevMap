@@ -833,6 +833,7 @@ fn map_tool_response(
             tool_result(json!({
                 "repository_id":model["repository_id"], "revision":model["revision"],
             "generated_at":model["generated_at"], "workspace":workspace,
+            "task_observation":model["task_observation"],
             "workspace_facts":model["workspace_facts"].as_array().into_iter().flatten().find(|facts| &facts["worktree_id"] == workspace_id),
                 "route_plans":plans, "warnings":model["warnings"], "truncated":model["truncated"],
                 "execution":{"checks_status":"unverified", "merge_ready":false,
@@ -1019,7 +1020,7 @@ fn parse_codex_tasks(
         return Ok(None);
     };
     let complete = match arguments.get("codex_tasks_complete") {
-        None => true,
+        None => false,
         Some(Value::Bool(complete)) => *complete,
         Some(_) => return Err(DevMapError::InvalidDomain("codex_tasks_complete")),
     };
@@ -1043,6 +1044,7 @@ fn parse_codex_tasks(
                 "id",
                 "title",
                 "status",
+                "lifecycle",
                 "cwd",
                 "updatedAt",
                 "hostId",
@@ -1057,9 +1059,19 @@ fn parse_codex_tasks(
             continue;
         }
         let host_status = required_string(row, "status")?;
+        let lifecycle = match row.get("lifecycle").and_then(Value::as_str) {
+            Some("present") => crate::dock::TaskLifecycle::Present,
+            Some("archived") => crate::dock::TaskLifecycle::Archived,
+            Some("deleted") => crate::dock::TaskLifecycle::Deleted,
+            Some("unknown") => crate::dock::TaskLifecycle::Unknown,
+            None if !row.contains_key("lifecycle") => crate::dock::TaskLifecycle::Unknown,
+            _ => return Err(DevMapError::InvalidDomain("codex_tasks.lifecycle")),
+        };
         let status = match host_status.as_str() {
             "active" => PresenceStatus::Working,
             "idle" => PresenceStatus::Idle,
+            "waiting" => PresenceStatus::Waiting,
+            "completed" => PresenceStatus::Completed,
             "notLoaded" => PresenceStatus::Stale,
             _ => return Err(DevMapError::InvalidDomain("codex_tasks.status")),
         };
@@ -1083,6 +1095,7 @@ fn parse_codex_tasks(
         .map_err(|_| DevMapError::InvalidDomain("codex_tasks.updatedAt"))?
         .format(&Rfc3339)?;
         tasks.push(ObservedTask {
+            lifecycle,
             session_id,
             display_title: required_string(row, "title")?,
             host,
@@ -1529,7 +1542,8 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                                 "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
                             },
                             "title": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
-                            "status": {"type": "string", "enum": ["active", "idle", "notLoaded"]},
+                            "status": {"type": "string", "enum": ["active", "idle", "waiting", "completed", "notLoaded"]},
+                            "lifecycle": {"type":"string", "enum":["present","archived","deleted","unknown"], "description":"Chat existence independent of execution status. Present requires an observed unarchived chat. Omission means unknown; absence from a list never proves deletion."},
                             "cwd": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
                             "updatedAt": {"type": "integer", "minimum": 0},
                             "hostId": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
@@ -1541,7 +1555,7 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                 },
                 "codex_tasks_complete": {
                     "type": "boolean",
-                    "description": "Whether codex_tasks is a complete host inventory. Omit both fields to retain the previous observation."
+                    "description": "Whether codex_tasks covers every local unarchived chat, including idle, completed and unloaded chats. Judge coverage before filtering. Omit both fields to retain the previous observation."
                 }
             },
             "additionalProperties": false

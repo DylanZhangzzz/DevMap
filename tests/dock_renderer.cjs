@@ -82,18 +82,100 @@ function codexId(value) {
   for (const character of String(value)) { hash ^= character.charCodeAt(0); hash = Math.imul(hash, 16777619) >>> 0; }
   return `01990000-0000-7000-8000-${hash.toString(16).padStart(8, '0')}0000`;
 }
-function chat(id, title, status = 'active') {
+function chat(id, title, status = 'active', lifecycle = 'present') {
   const threadId = codexId(id);
-  return { session_id: 'session-' + id, codex_thread_id: threadId, display_title: title, actor_id: 'codex', host: 'local', host_status: status, route_id: 'thread:' + threadId, status: status === 'active' ? 'working' : status, status_source: 'host_explicit', confidence: 'observed', capture_grade: 'A', last_event_at: stamp, blocker_count: 0, gap_count: 0, capture_incomplete: false, association_source: 'codex_task_cwd' };
+  return { lifecycle, session_id: 'session-' + id, codex_thread_id: threadId, display_title: title, actor_id: 'codex', host: 'local', host_status: status, route_id: 'thread:' + threadId, status: status === 'active' ? 'working' : status, status_source: 'host_explicit', confidence: 'observed', capture_grade: 'A', last_event_at: stamp, blocker_count: 0, gap_count: 0, capture_incomplete: false, association_source: 'codex_task_cwd' };
 }
 function snapshot() {
-  const lanes = topology.attachments.map((a, i) => ({ worktree_id: a.worktree_id, workspace_path: 'C:/checkouts/' + ['main-folder', 'auth-folder', 'ui-folder', 'api-folder', 'detached-folder', 'auth-copy'][i], is_current: i === 0, branch: i === 0 ? 'main' : 'feature/' + i, head: a.head_oid, relationship: { base_target: 'main', merge_target: 'main', merged: true, ahead: 0, behind: 0, dirty: false, changed_file_count: 0, status_observed: true, fork_point: null }, chats: i === 0 ? [chat('a', '<img onerror=alert(1)> 保留完整任务标题'), chat('b', 'Second exact title'), chat('c', 'Third active title'), chat('d', 'Idle task', 'idle'), chat('e', 'Historical task', 'completed')] : [] }));
-  return { schema_version: 'devmap/dock/4', repository_id: 'sha256-' + 'c'.repeat(64), revision: 4, observation_revision: 9, generated_at: stamp, current_worktree_id: lanes[0].worktree_id, development_target: null, integration_branches: [], branch_groups: [{ target_branch: 'main', terminal: false, fork_point: null, lanes }], lanes, current: [], active: [], stale_or_uninstrumented: [], topology: structuredClone(topology.graph), workspace_facts: lanes.map(l => ({ worktree_id: l.worktree_id, head_oid: l.head, detached: false, head_ref_coverage: 'protected', integration: 'included', target_ref: 'refs/heads/main', merge_commit_oid: null, working_state: 'clean', upstream: 'unknown', task_observed_at: stamp, git_observed_at: stamp, writer_evidence: [] })), task_observation: { observed_at: stamp, complete: true }, counts: { workspaces: lanes.length, tasks: 5 }, task_inventory_synced_at: stamp, warnings: [], truncated: false };
+  const lanes = topology.attachments.map((a, i) => ({ worktree_id: a.worktree_id, workspace_path: 'C:/checkouts/' + ['main-folder', 'auth-folder', 'ui-folder', 'api-folder', 'detached-folder', 'auth-copy'][i], is_current: i === 0, branch: i === 0 ? 'main' : 'feature/' + i, head: a.head_oid, relationship: { base_target: 'main', merge_target: 'main', merged: true, ahead: 0, behind: 0, dirty: false, changed_file_count: 0, status_observed: true, fork_point: null }, chats: i === 0 ? [chat('a', '<img onerror=alert(1)> 保留完整任务标题'), chat('b', 'Second exact title'), chat('c', 'Third active title'), chat('d', 'Idle task', 'idle'), chat('e', 'Historical task', 'completed', 'archived')] : [] }));
+  return { schema_version: 'devmap/dock/4', repository_id: 'sha256-' + 'c'.repeat(64), revision: 4, observation_revision: 9, generated_at: stamp, current_worktree_id: lanes[0].worktree_id, development_target: null, integration_branches: [], branch_groups: [{ target_branch: 'main', terminal: false, fork_point: null, lanes }], lanes, current: [], active: [], stale_or_uninstrumented: [], topology: structuredClone(topology.graph), workspace_facts: lanes.map(l => ({ worktree_id: l.worktree_id, head_oid: l.head, detached: false, head_ref_coverage: 'protected', integration: 'included', target_ref: 'refs/heads/main', merge_commit_oid: null, working_state: 'clean', upstream: 'unknown', task_observed_at: stamp, git_observed_at: stamp, writer_evidence: [] })), task_observation: { scope: "unarchived_chats", observed_at: stamp, complete: true }, counts: { workspaces: lanes.length, tasks: 5 }, task_inventory_synced_at: stamp, warnings: [], truncated: false };
 }
 
 // Reusable synthetic snapshot builder for the coordinated browser acceptance batch.
 module.exports = { snapshot, chat };
+
 if (require.main === module) {
+test('empty legacy inventories cannot certify an unattended platform', () => {
+  const ui=harness(), value=snapshot(); delete value.task_observation.scope;
+  value.lanes[0].chats=[]; value.workspace_facts[0].working_state='dirty';
+  assert.equal(ui.acceptSnapshot(value),true);
+  const surface=ui.ids.get('relationship-map'); assert.ok(surface.textContent.includes('Passengers unknown'));
+  assert.ok(!surface.textContent.includes('Unattended work'));
+});
+test('archiving the final passenger exposes unattended work and stale data retracts certainty', () => {
+  const ui = harness(), value = snapshot(), lane = value.lanes[0];
+  lane.chats = [chat('owner','Finished but unarchived','completed')]; value.workspace_facts[0].working_state = 'dirty';
+  assert.equal(ui.acceptSnapshot(value),true);
+  const surface = ui.ids.get('relationship-map');
+  assert.ok(surface.textContent.includes('1 passengers'));
+  assert.ok(surface.querySelectorAll('.task-node').some(n => n.textContent.includes('Finished but unarchived')));
+  assert.equal(ui.ids.get('metric-open').textContent,'0');
+  lane.chats[0].lifecycle = 'archived'; value.observation_revision++;
+  assert.equal(ui.acceptSnapshot(value),true);
+  assert.ok(surface.textContent.includes('Unattended work'));
+  assert.equal(ui.ids.get('metric-open').textContent,'1');
+  ui.advance(120001); ui.refreshDynamicState();
+  assert.ok(surface.textContent.includes('Passengers unknown'));
+  assert.ok(!surface.querySelectorAll('.platform-occupancy')[0].textContent.includes('Unattended'));
+  assert.ok(!surface.querySelectorAll('.workspace-risk')[0].textContent.includes('Unattended work'));
+});
+test('deleted chat records are inspect-only and never send task navigation', () => {
+  const ui = harness(), value = snapshot(); value.lanes[0].chats=[chat('deleted','Deleted chat','active','deleted')];
+  ui.acceptSnapshot(value); const surface=ui.ids.get('relationship-map');
+  surface.querySelectorAll('.historical-conversations')[0].listeners.click();
+  const row=surface.querySelectorAll('.task-node')[0]; assert.equal(row.dataset.navigable,'false');
+  row.listeners.click({preventDefault(){}});
+  assert.equal(ui.messages.filter(m=>m.method==='ui/message').length,0);
+});
+test('platforms show passengers and shared ancestry without invented creation history', () => {
+  const ui = harness(), value = snapshot(), lane = value.lanes[0];
+  lane.relationship.fork_point = {commit: lane.head,target_branch:'main',tags:[],subject:null,authored_at:null,distance_to_target:0};
+  value.route_plans = [{route_id:'route-0123456789abcdef0123456789abcdef',repository_id:value.repository_id,revision:1,worktree_id:lane.worktree_id,start_commit:lane.head,goal:'Deliver login',target_ref:'refs/heads/main',milestones:[],source:'User plan',abandoned:false,updated_at:stamp}];
+  assert.equal(ui.acceptSnapshot(value), true);
+  const surface = ui.ids.get('relationship-map');
+  assert.ok(surface.textContent.includes('4 passengers'));
+  assert.ok(surface.textContent.includes('Common ancestor'));
+  assert.ok(surface.textContent.includes('Creation point not recorded'));
+  assert.ok(surface.querySelectorAll('.workspace-details').every(n => !n.open));
+  assert.equal(surface.querySelectorAll('[class="future-connection"]').length, 1);
+  assert.ok(surface.textContent.includes('Planned arrival'));
+  surface.querySelectorAll('.route-plan-title')[0].listeners.click();
+  const update = {...value,observation_revision:10}; ui.acceptSnapshot(update);
+  assert.ok(ui.ids.get('selection-details').textContent.includes('Deliver login'));
+  assert.ok(ui.ids.get('selection-details').textContent.includes('Planned destination'));
+  ui.acceptSnapshot({...update,route_plans:[],observation_revision:11});
+  assert.ok(ui.ids.get('selection-details').textContent.includes('Selected route plan is no longer available'));
+});
+test('passenger states separate waiting and unknown from developing', () => {
+  const ui = harness(), value = snapshot();
+  value.lanes[0].chats = [chat('a','Developing'),chat('b','Waiting','waiting'),chat('c','Unknown','unknown'),chat('d','Idle','idle'),chat('e','Done','completed')];
+  assert.equal(ui.acceptSnapshot(value), true);
+  assert.ok(ui.ids.get('relationship-map').textContent.includes('1 developing · 2 waiting · 1 finished · 1 activity unknown'));
+});
+test('workspace details retain keyboard focus and expansion through rerenders', () => {
+  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value);
+  const surface = ui.ids.get('relationship-map'), details = surface.querySelectorAll('.workspace-details')[0];
+  const summary = details.querySelector('summary'); summary.focus(); details.open = true; details.listeners.toggle();
+  assert.notEqual(ui.document.activeElement, summary);
+  assert.equal(ui.document.activeElement.dataset.objectId, summary.dataset.objectId);
+  assert.equal(ui.document.activeElement.parentNode.open, true);
+  ui.acceptSnapshot({...value,observation_revision:10});
+  assert.equal(ui.document.activeElement.parentNode.open, true);
+});
+test('arrival labels distinguish absent targets from unretained and unspecified targets', () => {
+  const ui = harness(), value = snapshot(), lane = value.lanes[0];
+  const plan = {route_id:'route-0123456789abcdef0123456789abcdef',repository_id:value.repository_id,revision:1,worktree_id:lane.worktree_id,start_commit:lane.head,goal:'Deliver login',target_ref:'refs/heads/unretained',milestones:[],source:'User plan',abandoned:false,updated_at:stamp};
+  value.route_plans = [plan];
+  assert.equal(ui.acceptSnapshot(value), true);
+  const surface = ui.ids.get('relationship-map');
+  assert.ok(surface.textContent.includes('Target outside displayed history'));
+  value.warnings = [{code:'planned_target_unavailable',subject_id:plan.route_id}]; value.observation_revision++;
+  assert.equal(ui.acceptSnapshot(value), true);
+  assert.ok(surface.textContent.includes('Destination unavailable'));
+  value.warnings = []; plan.target_ref = null; value.observation_revision++;
+  assert.equal(ui.acceptSnapshot(value), true);
+  assert.ok(surface.textContent.includes('Destination not specified'));
+});
 test('first view focuses the current workspace at readable size; full map is explicit', () => {
   const ui = harness(), value = snapshot(); assert.equal(ui.acceptSnapshot(value), true);
   const map = ui.ids.get('relationship-map'), world = ui.ids.get('topology-world'), viewport = ui.ids.get('topology-viewport');
@@ -108,7 +190,7 @@ test('first view focuses the current workspace at readable size; full map is exp
   assert.equal(overview.hidden, false);
   assert.equal(overview.querySelectorAll('.overview-workspace').length, value.lanes.length);
   assert.ok(overview.textContent.includes('main-folder'));
-  assert.ok(overview.textContent.includes('5 tasks'));
+  assert.ok(overview.textContent.includes('4 passengers'));
   assert.equal(overview.style.transform, undefined, 'readable summaries must not share the map transform');
 });
 
@@ -160,10 +242,10 @@ test('overview preserves dirty, not-included and unknown activity independently 
   assert.ok(overview, 'risk summary exists');
   assert.ok(overview.textContent.includes('Uncommitted changes'));
   assert.ok(overview.textContent.includes('Commits not included'));
-  assert.ok(overview.textContent.includes('Task activity unknown'));
-  assert.ok(overview.textContent.includes('Last observed'));
+  assert.ok(overview.textContent.includes('Passenger presence unknown'));
+  assert.ok(overview.textContent.includes('Passengers unknown'));
   ui.advance(180000); ui.refreshDynamicState();
-  assert.ok(overview.textContent.includes('Task activity unknown'));
+  assert.ok(overview.textContent.includes('Passenger presence unknown'));
 });
 
 test('map zoom keys are scoped to the canvas and preserve browser zoom shortcuts', () => {
@@ -352,7 +434,7 @@ test('budget-reduced task detail stays explicitly partial beside the named works
   assert.ok(!card.textContent.includes('No linked task observed'));
   assert.match(card.textContent, /Uncommitted changes/);
   assert.match(card.querySelector('.worktree-identity').getAttribute('aria-label'), /C:\/checkouts\/main-folder/);
-  assert.match(card.textContent, /Task activity unknown/);
+  assert.match(card.textContent, /Passenger presence unknown/);
 });
 
 test('v4 renders actual graph, measured workspaces, exact names, and keeps invalid snapshots atomic', () => {
@@ -365,7 +447,7 @@ test('v4 renders actual graph, measured workspaces, exact names, and keeps inval
   assert.ok(surface.querySelector('.worktree-identity').getAttribute('aria-label').includes('checkouts/main-folder'));
   assert.ok(surface.textContent.includes('<img onerror=alert(1)> 保留完整任务标题'));
   assert.equal(surface.querySelectorAll('img').length, 0);
-  assert.equal(surface.querySelector('.task-count-summary').textContent, '3 active tasks · 1 idle');
+  assert.equal(surface.querySelector('.task-count-summary').textContent, '3 developing · 1 other passengers');
   assert.equal(surface.querySelectorAll('.task-node').length, 2);
   const layout = surface.metroLayout;
   const card = surface.querySelectorAll('[data-worktree-id]')[0];
@@ -398,7 +480,7 @@ test('observation-only envelopes update independent facts without relaying out g
   const stale = structuredClone(value); stale.observation_revision++; stale.task_observation.observed_at = new Date(now - 300000).toISOString();
   assert.equal(ui.acceptSnapshot(stale), true);
   assert.equal(surface.metroLayout, layout);
-  assert.ok(surface.textContent.includes('Task activity unknown'));
+  assert.ok(surface.textContent.includes('Passenger presence unknown'));
   assert.ok(!surface.textContent.includes('No active task observed'));
 });
 
@@ -422,7 +504,7 @@ test('task expansion reallocates measured cards and history remains explicitly d
   const ui = harness(), value = snapshot(); assert.equal(ui.acceptSnapshot(value), true);
   const surface = ui.ids.get('relationship-map');
   const initial = surface.metroLayout.attachments.find(a => a.worktree_id === value.current_worktree_id);
-  surface.querySelectorAll('.task-disclosure').find(n => n.textContent.includes('Show all active')).listeners.click();
+  surface.querySelectorAll('.task-disclosure').find(n => n.textContent.includes('Show all passengers')).listeners.click();
   assert.equal(surface.querySelectorAll('.task-node').length, 4);
   assert.ok(surface.textContent.includes('Third active title'));
   assert.ok(surface.textContent.includes('Idle task'));
@@ -443,7 +525,7 @@ test('a two-name default preview is followed by an explicit active count', () =>
   assert.equal(card.querySelectorAll('.task-node').length, 2);
   const summary = card.querySelector('.task-count-summary');
   assert.ok(summary, 'the visible names need a following active-count summary');
-  assert.equal(summary.textContent, '2 active tasks');
+  assert.equal(summary.textContent, '2 developing');
 });
 
 test('SVG routes use station centers and each crossing masks only its underpassing edge', () => {
@@ -526,7 +608,7 @@ test('unsupported task records remain inspectable and MCP requests recover on ti
 test('exploration state survives observation refresh and reports selected objects that disappear', () => {
   const ui = harness(), value = snapshot(); assert.equal(ui.acceptSnapshot(value), true);
   let surface = ui.ids.get('relationship-map');
-  surface.querySelectorAll('.task-disclosure').find(node => node.textContent.includes('Show all active')).listeners.click();
+  surface.querySelectorAll('.task-disclosure').find(node => node.textContent.includes('Show all passengers')).listeners.click();
   surface = ui.ids.get('relationship-map');
   const selected = surface.querySelectorAll('.task-node').find(node => node.textContent.includes('Third active title'));
   selected.listeners.click({ preventDefault() {} });
@@ -686,13 +768,13 @@ test('roster states and counts qualify stale, incomplete and missing observation
     value.observation_revision++; value.task_observation = observation;
     assert.equal(ui.acceptSnapshot(value), true);
     assert.equal(surface.querySelector('.conversation-state').textContent, 'Last observed ACTIVE');
-    assert.match(surface.querySelector('.task-count-summary').textContent, /Last observed.*3 active tasks/);
+    assert.match(surface.querySelector('.task-count-summary').textContent, /Last observed.*3 developing/);
     assert.equal(surface.querySelector('.task-node').dataset.objectId, 'task:' + codexId('a'));
   }
-  value.observation_revision++; value.task_observation = { observed_at: stamp, complete: true };
+  value.observation_revision++; value.task_observation = { scope: "unarchived_chats", observed_at: stamp, complete: true };
   ui.acceptSnapshot(value); ui.advance(120001); ui.refreshDynamicState();
   assert.equal(surface.querySelector('.conversation-state').textContent, 'Last observed ACTIVE');
-  assert.match(surface.querySelector('.task-disclosure').getAttribute('aria-label'), /Last observed.*3 active tasks/);
+  assert.match(surface.querySelector('.task-disclosure').getAttribute('aria-label'), /Last observed.*3 developing/);
 });
 
 test('valid recovery clears only snapshot rejection feedback and retains independent navigation failure', () => {
@@ -749,7 +831,7 @@ test('wayfinding includes through-routes and leave-reenter paths but excludes fu
   assert.deepEqual(visible, ['through', 'reenter']);
 });
 
-test('task freshness ages independently and recently idle dirty work waits for the threshold', () => {
+test('passenger freshness ages independently and idle chats keep ownership', () => {
   const ui = harness({ nowMs: now }), value = snapshot();
   value.workspace_facts[0].working_state = 'dirty';
   value.lanes[0].chats = [chat('idle-clock', 'Recently idle task', 'idle')];
@@ -763,15 +845,15 @@ test('task freshness ages independently and recently idle dirty work waits for t
 
   ui.advance(120_001); ui.refreshDynamicState();
   assert.match(ui.ids.get('task-inventory').textContent, /stale/);
-  assert.ok(ui.ids.get('relationship-map').textContent.includes('Task activity unknown'));
+  assert.ok(ui.ids.get('relationship-map').textContent.includes('Passenger presence unknown'));
 
   const threshold = structuredClone(value); threshold.observation_revision++;
   threshold.task_observation.observed_at = new Date(now + 120_001).toISOString();
   threshold.lanes[0].chats[0].last_event_at = new Date(now + 120_001 - 30 * 60_000).toISOString();
   threshold.branch_groups[0].lanes = threshold.lanes;
   assert.equal(ui.acceptSnapshot(threshold), true);
-  assert.equal(ui.ids.get('metric-open').textContent, '1');
-  assert.ok(ui.ids.get('relationship-map').textContent.includes('linked tasks idle at least 30 minutes'));
+  assert.equal(ui.ids.get('metric-open').textContent, '0');
+  assert.ok(ui.ids.get('relationship-map').textContent.includes('1 passengers'));
 });
 
 test('refresh preserves keyboard focus by task identity and selected station viewport offset', () => {
@@ -799,7 +881,7 @@ test('refresh preserves keyboard focus by task identity and selected station vie
 test('hundreds of active, idle and historical tasks stay reachable inside measured card bounds', () => {
   for (const category of ['active', 'idle', 'completed']) {
     const ui = harness({ textScale: 2 }), value = snapshot(), lane = value.lanes[0];
-    lane.chats = Array.from({ length: 400 }, (_, i) => chat('overflow-' + i, '完整任务名称 ' + category + ' ' + i, category));
+    lane.chats = Array.from({ length: 400 }, (_, i) => chat('overflow-' + i, '完整任务名称 ' + category + ' ' + i, category, category === 'completed' ? 'archived' : 'present'));
     value.counts.tasks = 400;
     value.workspace_facts[0].working_state = 'dirty';
     value.workspace_facts[0].detached = true;

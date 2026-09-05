@@ -279,9 +279,17 @@ fn data_inventory_refresh_reaches_the_running_viewer() {
             DOCK_DATA_TOOL,
             json!({"codex_tasks": [renamed.clone()], "codex_tasks_complete": false}),
         ),
-        (4, DOCK_RENDER_TOOL, json!({"codex_tasks": [renamed]})),
+        (
+            4,
+            DOCK_RENDER_TOOL,
+            json!({"codex_tasks": [renamed], "codex_tasks_complete": true}),
+        ),
         (5, DOCK_DATA_TOOL, json!({})),
-        (6, DOCK_DATA_TOOL, json!({"codex_tasks": []})),
+        (
+            6,
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks": [], "codex_tasks_complete": true}),
+        ),
     ] {
         let response = runtime
             .handle(&call(json!(index), tool, arguments))
@@ -436,7 +444,7 @@ fn codex_task_inventory_rejects_unsupported_status() {
                 "codex_tasks": [{
                     "id": "01a00000-0000-7000-8000-000000000004",
                     "title": "Completed task",
-                    "status": "completed",
+                    "status": "invented-status",
                     "cwd": repo.path().to_string_lossy(),
                     "updatedAt": 1_788_425_000_u64,
                     "hostId": "local",

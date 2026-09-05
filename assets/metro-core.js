@@ -28,7 +28,8 @@
   const CONFIDENCE_STATES = new Set(["observed", "leased", "inferred", "unknown"]);
   const CAPTURE_GRADES = new Set(["A", "B", "C", "D"]);
   const ASSOCIATION_SOURCES = new Set(["presence_worktree_id", "codex_task_cwd"]);
-  const ACTIVE_TASK_STATES = new Set(["active", "starting", "working", "waiting"]);
+  const ACTIVE_TASK_STATES = new Set(["active", "starting", "working"]);
+  const LIFECYCLES = new Set(["present", "archived", "deleted", "unknown"]);
   const TASK_STATES = new Set(["active", "starting", "working", "waiting", "idle", "completed", "stale", "unknown", "notLoaded"]);
   const BRANCH_COLOR_TOKENS = Object.freeze([
     "branch-red",
@@ -40,9 +41,7 @@
   ]);
   const BRANCH_PATTERNS = Object.freeze(["solid"]);
   const ATTENTION_REASONS = new Set([
-    "uncommitted_without_active_task",
-    "uncommitted_idle",
-    "not_included",
+    "unattended_work",
     "unprotected_head",
     "concurrent_writes",
   ]);
@@ -246,6 +245,7 @@
 
   function validChat(chat) {
     return isRecord(chat)
+      && (chat.lifecycle === undefined || LIFECYCLES.has(chat.lifecycle))
       && boundedString(chat.session_id, false)
       && safeCodexThreadId(chat.codex_thread_id)
       && boundedString(chat.display_title, false)
@@ -464,7 +464,7 @@
     const taskRows = Array.isArray(tasks) ? tasks : [];
     const taskById = new Map();
     for (const task of taskRows) {
-      if (!isRecord(task) || !boundedString(task.id, false) || !TASK_STATES.has(task.status)) continue;
+      if (!isRecord(task) || !boundedString(task.id, false) || !TASK_STATES.has(task.status) || task.lifecycle !== "present") continue;
       let aggregate = taskById.get(task.id);
       if (!aggregate) {
         aggregate = { active: false, idle: false, lastActivityMs: null, writeObservedAtMs: null };
@@ -487,29 +487,15 @@
     const integration = isRecord(facts) ? facts.integration : "unknown";
     if (!WORKING_STATES.has(workingState) || workingState === "unknown") addReason("git_state_unknown");
 
-    if (workingState === "dirty") {
-      if (!observationFresh) {
-        addReason("task_activity_unknown");
-      } else if (activeCount === 0) {
-        const idleTasks = uniqueTasks.filter((task) => task.idle);
-        if (idleTasks.length === 0) {
-          addReason("uncommitted_without_active_task");
-        } else if (idleTasks.some((task) => !finiteInstant(task.lastActivityMs) || nowMs < task.lastActivityMs)) {
-          addReason("task_activity_unknown");
-        } else if (idleTasks.every((task) => nowMs - task.lastActivityMs >= IDLE_ATTENTION_MS)) {
-          addReason("uncommitted_idle");
-        }
-      }
-    }
-
-    if (integration === "ahead") {
-      if (!observationFresh) addReason("task_activity_unknown");
-      else if (activeCount === 0) addReason("not_included");
+    const passengers = summarizePassengers(taskRows, observation, nowMs);
+    if (workingState === "dirty" || integration === "ahead") {
+      if (passengers.state === "unknown") addReason("task_activity_unknown");
+      else if (passengers.state === "unattended") addReason("unattended_work");
     }
 
     if (isRecord(facts) && facts.detached === true && facts.headRefCoverage === "unprotected") addReason("unprotected_head");
 
-    if (observationFresh && activeCount >= 2) {
+    if (passengers.state === "occupied" && passengers.observedCount >= 2) {
       addReason("shared_workspace");
       const freshWriterCount = activeTasks.filter((task) => freshInstant(task.writeObservedAtMs, nowMs, TASK_FRESHNESS_MS)).length;
       if (freshWriterCount >= 2) addReason("concurrent_writes");
@@ -519,6 +505,23 @@
       ? "attention"
       : reasons.some((reason) => UNKNOWN_REASONS.has(reason)) ? "unknown" : "normal";
     return { level, reasons, activeCount };
+  }
+
+  function summarizePassengers(tasks, observation, nowMs) {
+    const chats = new Map();
+    for (const task of Array.isArray(tasks) ? tasks : []) {
+      if (!isRecord(task) || task.isChat === false || !boundedString(task.id, false)) continue;
+      const lifecycle = LIFECYCLES.has(task.lifecycle) ? task.lifecycle : "unknown";
+      const previous = chats.get(task.id);
+      chats.set(task.id, previous && previous.lifecycle !== lifecycle ? {lifecycle:"unknown",status:"unknown"} : {...task,lifecycle});
+    }
+    const present = [...chats.values()].filter(t => t.lifecycle === "present");
+    const fresh = observation?.complete === true && freshInstant(observation.observedAtMs, nowMs, TASK_FRESHNESS_MS);
+    const state = !fresh ? "unknown" : present.length ? "occupied" : [...chats.values()].some(t => t.lifecycle === "unknown") ? "unknown" : "unattended";
+    const developing = present.filter(t => ACTIVE_TASK_STATES.has(t.status)).length;
+    const waiting = present.filter(t => ["waiting","idle"].includes(t.status)).length;
+    const completed = present.filter(t => t.status === "completed").length;
+    return {observedCount:present.length,state,developing,waiting,completed,unknown:present.length-developing-waiting-completed};
   }
 
   function branchColorKey(repositoryId, refName) {
@@ -619,7 +622,10 @@
       cells.get(oid).push(record);
       return record;
     };
-    for (const n of nodes) label("node-label", `node:${n.id}`, n.id, 96, 44, { node: n });
+    for (const n of nodes) {
+      n.transfer = commits.get(n.id)?.parents.length > 1 ? "merge" : children.get(n.id).length > 1 ? "fork" : null;
+      label("node-label", `node:${n.id}`, n.id, n.transfer ? 160 : 96, 44, { node: n });
+    }
     const refs = [...refsInput].sort((a, b) => compare(a.ref_name, b.ref_name)).map(r =>
       label("ref", `ref:${r.ref_name}`, r.oid, Math.min(320, Math.max(96, r.display_name.length * 8 + 48)), 44, { ref_name: r.ref_name,
         display_name: r.display_name, ref_kind: r.kind, color: branchColorKey(repositoryId, r.ref_name) }));
@@ -773,6 +779,37 @@
     return crossings;
   }
 
+  function layoutJourneys(layout, plans = []) {
+    if (!Array.isArray(plans) || plans.length > 64) throw new TypeError("Invalid route plans");
+    const active = plans.filter(p => !p.abandoned && layout.attachments.some(a => a.worktree_id === p.worktree_id));
+    const arrivals = [], journeys = [], groups = new Map();
+    const zoneX = layout.width + 80 + active.length * 12;
+    for (const [index, plan] of active.entries()) {
+      const key = plan.target_ref || "unknown";
+      let zone = groups.get(key);
+      if (!zone) {
+        const ref = layout.refs.find(r => r.ref_name === plan.target_ref);
+        const node = ref && layout.nodes.find(n => n.id === ref.oid);
+        let y = node ? node.y : layout.height + 40;
+        while (arrivals.some(a => Math.abs(a.y - y) < 80)) y += 80;
+        zone = {target_ref:plan.target_ref,available:!!node,x:zoneX,y,width:240,height:64,route_ids:[]};
+        groups.set(key, zone); arrivals.push(zone);
+      }
+      zone.route_ids.push(plan.route_id);
+      const a = layout.attachments.find(a => a.worktree_id === plan.worktree_id);
+      const lane = layout.lanes.find(l => l.id === a.lane_id);
+      const shelf = [...layout.refs, ...layout.boundaries, ...layout.attachments].filter(r => r.oid === a.oid);
+      const exitX = Math.max(a.x + a.width, ...shelf.map(r => r.x + r.width)) + 12;
+      const corridorY = lane ? lane.top + lane.height - 12 : a.y + a.height + 16;
+      const channelX = layout.width + 32 + index * 12;
+      journeys.push({route_id:plan.route_id,worktree_id:plan.worktree_id,target_ref:plan.target_ref,
+        points:[{x:a.x+a.width,y:a.y+a.height-12},{x:exitX,y:a.y+a.height-12},
+          {x:exitX,y:corridorY},{x:channelX,y:corridorY},{x:channelX,y:zone.y},{x:zone.x,y:zone.y}]});
+    }
+    return {journeys,arrivals,width:active.length ? zoneX+264 : layout.width,
+      height:Math.max(layout.height,...arrivals.map(a => a.y+a.height))};
+  }
+
   return Object.freeze({
     MAX_COMMITS,
     MAX_REFS,
@@ -783,7 +820,9 @@
     validateTopology,
     validateSnapshot,
     classifyWorkspace,
+    summarizePassengers,
     branchColorKey,
     layoutTopology,
+    layoutJourneys,
   });
 });

@@ -27,6 +27,23 @@ use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/4";
 pub const MAX_DOCK_MODEL_BYTES: usize = 768 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskLifecycle {
+    Present,
+    Archived,
+    Deleted,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PassengerSummary {
+    pub observed_count: usize,
+    pub state: String,
+    pub unattended_work: bool,
+    pub cleanup_review: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockEntry {
     pub worktree_id: String,
@@ -50,6 +67,7 @@ pub struct DockEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockChat {
+    pub lifecycle: TaskLifecycle,
     pub session_id: String,
     pub codex_thread_id: Option<String>,
     pub display_title: String,
@@ -70,6 +88,7 @@ pub struct DockChat {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedTask {
+    pub lifecycle: TaskLifecycle,
     pub session_id: String,
     pub display_title: String,
     pub host: String,
@@ -107,6 +126,7 @@ pub struct WriterEvidence {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceFacts {
+    pub passengers: PassengerSummary,
     pub worktree_id: String,
     pub head_oid: String,
     pub detached: bool,
@@ -123,6 +143,7 @@ pub struct WorkspaceFacts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TaskObservation {
+    pub scope: &'static str,
     pub observed_at: Option<String>,
     pub complete: bool,
 }
@@ -229,6 +250,7 @@ impl<R: RouteProvider> DockReducer<R> {
             now,
             observed_tasks,
             TaskObservation {
+                scope: "unarchived_chats",
                 observed_at: None,
                 complete: false,
             },
@@ -349,6 +371,7 @@ impl<R: RouteProvider> DockReducer<R> {
                         chat.host = task.host.clone();
                         chat.status = task.status;
                         chat.status_source = StatusSource::HostExplicit;
+                        chat.lifecycle = task.lifecycle;
                         chat.confidence = Confidence::Observed;
                         chat.last_event_at = task.updated_at.clone();
                     } else {
@@ -406,7 +429,7 @@ impl<R: RouteProvider> DockReducer<R> {
             &lanes,
             &topology,
             &relationship_report.integration_branches,
-            task_observation.observed_at.as_deref(),
+            &task_observation,
             &git_observed_at,
         );
         let counts = DockCounts {
@@ -693,6 +716,7 @@ impl DockService {
             .collect::<BTreeSet<_>>();
         let journals = summarize_existing_sessions(&self.workspace, &sessions);
         let task_observation = TaskObservation {
+            scope: "unarchived_chats",
             observed_at: self.task_inventory_synced_at.clone(),
             complete: self.task_inventory_complete,
         };
@@ -923,6 +947,7 @@ fn compare_entries(left: &DockEntry, right: &DockEntry) -> std::cmp::Ordering {
 fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
     let actor_id = entry.actor_id.clone()?;
     Some(DockChat {
+        lifecycle: TaskLifecycle::Unknown,
         session_id: entry.session_id.clone()?,
         codex_thread_id: None,
         display_title: actor_id.clone(),
@@ -944,6 +969,7 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
 
 fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
     DockChat {
+        lifecycle: task.lifecycle,
         session_id: task.session_id.clone(),
         codex_thread_id: Some(task.session_id.clone()),
         display_title: task.display_title.clone(),
@@ -979,7 +1005,7 @@ fn workspace_facts(
     lanes: &[DockLane],
     topology: &TopologyGraph,
     integration_branches: &[IntegrationBranch],
-    task_observed_at: Option<&str>,
+    observation: &TaskObservation,
     git_observed_at: &str,
 ) -> Vec<WorkspaceFacts> {
     lanes
@@ -1016,6 +1042,7 @@ fn workspace_facts(
                 reference.kind == "remote" && ref_reaches_head(topology, &reference.oid, &lane.head)
             });
             WorkspaceFacts {
+                passengers: passenger_summary(lane, observation, git_observed_at, integration),
                 worktree_id: lane.worktree_id.clone(),
                 head_oid: lane.head.clone(),
                 detached: lane.branch.is_none(),
@@ -1032,12 +1059,59 @@ fn workspace_facts(
                 }
                 .into(),
                 upstream: if published { "published" } else { "unknown" }.into(),
-                task_observed_at: task_observed_at.map(str::to_owned),
+                task_observed_at: observation.observed_at.clone(),
                 git_observed_at: Some(git_observed_at.to_owned()),
                 writer_evidence: Vec::new(),
             }
         })
         .collect()
+}
+
+fn passenger_summary(
+    lane: &DockLane,
+    observation: &TaskObservation,
+    now: &str,
+    integration: &str,
+) -> PassengerSummary {
+    let chats: BTreeMap<_, _> = lane
+        .chats
+        .iter()
+        .filter_map(|chat| chat.codex_thread_id.as_ref().map(|id| (id, chat.lifecycle)))
+        .collect();
+    let observed_count = chats
+        .values()
+        .filter(|state| **state == TaskLifecycle::Present)
+        .count();
+    let fresh = observation.complete
+        && observation
+            .observed_at
+            .as_deref()
+            .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok())
+            .zip(OffsetDateTime::parse(now, &Rfc3339).ok())
+            .is_some_and(|(at, now)| {
+                let age = now - at;
+                age >= time::Duration::ZERO && age <= time::Duration::seconds(120)
+            });
+    let state = if !fresh {
+        "unknown"
+    } else if observed_count > 0 {
+        "occupied"
+    } else if chats.values().any(|state| *state == TaskLifecycle::Unknown) {
+        "unknown"
+    } else {
+        "unattended"
+    };
+    PassengerSummary {
+        observed_count,
+        state: state.into(),
+        unattended_work: state == "unattended"
+            && ((lane.relationship.status_observed && lane.relationship.dirty)
+                || integration == "ahead"),
+        cleanup_review: state == "unattended"
+            && lane.relationship.status_observed
+            && !lane.relationship.dirty
+            && integration == "included",
+    }
 }
 
 fn ref_reaches_head(topology: &TopologyGraph, ref_oid: &str, head_oid: &str) -> bool {
@@ -1295,6 +1369,21 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
         });
         model.warnings.dedup();
     }
+    // Recompute after budget reduction: a partial roster cannot certify absence.
+    for facts in &mut model.workspace_facts {
+        if let Some(lane) = model
+            .lanes
+            .iter()
+            .find(|lane| lane.worktree_id == facts.worktree_id)
+        {
+            facts.passengers = passenger_summary(
+                lane,
+                &model.task_observation,
+                &model.generated_at,
+                &facts.integration,
+            );
+        }
+    }
     if canonical_json(&model)?.len() > MAX_DOCK_MODEL_BYTES {
         return Err(DevMapError::ResourceLimit {
             resource: "Dock read model",
@@ -1457,7 +1546,11 @@ mod budget_tests {
             &lanes,
             &topology,
             &[],
-            Some("2026-09-05T00:00:00Z"),
+            &TaskObservation {
+                scope: "unarchived_chats",
+                observed_at: Some("2026-09-05T00:00:00Z".into()),
+                complete: true,
+            },
             "2026-09-05T00:00:00Z",
         );
         DockReadModel {
@@ -1474,6 +1567,7 @@ mod budget_tests {
             topology,
             workspace_facts: facts,
             task_observation: TaskObservation {
+                scope: "unarchived_chats",
                 observed_at: Some("2026-09-05T00:00:00Z".into()),
                 complete: true,
             },

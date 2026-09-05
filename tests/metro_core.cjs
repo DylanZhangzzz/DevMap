@@ -20,6 +20,43 @@ const oid = (character) => character.repeat(40);
 
 const TOPOLOGY = require('./fixtures/metro/topology.json');
 const BOUNDARIES = require('./fixtures/metro/boundaries.json');
+
+test('passengers describe chat existence, independent of running state', () => {
+  const core = require(CORE_PATH), obs = {complete:true,observedAtMs:1000};
+  const tasks = ['completed','idle','notLoaded','waiting'].map((status,i) => ({id:String(i),status,lifecycle:'present'}));
+  tasks.push({id:'archived',status:'active',lifecycle:'archived'},{id:'deleted',status:'active',lifecycle:'deleted'});
+  const summary = core.summarizePassengers(tasks,obs,1000);
+  assert.equal(summary.observedCount,4); assert.equal(summary.state,'occupied');
+  assert.equal(core.summarizePassengers(tasks.slice(4),obs,1000).state,'unattended');
+  assert.equal(core.summarizePassengers([], {...obs,complete:false},1000).state,'unknown');
+  assert.equal(core.summarizePassengers([],obs,121001).state,'unknown');
+  assert.equal(core.summarizePassengers([{id:'legacy',status:'active'}],obs,1000).state,'unknown');
+  assert.equal(core.summarizePassengers([tasks[0],tasks[0]],obs,1000).observedCount,1);
+});
+
+test('unattended work uses passenger existence rather than running task count', () => {
+  const facts = {workingState:'dirty',integration:'ahead',headRefCoverage:'protected'}, obs = {complete:true,observedAtMs:1000};
+  for (const status of ['idle','completed','notLoaded','waiting']) {
+    assert.equal(classifyWorkspace(facts,[{id:'chat',status,lifecycle:'present'}],obs,1000).level,'normal');
+  }
+  assert.ok(classifyWorkspace(facts,[{id:'chat',status:'active',lifecycle:'archived'}],obs,1000).reasons.includes('unattended_work'));
+  assert.equal(classifyWorkspace(facts,[],{...obs,complete:false},1000).level,'unknown');
+});
+
+test('future journeys end outside history and never create commit edges', () => {
+  const core = require(CORE_PATH), layout = layoutTopology(TOPOLOGY.graph, TOPOLOGY.attachments);
+  const before = JSON.stringify(layout), target = layout.refs[0].ref_name;
+  const plan = {route_id:'route-one',worktree_id:layout.attachments[0].worktree_id,target_ref:target,abandoned:false};
+  const projected = core.layoutJourneys(layout, [plan]);
+  assert.equal(JSON.stringify(layout), before);
+  assert.equal(projected.journeys.length, 1);
+  assert.ok(projected.arrivals[0].x > layout.width);
+  assert.equal(projected.arrivals[0].target_ref, target);
+  assert.equal(projected.arrivals[0].available, true);
+  assert.equal(core.layoutJourneys(layout, [{...plan,abandoned:true}]).journeys.length, 0);
+  assert.equal(core.layoutJourneys(layout, [{...plan,target_ref:'refs/heads/missing'}]).arrivals[0].available, false);
+  assert.equal(core.layoutJourneys(layout, [{...plan,worktree_id:'missing'}]).journeys.length, 0);
+});
 const layoutOptions = { rowGap: 96, columnGap: 96, repositoryId: 'synthetic-repository' };
 const point = (node) => ({ x: node.x, y: node.y });
 test('compact ref shelf keeps two connected workspace routes within one desktop scene', () => {
@@ -412,24 +449,24 @@ test('attention classification implements every fixed-clock evidence row', async
   }
 });
 
-test('dirty recently-idle work changes attention only at the exact idle boundary', () => {
+test('idle time never removes an existing passenger', () => {
   const facts = { workingState: 'dirty', integration: 'included', headRefCoverage: 'protected', detached: false, upstream: 'unknown' };
-  const tasks = [{ id: 'idle-boundary', status: 'idle', lastActivityMs: 8_200_000, writeObservedAtMs: null }];
+  const tasks = [{ id: 'idle-boundary', lifecycle:'present', status: 'idle', lastActivityMs: 8_200_000, writeObservedAtMs: null }];
   assert.deepEqual(
     classifyWorkspace(facts, tasks, { complete: true, observedAtMs: 9_999_999 }, 9_999_999),
     { level: 'normal', reasons: [], activeCount: 0 },
   );
   assert.deepEqual(
     classifyWorkspace(facts, tasks, { complete: true, observedAtMs: 10_000_000 }, 10_000_000),
-    { level: 'attention', reasons: ['uncommitted_idle'], activeCount: 0 },
+    { level: 'normal', reasons: [], activeCount: 0 },
   );
 });
 
 test('duplicate task rows do not inflate active or writer counts', () => {
   const facts = { workingState: 'dirty', integration: 'ahead', headRefCoverage: 'protected', detached: false, upstream: 'unknown' };
   const tasks = [
-    { id: 'same-task', status: 'working', lastActivityMs: 9_999_000, writeObservedAtMs: 9_999_000 },
-    { id: 'same-task', status: 'working', lastActivityMs: 9_998_000, writeObservedAtMs: 9_998_000 },
+    { id: 'same-task', lifecycle:'present', status: 'working', lastActivityMs: 9_999_000, writeObservedAtMs: 9_999_000 },
+    { id: 'same-task', lifecycle:'present', status: 'working', lastActivityMs: 9_998_000, writeObservedAtMs: 9_998_000 },
   ];
   const result = classifyWorkspace(facts, tasks, { complete: true, observedAtMs: 9_999_000 }, 10_000_000);
   assert.equal(result.activeCount, 1);
