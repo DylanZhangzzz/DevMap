@@ -1,0 +1,8 @@
+{
+  "attention": "1 workspace needs attentionqa-git-reference/detached-workspace · Task activity unknown; Detached work lacks a stable ref",
+  "auth": "qa-git-reference/auth-workspaceBranch · feature/authWorkspace · 6aee70dd3 linked tasksUncommitted changes · 1 filesCommits included in mainPublication unknownTask activity unknownTasks observed 3m ago · staleLocate HEAD · 8df837f4QA · Agent A — 登录流程与会话修复Agent · codexACTIVElocal · 15m ago01a00000-0000-7000-8000-000000000002 · codex_task_cwd · CAPTURE INCOMPLETE1 active task · 1 idleShow all active and idle tasks+1 previous tasks",
+  "current": "qa-git-reference/main-workspaceCurrentBranch · mainWorkspace · 2a9c3a851 linked tasksWorking tree cleanIntegration terminalPublication unknownTasks observed 3m ago · staleLocate HEAD · fcc9e1b6QA · Agent M — Release readinessAgent · codexACTIVElocal · 15m ago01a00000-0000-7000-8000-000000000001 · codex_task_cwd · CAPTURE INCOMPLETE",
+  "feedback": "",
+  "git": "GIT LIVE · observed now",
+  "tasks": "Tasks · observed 3m ago · stale"
+}

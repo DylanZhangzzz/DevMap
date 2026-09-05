@@ -59,6 +59,7 @@ pub struct GitRelationship {
     pub behind: Option<u32>,
     pub dirty: bool,
     pub changed_file_count: u32,
+    pub status_observed: bool,
     pub fork_point: Option<ForkPoint>,
 }
 
@@ -114,16 +115,25 @@ impl GitRelationshipResolver {
                         chunk
                             .iter()
                             .map(|matches| {
+                                let status = dirty_state(&matches[0].root);
                                 (
                                     matches.clone(),
-                                    relationship_for(
-                                        matches[0],
-                                        target_for_worktree(
+                                    match status {
+                                        Ok((dirty, changed_file_count)) => relationship_for(
                                             matches[0],
-                                            root_target.as_ref(),
-                                            development_target.as_ref(),
-                                        ),
-                                    ),
+                                            target_for_worktree(
+                                                matches[0],
+                                                root_target.as_ref(),
+                                                development_target.as_ref(),
+                                            ),
+                                            dirty,
+                                            changed_file_count,
+                                        )
+                                        .map_err(|error| {
+                                            (error, Some((dirty, changed_file_count)))
+                                        }),
+                                        Err(error) => Err((error, None)),
+                                    },
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -147,16 +157,26 @@ impl GitRelationshipResolver {
                         }
                         relationship.clone()
                     }
-                    Err(_) => {
+                    Err((_, observed_status)) => {
                         warnings.push(GitRelationshipWarning {
                             code: "git_relationship_unavailable",
                             worktree_id: Some(worktree.worktree_id.clone()),
                         });
-                        unknown_relationship(target_for_worktree(
+                        let target = target_for_worktree(
                             worktree,
                             root_target.as_ref(),
                             development_target.as_ref(),
-                        ))
+                        );
+                        observed_status.map_or_else(
+                            || unknown_relationship(target),
+                            |(dirty, changed_file_count)| {
+                                unknown_relationship_with_observed_status(
+                                    target,
+                                    dirty,
+                                    changed_file_count,
+                                )
+                            },
+                        )
                     }
                 };
                 by_worktree_id.insert(worktree.worktree_id.clone(), relationship);
@@ -327,8 +347,9 @@ fn configured_ref(value: &str) -> Option<String> {
 fn relationship_for(
     worktree: &WorktreeDescriptor,
     target: Option<&DevelopmentTarget>,
+    dirty: bool,
+    changed_file_count: u32,
 ) -> Result<(GitRelationship, Option<&'static str>), DevMapError> {
-    let (dirty, changed_file_count) = dirty_state(&worktree.root)?;
     let Some(target) = target else {
         return Ok((
             GitRelationship {
@@ -339,6 +360,7 @@ fn relationship_for(
                 behind: None,
                 dirty,
                 changed_file_count,
+                status_observed: true,
                 fork_point: None,
             },
             None,
@@ -427,6 +449,7 @@ fn relationship_for(
             behind: Some(behind),
             dirty,
             changed_file_count,
+            status_observed: true,
             fork_point: Some(ForkPoint {
                 target_branch: target.name.clone(),
                 commit: merge_base,
@@ -450,6 +473,7 @@ fn unknown_relationship(target: Option<&DevelopmentTarget>) -> GitRelationship {
         behind: None,
         dirty: false,
         changed_file_count: 0,
+        status_observed: false,
         fork_point: None,
     }
 }
@@ -467,6 +491,7 @@ fn unknown_relationship_with_dirty(
         behind: None,
         dirty,
         changed_file_count,
+        status_observed: true,
         fork_point: None,
     }
 }
@@ -580,7 +605,27 @@ where
         .arg(root)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .output()?)
+}
+
+fn unknown_relationship_with_observed_status(
+    target: Option<&DevelopmentTarget>,
+    dirty: bool,
+    changed_file_count: u32,
+) -> GitRelationship {
+    GitRelationship {
+        base_target: target.map(|value| value.name.clone()),
+        merge_target: target.map(|value| value.name.clone()),
+        merged: None,
+        ahead: None,
+        behind: None,
+        dirty,
+        changed_file_count,
+        status_observed: true,
+        fork_point: None,
+    }
 }
 
 fn output_text(output: &Output, command: &str) -> Result<String, DevMapError> {

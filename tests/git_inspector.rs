@@ -64,3 +64,19 @@ fn inspection_rejects_non_repository_and_unborn_repository() {
         .unwrap_err();
     assert!(error.to_string().contains("HEAD"));
 }
+
+#[test]
+fn dock_workspace_allows_only_a_genuinely_unborn_symbolic_head() {
+    let unborn = tempfile::tempdir().unwrap();
+    git(unborn.path(), ["init", "-b", "main"]);
+
+    let inspector = SourceGitInspector::open(unborn.path()).unwrap();
+    let workspace = inspector.workspace_allow_unborn().unwrap();
+
+    assert_eq!(workspace.branch.as_deref(), Some("main"));
+    assert!(workspace.head.is_empty());
+    assert!(
+        inspector.workspace().is_err(),
+        "strict callers must still reject unborn HEAD"
+    );
+}

@@ -1,0 +1,9 @@
+{
+  "width": 526,
+  "height": 794,
+  "pageHeight": 1051,
+  "bodyWidth": 511,
+  "viewport": { "x": 8, "y": 407, "width": 495.2000122070313, "height": 571.9625244140625 },
+  "currentCard": { "x": 88, "y": 439.8000183105469, "width": 320, "height": 333.6499938964844, "bottom": 773.4500122070312 },
+  "source": "Read-only DOM measurement captured with round1-user-526.png; the title-selector probe initially used an obsolete selector, so no fabricated title-box number is supplied. Actual card/name visibility is in the screenshot and AX tree."
+}

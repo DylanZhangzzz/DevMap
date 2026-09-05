@@ -3,245 +3,252 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DevMap Git Work Map</title>
+  <title>DevMap · Rail View — Repository topology</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f4f5f7; --bg-canvas: #fafbfc; --surface: #ffffff; --surface-raised: #f5f8fc;
-      --line: #d9dde3; --line-soft: #e9ebef; --text: #202124; --muted: #6f747c; --faint: #9aa0a8;
-      --main-rail: #202124; --accent: #1677ff; --accent-soft: #eaf3ff; --success: #20b26b; --warning: #d99013;
-      --danger: #d92d54; --unknown: #89919b; --focus: #1677ff;
+      --bg: #fffdf8; --bg-canvas: #fffdf8; --surface: #ffffff; --surface-raised: #f2f5f8;
+      --line: #778394; --line-soft: #dce1e6; --text: #17212f; --muted: #4f5b6c;
+      --main-rail: #202124; --branch-red: #e32017; --branch-blue: #003688; --branch-green: #00782a;
+      --branch-yellow: #ffd300; --branch-cyan: #0098d4; --branch-magenta: #9b0056;
+      --accent: #005bbb; --accent-soft: #e9f1fb; --success: #176b38; --warning: #8a4b00;
+      --danger: #b42318; --unknown: #4f5b6c; --focus: #005bbb; --keyline: #4f5b6c;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-width: 0; min-height: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); }
-    body { font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
-    button { font: inherit; touch-action: manipulation; }
-    button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    html, body { margin: 0; min-width: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    html { container-type: inline-size; container-name: dock; }
+    body { font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    button, input { font: inherit; color: inherit; }
+    button { min-height: 44px; padding: 8px 10px; border: 1px solid transparent; background: transparent; text-align: left; cursor: pointer; touch-action: manipulation; }
+    button:hover { background: var(--surface-raised); }
+    button:active { background: var(--accent-soft); }
+    button:disabled { cursor: wait; color: var(--muted); }
+    button:focus-visible, a:focus-visible, input:focus-visible, .worktree-cluster:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    [aria-current="true"] { outline: 2px solid var(--focus); outline-offset: 2px; }
     [hidden] { display: none !important; }
-    .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; transform: translateY(-160%); border-radius: 8px; background: var(--text); color: var(--bg); }
+    ::selection { background: var(--accent-soft); color: var(--text); }
+    .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; transform: translateY(-160%); background: var(--text); color: var(--surface); }
     .skip-link:focus { transform: translateY(0); }
-    .shell { container-type: inline-size; width: min(1440px, 100%); margin: 0 auto; padding: 24px; }
-    .masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 4px 14px; }
-    .eyebrow { margin: 0 0 2px; color: var(--text); font-size: 17px; font-weight: 800; letter-spacing: -.015em; text-transform: none; }
-    h1 { margin: 0; font-size: 14px; line-height: 1.25; letter-spacing: -.01em; }
-    .subhead { margin: 5px 0 0; color: var(--muted); font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .masthead-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-    .refresh { min-width: 82px; min-height: 34px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700; box-shadow: 0 1px 2px rgb(32 33 36 / 6%); }
-    .refresh:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-    .refresh:disabled { cursor: wait; opacity: .62; }
-    .overview { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 0; }
-    .metric { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 14px; border-right: 1px solid var(--line); background: transparent; }
-    .metric:first-child { padding-left: 0; }
-    .metric:last-child { border-right: 0; }
-    .metric strong { font-size: 14px; font-variant-numeric: tabular-nums; }
-    .metric span { color: var(--muted); font-size: 10px; }
-    .toolbar-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 14px; }
-    .connection { margin: 0; color: var(--success); font: 700 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .connection.offline { color: var(--warning); }
-    .density-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #f1f3f5; box-shadow: inset 0 1px 2px rgb(32 33 36 / 4%); }
-    .density-button { min-height: 32px; padding: 5px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font: 750 10px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .density-button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgb(32 33 36 / 12%), inset 0 0 0 1px var(--line); }
-    .legend { display: none; flex-wrap: wrap; justify-content: flex-end; gap: 8px 12px; color: var(--muted); font-size: 11px; }
-    html[data-density="full"] .legend { display: flex; }
-    .legend span { display: inline-flex; align-items: center; gap: 6px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
-    .dot.root { background: var(--main-rail); } .dot.dev { background: var(--accent); }
-    .dot.open { background: var(--warning); } .dot.dirty { background: var(--danger); }
-    .map-frame { --identity-width: 250px; --target-width: 142px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 10px 28px rgb(32 33 36 / 7%); }
-    .map-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); background: var(--surface); }
-    .map-title-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; min-width: 0; }
-    .topology-viewport { position: relative; width: 100%; height: auto; min-height: 320px; overflow-x: auto; overflow-y: visible; scrollbar-gutter: stable; overscroll-behavior-inline: contain; background: var(--bg-canvas); cursor: grab; }
+    .shell { width: min(1440px, 100%); height: 100dvh; margin: 0 auto; padding: 8px 16px; display: flex; flex-direction: column; }
+    #dock-main, .map-frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .masthead { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0; }
+    .masthead-actions { display: flex; align-items: center; gap: 8px; }
+    .connection, .task-inventory, .subhead, .meta { margin: 0; color: var(--muted); font-size: .75rem; }
+    .connection { color: var(--success); } .connection.offline { color: var(--warning); }
+    .refresh, .control { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+    .map-frame { min-width: 0; }
+    h1 { margin: 8px 0 0; font-size: 1rem; line-height: 1.25; font-weight: 700; letter-spacing: -.02em; }
+    .attention-list { display: flex; flex-wrap: wrap; gap: 4px 8px; max-height: 22vh; overflow: auto; }
+    .attention-summary summary, .edge-wayfinding summary, .observation-details summary { cursor: pointer; min-height: 32px; padding: 4px 0; }
+    .attention-summary { flex: none; margin: 0; }
+    .observation-details { font-size: .75rem; color: var(--muted); }
+    .observation-details[open] { max-height: 25vh; overflow: auto; }
+    .attention-link { display: inline-flex; align-items: center; gap: 8px; color: var(--warning); }
+    .status-icon { flex: none; width: 16px; height: 16px; vertical-align: -.2em; }
+    .coverage, .warnings, .interaction-feedback { margin: 8px 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
+    .coverage { color: var(--warning); }
+    .map-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 4px 0; flex: none; }
+    .map-navigation > * { flex: none; }
+    .map-navigation .control { padding: 4px 8px; }
+    .pan-controls { display: inline-flex; align-items: center; gap: 4px; }
+    .zoom-controls { display: inline-flex; gap: 4px; }
+    .zoom-controls button { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+    .pan-label { color: var(--muted); font-size: .75rem; }
+    .branch-index { position: relative; max-width: 100%; }
+    .branch-index summary { min-height: 44px; padding: 10px; cursor: pointer; }
+    .branch-list { display: flex; flex-wrap: wrap; max-height: 220px; overflow: auto; gap: 4px; padding: 4px; }
+    .branch-index[open] { flex-basis: 100%; }
+    .branch-choice { display: inline-flex; align-items: center; gap: 8px; max-width: 320px; }
+    .branch-choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .branch-swatch { width: 28px; height: 10px; flex: none; overflow: visible; }
+    .topology-viewport { position: relative; width: 100%; flex: 1; min-height: 100px; overflow: auto; overscroll-behavior-inline: contain; background: var(--bg-canvas); border-block: 1px solid var(--line-soft); cursor: grab; }
+    .edge-wayfinding { flex: none; font-size: .75rem; border-bottom: 1px solid var(--line-soft); }
+    .edge-list { max-height: 20vh; overflow: auto; }
+    .edge-route { display: flex; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--line-soft); }
+    .edge-destination { font-size: .75rem; overflow-wrap: anywhere; flex: 1 1 160px; }
+    .selection-details { max-height: 35vh; overflow: auto; flex: none; }
+    .map-help { flex: none; max-height: 22vh; overflow: auto; margin: 0; }
+    .map-help summary { min-height: 32px; padding-block: 4px; }
     .topology-viewport:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
     .topology-viewport.is-panning { cursor: grabbing; user-select: none; }
-    .topology-canvas, .topology-surface { display: grid; width: var(--topology-width, 1080px); min-width: var(--topology-width, 1080px); background: var(--bg-canvas); }
-    .rail-section { --rail-color: var(--main-rail); position: relative; min-width: 0; padding: 18px 18px 24px; border-bottom: 1px solid var(--line-soft); background: var(--bg-canvas); }
-    .rail-section:last-child { border-bottom: 0; }
-    .rail-section.development { --rail-color: var(--accent); }
-    .topology-grid-labels { display: grid; grid-template-columns: var(--identity-width) minmax(560px, 1fr) 132px var(--target-width); gap: 12px; margin: 0 0 8px; color: var(--faint); font: 700 8px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; letter-spacing: .08em; }
-    .topology-grid-labels span:last-child { text-align: right; }
-    .integration-rail { display: grid; grid-template-columns: var(--identity-width) minmax(720px, 1fr); align-items: center; gap: 18px; min-height: 48px; }
-    .rail-node { position: sticky; left: 18px; z-index: 7; min-height: 42px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 3px rgb(32 33 36 / 7%); }
-    .rail-node[aria-current="true"] { border-color: var(--rail-color); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .rail-node strong { display: block; overflow-wrap: anywhere; }
-    .rail-node span { display: block; color: var(--muted); font: 10px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .rail-line, .worktree-stage { display: grid; grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr)); }
-    .rail-line, .worktree-stage { padding-right: var(--target-width); }
-    .rail-line { position: relative; height: 2px; border-radius: 99px; background: var(--rail-color); }
-    .timeline-station { position: relative; inset: auto; z-index: 2; justify-self: center; align-self: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; transform: none; border: 0; background: transparent; cursor: pointer; }
-    .timeline-station::after { content: ""; position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
-    .timeline-station:hover::after, .timeline-station:focus-visible::after { box-shadow: 0 0 0 4px var(--accent-soft); }
-    .timeline-head { position: absolute; top: 50%; right: -1px; display: grid; place-items: center; min-width: 47px; min-height: 22px; padding: 0 10px; transform: translateY(-50%); border-radius: 999px; background: var(--rail-color); color: var(--surface); font: 800 9px/1 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .rail-parent { margin: 4px 0 4px calc(var(--identity-width) + 18px); color: var(--faint); font: 9px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .worktree-stage { position: relative; gap: 0; margin-top: 4px; margin-left: calc(var(--identity-width) + 18px); min-width: 0; }
-    .fork-node { position: relative; z-index: 2; justify-self: center; min-height: 18px; margin: 0; padding: 1px 5px; transform: none; border: 0; border-radius: 4px; background: var(--bg-canvas); color: var(--faint); cursor: pointer; text-align: center; font: 650 8px/1.15 ui-monospace, "Cascadia Code", Consolas, monospace; box-shadow: none; }
-    .fork-node[aria-current="true"] { color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-    .worktree-fork-meta { width: max-content; max-width: 100%; margin-bottom: 3px; overflow-wrap: anywhere; }
-    .worktree-cluster { position: relative; display: grid; grid-template-rows: auto auto auto auto auto auto; align-content: start; justify-self: center; width: 272px; min-width: 272px; }
-    .worktree-stem { justify-self: center; width: 2px; height: 28px; background: var(--accent); }
-    .workspace-branch.current { position: relative; }
-    .workspace-branch.current .worktree-stop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .worktree-stop, .task-node { position: relative; z-index: 2; min-width: 0; min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
-    .worktree-stop { align-self: center; justify-self: stretch; width: auto; margin-left: 0; }
-    .worktree-identity { position: relative; left: auto; z-index: 6; width: 100%; margin: 0; padding-left: 10px; background: var(--surface); box-shadow: 0 1px 2px rgb(32 33 36 / 4%); }
-    .worktree-stop:hover, .task-node:hover, .fork-node:hover, .rail-node:hover { border-color: var(--accent); }
-    .worktree-stop[aria-current="true"], .task-node[aria-current="true"] { border-color: var(--accent); background: var(--surface-raised); box-shadow: 0 0 0 2px var(--accent-soft); }
-    .branch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 10px; font-weight: 780; overflow-wrap: anywhere; }
-    .current-pill { padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 9px; letter-spacing: .05em; }
-    .workspace-short, .task-meta { display: block; margin-top: 3px; color: var(--muted); font: 10px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .worktree-state { margin: 6px 0 0; color: var(--muted); font: 800 9px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .worktree-state.dirty { color: var(--danger); }
-    .agent-roster { position: relative; display: grid; gap: 6px; margin: 8px 0 0 18px; padding-left: 16px; border-left: 2px solid var(--line); }
-    .task-node, .conversation-node { min-width: 0; min-height: 44px; padding: 7px 9px; }
-    .agent-task-node { width: 100%; min-height: 52px; }
-    .task-title, .conversation-title { display: block; font-size: 11px; font-weight: 760; overflow-wrap: anywhere; }
-    .conversation-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; margin-top: 3px; }
-    .agent-identity { color: var(--text); font: 700 9px/1.3 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .task-state, .conversation-state { color: var(--accent); font-size: 9px; font-weight: 800; text-transform: uppercase; }
-    .agent-task-node.history .conversation-state { color: var(--faint); }
-    .task-node.idle .task-state, .conversation-node.idle .conversation-state, .conversation-node.completed .conversation-state, .conversation-node.stale .conversation-state { color: var(--muted); }
-    .conversation-context, .conversation-audit { display: block; margin-top: 3px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
-    .historical-conversations { width: 100%; min-height: 44px; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 10px; }
-    .historical-conversations:hover { border-color: var(--accent); color: var(--text); }
-    .unlinked { min-height: 38px; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
-    .unlinked strong, .unlinked span { display: block; }
-    .unlinked strong { font-size: 11px; } .unlinked span { font-size: 9px; }
-    html[data-density="map"] .workspace-short, html[data-density="map"] .conversation-context, html[data-density="map"] .conversation-audit { display: none; }
-    html[data-density="read"] .conversation-audit { display: none; }
-    html[data-density="read"] .task-meta { display: none; }
-    .return-state { position: relative; z-index: 2; align-self: stretch; display: grid; align-content: center; min-height: 38px; margin-top: 10px; padding: 5px 8px; border: 0; color: var(--unknown); font-size: 9px; font-weight: 800; background: var(--bg-canvas); }
-    .return-state::before { content: ""; position: absolute; bottom: 100%; left: 50%; height: 10px; border-left: 2px dashed var(--unknown); }
-    .return-state.merged { color: #12804b; background: var(--bg-canvas); }
-    .return-state.merged::before { border-color: var(--success); border-style: solid; }
-    .return-state.unmerged { color: #9a620a; background: var(--bg-canvas); }
-    .counts { display: block; margin-top: 2px; color: var(--muted); font: 9px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .collapsed-branches { grid-column: 1 / -1; justify-self: start; min-height: 38px; margin: 8px 0 0; padding: 7px 11px; border: 1px dashed var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; }
-    .collapsed-branches:hover { border-color: var(--accent); color: var(--text); }
-    .selection-details { margin: 0; padding: 16px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: var(--surface); box-shadow: inset 0 1px 0 rgb(255 255 255 / 75%); }
-    .selection-details h2 { margin: 0 0 10px; font-size: 16px; }
-    .detail-empty { margin: 0; color: var(--muted); }
-    .detail-grid { display: grid; grid-template-columns: minmax(110px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 0; }
-    .detail-grid dt { color: var(--muted); }
-    .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
-    .detail-grid code { user-select: text; font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .copy-hash { min-height: 44px; margin-top: 12px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); color: var(--text); cursor: pointer; }
-    .warnings { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--warning); border-radius: 10px; background: #fff9ec; color: #8c5a08; }
-    .empty { margin: 0; padding: 20px; color: var(--muted); }
-    @container (max-width: 619px) {
-      .shell { padding: 12px; }
-      .map-frame { --identity-width: 214px; --target-width: 130px; }
-      .masthead { align-items: flex-start; flex-direction: column; }
-      .masthead-actions { width: 100%; justify-content: space-between; }
-      .map-toolbar { grid-template-columns: minmax(0, 1fr); }
-      .toolbar-side, .legend { justify-content: flex-start; }
-      .rail-section { padding: 14px 12px 18px; }
-      .rail-parent { margin-left: 0; }
-      .topology-viewport { max-height: min(72vh, 720px); overflow-y: auto; }
+    .topology-surface { position: relative; width: 100%; min-height: 320px; }
+    .topology-world { position: relative; overflow: hidden; min-height: 100px; }
+    .topology-world .topology-surface { position: absolute; left: 16px; top: 16px; transform-origin: 0 0; }
+    .topology-world .limited-world { position: relative; left: 0; top: 0; }
+    [data-overview="true"] :is(.node-label, .ref-label, .boundary-label, .worktree-cluster, .station) { visibility: hidden; }
+    [data-overview="true"] .rail-edge { stroke-width: calc(1.5px / var(--map-scale)); }
+    [data-overview="true"] .rail-keyline { stroke-width: calc(3px / var(--map-scale)); }
+    [data-overview="true"] mask path { stroke-width: calc(4px / var(--map-scale)); stroke-linecap: square; }
+    .overview-markers { position: absolute; inset: 0; pointer-events: none; }
+    .overview-marker { position: absolute; z-index: 1; width: 236px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); text-align: left; padding: 8px 10px; pointer-events: auto; font-size: .75rem; }
+    .overview-marker strong { display: block; font-size: .875rem; overflow-wrap: anywhere; }
+    .overview-marker .workspace-risk { display: block; margin: 4px 0 0; }
+    .overview-marker.current { background: var(--accent-soft); border-color: var(--accent); }
+    .overview-marker .marker-action { display: block; color: var(--accent); margin-top: 4px; }
+    .map-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 8px; color: var(--muted); font-size: .75rem; }
+    .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-rail { width: 24px; border-top: 2px solid var(--branch-blue); }
+    .legend-stem { width: 24px; border-top: 1px dashed var(--muted); }
+    .legend-commit { width: 10px; height: 10px; border: 2px solid var(--main-rail); border-radius: 50%; }
+    .workspace-choice { display: block; width: 100%; border-top: 1px solid var(--line-soft); }
+    .worktree-name, .worktree-stop .branch-meta { white-space: normal; overflow-wrap: anywhere; }
+    .overview-workspaces { flex: none; max-height: 28vh; overflow: auto; border-bottom: 1px solid var(--line-soft); }
+    .overview-help { margin: 6px 0; font-size: .75rem; color: var(--muted); }
+    .overview-workspace { display: block; width: 100%; border-top: 1px solid var(--line-soft); padding: 8px; }
+    .overview-heading { display: flex; align-items: center; gap: 8px; }
+    .overview-heading strong { overflow-wrap: anywhere; }
+    .overview-workspace .workspace-risk { display: block; padding: 0; }
+    .measurement-world { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
+    .metro-connections { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+    .rail-edge { fill: none; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+    .rail-keyline { fill: none; stroke: var(--keyline); stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
+    .association { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 4 5; }
+    .station { position: absolute; z-index: 2; width: 44px; height: 44px; min-width: 44px; padding: 0; border: 0; transform: translate(-50%, -50%); background: transparent; border-radius: 50%; }
+    .station:hover { background: var(--accent-soft); }
+    .station-dot { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%, -50%); border: 3px solid var(--rail-color, var(--main-rail)); border-radius: 50%; background: var(--bg-canvas); }
+    .station.light .station-dot { box-shadow: 0 0 0 1px var(--keyline), inset 0 0 0 1px var(--keyline); }
+    .station.boundary .station-dot { border-style: dashed; }
+    .node-label, .ref-label, .boundary-label { position: absolute; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px; line-height: 1.2; white-space: nowrap; overflow: hidden; font-size: .875rem; }
+    .node-label { font-size: .75rem; }
+    .label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .boundary-label { color: var(--warning); }
+    .worktree-cluster { position: absolute; z-index: 1; padding: 4px 0; border-block: 1px solid var(--line-soft); cursor: auto; }
+    .worktree-stop { display: block; width: 100%; padding: 4px 8px; }
+    .worktree-name { display: block; font-size: .9375rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .branch-meta { display: block; color: var(--muted); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .current-pill { display: inline-block; margin-left: 8px; color: var(--accent); font-size: .75rem; font-weight: 650; }
+    .workspace-branch.current .worktree-stop { background: var(--accent-soft); }
+    .workspace-facts { padding: 2px 8px 8px; color: var(--muted); font-size: .75rem; display: flex; flex-wrap: wrap; gap: 0 8px; }
+    .fact-line { margin: 2px 0; overflow-wrap: anywhere; }
+    .fact-line.attention { color: var(--warning); } .fact-line.unknown { color: var(--unknown); }
+    .fact-line .status-icon { margin-right: 6px; }
+    .agent-roster { display: grid; }
+    .task-node { display: block; width: 100%; border-top: 1px solid var(--line-soft); padding: 8px; }
+    a.task-node { min-height: 44px; color: inherit; text-decoration: none; cursor: pointer; }
+    a.task-node:hover { background: var(--surface-raised); }
+    a.task-node:active { background: var(--accent-soft); }
+    .task-title, .conversation-title { display: block; font-size: .875rem; font-weight: 600; overflow-wrap: anywhere; }
+    .task-heading { display: flex; align-items: start; gap: 8px; }
+    .task-heading .task-title { flex: 1; min-width: 0; }
+    .task-onward { flex: none; font-size: .75rem; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+    [data-navigable="false"] .task-onward { color: var(--muted); text-decoration: none; }
+    .conversation-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; font-size: .75rem; color: var(--muted); }
+    .conversation-state { color: var(--muted); } .active .conversation-state { color: var(--accent); }
+    .conversation-context, .conversation-audit { display: none; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
+    html[data-density="full"] .conversation-context, html[data-density="full"] .conversation-audit { display: block; }
+    .historical-conversations, .task-disclosure { width: 100%; color: var(--accent); font-size: .875rem; }
+    .task-count-summary { margin: 0; padding: 2px 8px; color: var(--muted); font-size: .75rem; }
+    .unlinked { margin: 4px 8px; color: var(--muted); font-size: .75rem; }
+    .empty { margin: 0; padding: 16px; color: var(--muted); }
+    .limited-world .worktree-cluster { position: relative; margin: 16px; }
+    .selection-details { padding: 16px 0; border-top: 1px solid var(--line); }
+    .selection-details h2 { display: inline; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+    .dismiss-details { float: right; }
+    .detail-grid { display: grid; grid-template-columns: minmax(100px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 14px 0 0; }
+    .detail-grid dt { color: var(--muted); } .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+    .detail-grid code { font: .75rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+    .copy-hash { margin-top: 12px; border: 1px solid var(--line); border-radius: 6px; }
+    .map-help { color: var(--muted); font-size: .75rem; }
+    .map-help summary { cursor: pointer; }
+    @container dock (max-width: 619px) {
+      .shell { padding: 8px; }
+      .masthead { align-items: flex-start; }
+      .masthead-actions { gap: 4px; justify-content: flex-end; }
+      .connection { flex-basis: 100%; text-align: right; }
       .detail-grid { grid-template-columns: minmax(0, 1fr); }
       .detail-grid dd { margin-bottom: 6px; }
     }
-    @container (max-width: 360px) { .overview { gap: 8px 0; } .metric { flex: 1 1 auto; } }
-    @media (pointer: coarse) { button { min-height: 44px; } }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+    @media (prefers-reduced-motion: reduce) { .topology-viewport { scroll-behavior: auto; } }
+    .workspace-risk { font-size: .75rem; padding: 0 8px; color: var(--warning); }
   </style>
 </head>
 <body>
-  <a class="skip-link" href="#dock-main">Skip to Git relationship map</a>
+  <a class="skip-link" href="#dock-main">Skip to repository topology</a>
   <div class="shell">
     <header class="masthead">
-      <div><p class="eyebrow">DevMap · Rail View</p><p class="subhead" id="revision">Waiting for a valid snapshot</p></div>
-      <div class="masthead-actions"><p class="connection" id="connection" aria-live="polite">CONNECTING · no update yet</p><button class="refresh" id="refresh" type="button">Refresh all</button></div>
+      <h1 id="map-title">Repository topology</h1>
+      <div class="masthead-actions">
+        <details class="observation-details"><summary>Observations</summary><p class="connection" id="connection" aria-live="polite">Git · connecting</p><p class="task-inventory" id="task-inventory" aria-live="polite">Tasks · observation unavailable</p>
+          <p>DevMap · Rail View</p>
+          <p class="subhead" id="revision">Waiting for a valid snapshot</p>
+          <p><span id="metric-workspaces">0</span> Workspaces · <span id="metric-tasks">0</span> Linked tasks · <span id="metric-open">0</span> need attention</p>
+          <button class="refresh" id="refresh" type="button">Refresh all</button>
+        </details>
+      </div>
     </header>
     <main id="dock-main" tabindex="-1">
       <section class="map-frame" aria-labelledby="map-title">
-        <div class="map-toolbar">
-          <div class="map-title-group">
-            <h1 id="map-title">Repository topology</h1>
-            <div class="overview" aria-label="Relationship summary">
-              <div class="metric"><strong id="metric-workspaces">0</strong><span>Workspaces</span></div>
-              <div class="metric"><strong id="metric-tasks">0</strong><span>Linked chats</span></div>
-              <div class="metric"><strong id="metric-open">0</strong><span>Not merged</span></div>
-            </div>
+        <details class="attention-summary" id="attention-summary" hidden></details>
+        <p class="coverage" id="coverage" role="status" hidden></p>
+        <div class="map-navigation" id="map-navigation">
+          <div class="zoom-controls" role="group" aria-label="Map zoom">
+            <button class="control" id="zoom-out" type="button" aria-label="Zoom map out" disabled>−</button>
+            <button class="control" id="zoom-reset" type="button" aria-label="Reset map to 100 percent" disabled>100%</button>
+            <button class="control" id="zoom-in" type="button" aria-label="Zoom map in" disabled>+</button>
+            <button class="control" id="zoom-fit" type="button" disabled>Full map</button>
           </div>
-          <div class="toolbar-side">
-            <div class="density-switch" id="density-switch" aria-label="Detail density">
-              <button class="density-button" type="button" data-density-value="map" aria-label="MAP density" aria-pressed="true">MAP</button>
-              <button class="density-button" type="button" data-density-value="read" aria-label="READ density" aria-pressed="false">READ</button>
-              <button class="density-button" type="button" data-density-value="full" aria-label="FULL density" aria-pressed="false">FULL</button>
-            </div>
-            <div class="legend" aria-label="Map legend"><span><i class="dot root"></i>Main rail</span><span><i class="dot dev"></i>Development rail</span><span><i class="dot open"></i>Not merged</span><span><i class="dot dirty"></i>Dirty</span></div>
+          <button class="control" id="locate-current" type="button" aria-label="Locate current workspace" disabled>Locate current</button>
+          <div class="pan-controls" role="group" aria-label="Pan repository topology">
+            <span class="pan-label">Pan</span>
+            <button class="control" id="pan-left" type="button" aria-label="Pan topology left">Left</button>
+            <button class="control" id="pan-right" type="button" aria-label="Pan topology right">Right</button>
           </div>
+          <details class="branch-index"><summary>Branches <span id="branch-count">0</span></summary><nav class="branch-list" id="branch-list" aria-label="Branch index"></nav></details>
         </div>
+        <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Workspace / reference link</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
         <div class="topology-viewport" id="topology-viewport" tabindex="0" aria-label="Scrollable repository topology">
-          <div class="relationship-map topology-canvas topology-surface" id="relationship-map"></div>
+          <div class="topology-world" id="topology-world"><div class="relationship-map topology-canvas topology-surface" id="relationship-map"><p class="empty">Waiting for repository topology and linked tasks…</p></div><div class="overview-markers" id="overview-markers" hidden></div></div>
         </div>
-        <section class="selection-details" id="selection-details" aria-labelledby="selection-title">
-          <h2 id="selection-title">Selection details</h2><p class="detail-empty">Select a common-base station, workspace, or task.</p>
-        </section>
+        <nav class="overview-workspaces" id="overview-workspaces" aria-label="Workspace overview" hidden></nav>
+        <details class="edge-wayfinding" id="edge-wayfinding" hidden><summary id="edge-summary">Connections beyond view</summary><nav class="edge-list" id="edge-list" aria-label="Trace offscreen parent and child connections"></nav></details>
+        <section class="selection-details" id="selection-details" aria-labelledby="selection-title" hidden></section>
+        <p class="interaction-feedback" id="snapshot-feedback" role="status" aria-live="polite" hidden></p>
+        <p class="interaction-feedback" id="interaction-feedback" role="status" aria-live="polite" hidden></p>
+        <details class="map-help"><summary>Map key and observation rules</summary>
+          <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
+          <p>Stations are commits. Colored rails follow verified parent relationships; thin dashed stems attach workspaces and references. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
+          <p>Branch colors identify references. Warnings describe separate workspace facts. Task inventory is fresh for 120 seconds; idle attention starts after 30 minutes. Unknown observations never prove inactivity.</p>
+        </details>
       </section>
       <p class="warnings" id="warnings" role="status" hidden></p>
     </main>
   </div>
   <script>
+    /* DEVMAP_METRO_CORE */
     (() => {
       "use strict";
-      const MAX_ROWS = 2048, MAX_TEXT = 16384, MAX_TAGS = 32, MAX_VISIBLE_BRANCHES = 6;
-      const MAX_RECENT_HISTORY = 3;
+      const Core = globalThis.DevMapMetroCore;
+      // Bound the rendered card, not its task inventory, below the layout dimension cap.
+      const MAX_WORKSPACE_HEIGHT = 1024;
       const NAVIGATION_RESPONSE_TIMEOUT_MS = 15000;
       const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
-      const pendingRequests = new Map();
-      const pendingNavigationNodes = new Map();
-      const pendingNavigationTimeouts = new Map();
-      const allowedStatus = new Set(["starting", "working", "waiting", "idle", "completed", "stale", "unknown"]);
-      const allowedConfidence = new Set(["observed", "leased", "inferred", "unknown"]);
-      const allowedSources = new Set(["config", "local_dev", "local_develop", "remote_default", "local_main", "local_master"]);
-      let nextRequestId = 1, renderedRevision = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream;
+      const pendingRequests = new Map(), pendingNavigationNodes = new Map(), pendingNavigationTimeouts = new Map();
+      let nextRequestId = 1, renderedRevision = -1, renderedObservation = -1, lastValidAt = 0, refreshTimer, ageTimer, eventStream;
       let lastTaskInventorySync = null, requestedTaskInventorySync = null, refreshRequestTimer;
-      const expandedTargets = new Set();
-      const expandedConversationHistory = new Set();
+      let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
+      let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
+      let mapScale = 1;
+      const expandedWorkspaces = new Set(), expandedConversationHistory = new Set();
+      const preferredWorkspaceByHead = new Map();
       const activeConversationStates = new Set(["starting", "working", "waiting", "active"]);
       const byId = (id) => document.getElementById(id);
-      const boundedText = (value) => typeof value === "string" && value.length > 0 && value.length <= MAX_TEXT;
-      const optionalText = (value) => value === null || value === undefined || boundedText(value);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
-      const safeRouteId = (value) => value === null || value === undefined || /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$/.test(value);
-      const safeCodexThreadId = (value) => value === null || value === undefined
-        || (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9-]{0,255}$/.test(value));
-      const safeCount = (value) => value === null || (Number.isSafeInteger(value) && value >= 0);
-      function validTask(task) {
-        return task && typeof task === "object" && boundedText(task.session_id) && boundedText(task.display_title)
-          && boundedText(task.actor_id) && boundedText(task.host) && optionalText(task.host_status)
-          && safeRouteId(task.route_id) && safeCodexThreadId(task.codex_thread_id) && allowedStatus.has(task.status) && allowedConfidence.has(task.confidence)
-          && boundedText(task.last_event_at) && typeof task.capture_incomplete === "boolean"
-          && (task.association_source === "presence_worktree_id" || task.association_source === "codex_task_cwd");
-      }
-      function validFork(fork) {
-        return fork && typeof fork === "object" && boundedText(fork.target_branch) && safeHash(fork.commit)
-          && Array.isArray(fork.tags) && fork.tags.length <= MAX_TAGS && fork.tags.every(boundedText)
-          && optionalText(fork.subject) && optionalText(fork.authored_at) && safeCount(fork.distance_to_target);
-      }
-      function validRelationship(value) {
-        return value && typeof value === "object" && optionalText(value.base_target) && optionalText(value.merge_target)
-          && (value.merged === null || typeof value.merged === "boolean") && safeCount(value.ahead) && safeCount(value.behind)
-          && typeof value.dirty === "boolean" && Number.isSafeInteger(value.changed_file_count) && value.changed_file_count >= 0
-          && (value.fork_point === null || validFork(value.fork_point));
-      }
-      function validLane(lane) {
-        return lane && typeof lane === "object" && /^wt-[0-9a-f]{64}$/.test(lane.worktree_id)
-          && boundedText(lane.workspace_path) && optionalText(lane.branch) && safeHash(lane.head)
-          && typeof lane.is_current === "boolean" && validRelationship(lane.relationship)
-          && Array.isArray(lane.chats) && lane.chats.length <= MAX_ROWS && lane.chats.every(validTask);
-      }
-      function validRail(rail) {
-        return rail && typeof rail === "object" && boundedText(rail.name) && boundedText(rail.ref_name)
-          && safeHash(rail.head) && optionalText(rail.parent) && allowedSources.has(rail.source);
-      }
-      function validGroup(group) {
-        return group && typeof group === "object" && boundedText(group.target_branch)
-          && typeof group.terminal === "boolean" && (group.fork_point === null || validFork(group.fork_point))
-          && Array.isArray(group.lanes) && group.lanes.length <= MAX_ROWS && group.lanes.every(validLane);
-      }
+      const safeCodexThreadId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+      const instant = (value) => { const ms = Date.parse(value); return Number.isFinite(ms) ? ms : null; };
+      const taskId = (chat) => chat.codex_thread_id || chat.session_id;
+      const REASONS = {
+        uncommitted_without_active_task: "Uncommitted changes · no active task observed",
+        uncommitted_idle: "Uncommitted changes · linked tasks idle at least 30 minutes",
+        not_included: "Commits not included in target",
+        unprotected_head: "Detached work lacks a stable ref",
+        concurrent_writes: "Concurrent writing observed",
+        task_activity_unknown: "Task activity unknown",
+        git_state_unknown: "Working state unknown",
+        shared_workspace: "Shared workspace"
+      };
+      const BOUNDARIES = { history_limit: "History limit reached", shallow: "Shallow history", missing: "History unavailable", unrelated: "Unrelated history" };
       function post(message) { window.parent.postMessage(message, "*"); }
       function callTool(name, args) {
         if (pendingRequests.size > 1) return null;
@@ -257,260 +264,669 @@
         if (document.visibilityState === "visible" && transport === "mcp") refreshTimer = setTimeout(() => { callTool("devmap_dock_snapshot", {}); scheduleRefresh(2000); }, Math.max(2000, delay));
       }
       function acceptSnapshot(value) {
-        if (!value || value.schema_version !== "devmap/dock/3") return false;
-        if (!Number.isSafeInteger(value.revision) || value.revision < renderedRevision) return false;
-        if (!/^sha256-[0-9a-f]{64}$/.test(value.repository_id) || !/^wt-[0-9a-f]{64}$/.test(value.current_worktree_id)) return false;
-        if (!Array.isArray(value.integration_branches) || value.integration_branches.length > MAX_ROWS || value.integration_branches.some((rail) => !validRail(rail))) return false;
-        if (!Array.isArray(value.branch_groups) || value.branch_groups.length > MAX_ROWS || value.branch_groups.some((group) => !validGroup(group))) return false;
-        if (!optionalText(value.task_inventory_synced_at)) return false;
-        if (!Array.isArray(value.warnings) || value.warnings.length > MAX_ROWS || value.warnings.some((warning) => !warning || !boundedText(warning.code) || !optionalText(warning.subject_id))) return false;
+        const validation = Core.validateSnapshot(value);
+        if (!validation.valid) { snapshotFeedback("Snapshot rejected · keeping the last valid view"); return false; }
+        const sameRepository = !lastSnapshot || value.repository_id === lastSnapshot.repository_id;
+        const observationRevision = value.schema_version === "devmap/dock/4" ? value.observation_revision : value.revision;
+        if (sameRepository && (value.revision < renderedRevision || observationRevision < renderedObservation)) return false;
+        let unavailable;
+        try { renderSnapshot(value); }
+        catch (_) { snapshotFeedback("Topology could not be rendered · keeping the last valid view"); return false; }
+        unavailable = reconcileExplorationState(value);
+        renderedRevision = value.revision; renderedObservation = observationRevision;
+        lastSnapshot = value; lastValidAt = Date.now();
+        snapshotFeedback("");
         lastTaskInventorySync = value.task_inventory_synced_at || null;
         const refreshCompleted = byId("refresh").disabled && lastTaskInventorySync !== requestedTaskInventorySync;
-        if (value.revision === renderedRevision) { lastValidAt = Date.now(); setOnline(); if (refreshCompleted) finishRefresh("Task names resynced"); return true; }
-        renderedRevision = value.revision; lastValidAt = Date.now(); renderSnapshot(value); setOnline(); if (refreshCompleted) finishRefresh("Task names resynced"); return true;
+        setOnline();
+        if (refreshCompleted) finishRefresh("Task names resynced");
+        if (unavailable.length) showUnavailableSelection(unavailable);
+        return true;
       }
-      function allLanes(value) { return value.branch_groups.flatMap((group) => group.lanes); }
+      function allLanes(value) {
+        const unique = new Map();
+        for (const lane of [...value.branch_groups.flatMap(group => group.lanes), ...value.lanes]) {
+          if (!unique.has(lane.worktree_id)) unique.set(lane.worktree_id, lane);
+        }
+        return [...unique.values()].sort((a, b) => a.worktree_id < b.worktree_id ? -1 : a.worktree_id > b.worktree_id ? 1 : 0);
+      }
       function effectiveConversationState(chat) { return (chat.host_status || chat.status).toLowerCase(); }
-      function conversationInstant(chat) { const instant = Date.parse(chat.last_event_at); return Number.isFinite(instant) ? instant : 0; }
+      function conversationInstant(chat) { return instant(chat.last_event_at) || 0; }
       function conversationCategory(chat) {
         const state = effectiveConversationState(chat);
-        if (activeConversationStates.has(state)) return "active";
-        if (state === "idle") return "idle";
-        return "history";
+        return activeConversationStates.has(state) ? "active" : state === "idle" ? "idle" : "history";
       }
-      function compareConversations(left, right) {
-        const order = { active: 0, idle: 1, history: 2 };
-        return order[conversationCategory(left)] - order[conversationCategory(right)]
-          || conversationInstant(right) - conversationInstant(left)
-          || left.session_id.localeCompare(right.session_id);
+      function compareConversations(a, b) {
+        const rank = { active: 0, idle: 1, history: 2 };
+        return rank[conversationCategory(a)] - rank[conversationCategory(b)]
+          || conversationInstant(b) - conversationInstant(a) || taskId(a).localeCompare(taskId(b));
       }
-      function activeTaskCount(lane) { return lane.chats.filter((task) => activeConversationStates.has(effectiveConversationState(task))).length; }
-      function rankLane(lane) {
-        return [lane.is_current ? 0 : 1, lane.relationship.dirty ? 0 : 1, lane.relationship.merged === false ? 0 : 1, activeTaskCount(lane) > 0 ? 0 : 1, lane.branch || "", lane.workspace_path, lane.worktree_id];
-      }
-      function compareRanks(left, right) {
-        const a = rankLane(left), b = rankLane(right);
-        for (let index = 0; index < a.length; index += 1) {
-          if (a[index] < b[index]) return -1;
-          if (a[index] > b[index]) return 1;
+      function uniqueTasks(lane) { return [...new Map(lane.chats.map(chat => [taskId(chat), chat])).values()].sort(compareConversations); }
+      function reconcileExplorationState(value) {
+        const records = workspaceRecords(value);
+        const workspaces = new Set(records.map(record => record.lane.worktree_id));
+        const tasks = new Set(records.flatMap(record => uniqueTasks(record.lane).map(taskId)));
+        const unavailable = [];
+        if (selectedTaskId && !tasks.has(selectedTaskId)) {
+          if (selectedObjectId === "task:" + selectedTaskId) unavailable.push("Selected task " + selectedTaskId + " is no longer available");
+          if (selectedObjectId === "task:" + selectedTaskId) selectedObjectId = null;
+          selectedTaskId = null;
         }
-        return 0;
+        if (selectedTaskId) selectedWorkspaceId = records.find(record => uniqueTasks(record.lane).some(chat => taskId(chat) === selectedTaskId))?.lane.worktree_id || null;
+        if (selectedWorkspaceId && !workspaces.has(selectedWorkspaceId)) {
+          if (selectedObjectId === "workspace:" + selectedWorkspaceId) unavailable.push("Selected workspace " + selectedWorkspaceId + " is no longer available");
+          if (selectedObjectId === "workspace:" + selectedWorkspaceId) selectedObjectId = null;
+          selectedWorkspaceId = null;
+        }
+        for (const id of [...expandedWorkspaces]) if (!workspaces.has(id)) expandedWorkspaces.delete(id);
+        for (const id of [...expandedConversationHistory]) if (!workspaces.has(id)) expandedConversationHistory.delete(id);
+        return unavailable;
       }
-      function laneHasLiveConversation(lane) {
-        return lane.chats.some((chat) => {
-          const category = conversationCategory(chat);
-          return category === "active" || category === "idle";
+      function workspaceRecords(value) {
+        const lanes = new Map(allLanes(value).map(lane => [lane.worktree_id, lane]));
+        const facts = new Map((value.workspace_facts || []).map(fact => [fact.worktree_id, fact]));
+        for (const fact of facts.values()) if (!lanes.has(fact.worktree_id)) lanes.set(fact.worktree_id, {
+          worktree_id: fact.worktree_id, workspace_path: "", is_current: fact.worktree_id === value.current_worktree_id,
+          branch: null, head: fact.head_oid, relationship: null, chats: []
         });
+        return [...lanes.values()].map(lane => ({ lane, facts: facts.get(lane.worktree_id) || null }));
       }
-      function defaultVisibleLaneIds(ordered) {
-        const live = ordered.filter(laneHasLiveConversation);
-        const bounded = ordered.filter((lane) => !laneHasLiveConversation(lane)).slice(0, MAX_VISIBLE_BRANCHES);
-        return new Set([...live, ...bounded].map((lane) => lane.worktree_id));
+      function workspaceAttention(lane, facts, value) {
+        const writers = new Map((facts?.writer_evidence || []).map(e => [e.task_id, instant(e.observed_at)]));
+        return Core.classifyWorkspace({
+          workingState: facts?.working_state || "unknown", integration: facts?.integration || "unknown",
+          headRefCoverage: facts?.head_ref_coverage || "unknown", detached: facts?.detached === true, upstream: facts?.upstream || "unknown"
+        }, uniqueTasks(lane).map(chat => ({
+          id: taskId(chat), status: effectiveConversationState(chat), lastActivityMs: instant(chat.last_event_at),
+          writeObservedAtMs: writers.get(taskId(chat)) ?? writers.get(chat.session_id) ?? null
+        })), { complete: value.task_observation?.complete === true, observedAtMs: instant(value.task_observation?.observed_at) }, Date.now());
       }
-      function orderedRailEntries(groups) {
-        return groups.flatMap((group) => group.lanes.map((lane) => ({ group, lane })))
-          .sort((left, right) => compareRanks(left.lane, right.lane));
+      function element(tag, className, text) {
+        const node = document.createElement(tag); node.className = className;
+        if (text !== undefined) node.textContent = text; return node;
       }
-      function topologyWidth(groups) {
-        const worktrees = Math.max(1, groups.reduce((sum, group) => sum + group.lanes.length, 0));
-        return Math.min(6400, Math.max(1320, 520 + worktrees * 320));
+      function svg(tag, attrs = {}) {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value)); return node;
       }
-      function renderSnapshot(value) {
-        const lanes = allLanes(value);
-        byId("revision").textContent = `Revision ${value.revision} · ${value.integration_branches.length} integration rail(s)`;
-        byId("metric-workspaces").textContent = String(lanes.length);
-        byId("metric-tasks").textContent = String(lanes.reduce((sum, lane) => sum + lane.chats.length, 0));
-        byId("metric-open").textContent = String(lanes.filter((lane) => lane.relationship.merged === false).length);
-        const fragment = document.createDocumentFragment();
-        if (value.integration_branches.length === 0) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No integration branch could be resolved"; fragment.append(empty); }
-        for (const rail of value.integration_branches) fragment.append(createRail(rail, value.branch_groups));
-        const knownTargets = new Set(value.integration_branches.map((rail) => rail.name));
-        for (const group of value.branch_groups.filter((candidate) => !knownTargets.has(candidate.target_branch))) fragment.append(createDetachedGroup(group));
-        const surface = byId("relationship-map");
-        surface.style.setProperty("--topology-width", `${topologyWidth(value.branch_groups)}px`);
-        surface.replaceChildren(fragment);
-        const warning = byId("warnings"); warning.hidden = value.warnings.length === 0 && !value.truncated;
-        warning.textContent = value.truncated ? `PARTIAL VIEW · ${value.warnings.length} integrity warning(s)` : `${value.warnings.length} integrity warning(s)`;
+      function warningIcon(unknown = false) {
+        const icon = svg("svg", { viewBox: "0 0 20 20", "aria-hidden": "true", class: "status-icon" });
+        icon.append(svg(unknown ? "circle" : "path", unknown ? { cx: 10, cy: 10, r: 8, fill: "none", stroke: "currentColor", "stroke-width": 2 } : { d: "M10 1 L19 18 H1 Z", fill: "none", stroke: "currentColor", "stroke-width": 2 }));
+        icon.append(svg("path", { d: "M10 6 V11 M10 14 V15", stroke: "currentColor", "stroke-width": 2 }));
+        return icon;
       }
-      function createRail(rail, groups) {
-        const section = document.createElement("section"); section.className = `rail-section ${rail.parent ? "development" : "root"}`;
-        const matching = groups.filter((candidate) => candidate.target_branch === rail.name);
-        const entries = orderedRailEntries(matching);
-        const ordered = entries.map(({ lane }) => lane);
-        const visibleIds = defaultVisibleLaneIds(ordered);
-        const expanded = expandedTargets.has(rail.name);
-        const stationCount = Math.max(1, entries.length);
-        section.style.setProperty("--station-count", String(stationCount));
-        const labels = document.createElement("div"); labels.className = "topology-grid-labels"; labels.setAttribute("aria-hidden", "true");
-        for (const label of ["BASE", "BRANCH RAILS", "ACTIVITY", "TARGET"]) { const item = document.createElement("span"); item.textContent = label; labels.append(item); }
-        const header = document.createElement("div"); header.className = "integration-rail";
-        const node = graphButton("rail-node", `${rail.name} integration branch`, () => showRail(rail));
-        const name = document.createElement("strong"); name.textContent = rail.name;
-        const meta = document.createElement("span"); meta.textContent = `${rail.head.slice(0, 8)} · ${rail.parent ? `returns to ${rail.parent}` : "terminal"}`;
-        node.append(name, meta);
-        const line = document.createElement("div"); line.className = "rail-line";
-        for (const entry of entries) line.append(createWorktreeStation(entry.lane, visibleIds.has(entry.lane.worktree_id), expanded));
-        const head = document.createElement("span"); head.className = "timeline-head"; head.textContent = "HEAD";
-        line.append(head);
-        header.append(node, line); section.append(labels, header);
-        if (rail.parent) { const parent = document.createElement("p"); parent.className = "rail-parent"; parent.textContent = `${rail.name} integrates into ${rail.parent}`; section.append(parent); }
-        const list = document.createElement("div"); list.className = "worktree-stage";
-        for (const entry of entries) list.append(createWorktreeCluster(entry.lane, entry.group, visibleIds.has(entry.lane.worktree_id), expanded));
-        const hiddenCount = ordered.length - visibleIds.size;
-        if (hiddenCount > 0) {
-          const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, rail.name, hiddenCount));
-          disclosure.setAttribute("aria-expanded", String(expanded));
-          disclosure.textContent = expanded ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
-          list.append(disclosure);
-        }
-        section.append(list); return section;
+      function laneIdentity(lane) {
+        return lane?.role === "main" ? { token: "main-rail", pattern: "solid" }
+          : lane?.color ? { token: lane.color.colorToken, pattern: lane.color.pattern } : { token: "muted", pattern: "solid" };
       }
-      function createDetachedGroup(group) {
-        const section = document.createElement("section"); section.className = "rail-section";
-        const entries = orderedRailEntries([group]);
-        const ordered = entries.map(({ lane }) => lane);
-        const visibleIds = defaultVisibleLaneIds(ordered);
-        const expanded = expandedTargets.has(group.target_branch);
-        const stationCount = Math.max(1, entries.length);
-        section.style.setProperty("--station-count", String(stationCount));
-        const header = document.createElement("div"); header.className = "integration-rail";
-        const node = graphButton("rail-node", `Unresolved integration target ${group.target_branch}`, () => showStation(group));
-        const name = document.createElement("strong"); name.textContent = group.target_branch;
-        const meta = document.createElement("span"); meta.textContent = "Git ancestry unavailable";
-        node.append(name, meta);
-        const line = document.createElement("div"); line.className = "rail-line";
-        for (const entry of entries) line.append(createWorktreeStation(entry.lane, visibleIds.has(entry.lane.worktree_id), expanded));
-        header.append(node, line);
-        const heading = document.createElement("p"); heading.className = "rail-parent"; heading.textContent = `Unresolved integration target: ${group.target_branch}`;
-        const list = document.createElement("div"); list.className = "worktree-stage";
-        for (const entry of entries) list.append(createWorktreeCluster(entry.lane, entry.group, visibleIds.has(entry.lane.worktree_id), expanded));
-        const hiddenCount = ordered.length - visibleIds.size;
-        if (hiddenCount > 0) {
-          const disclosure = button("collapsed-branches", `Show ${hiddenCount} merged or inactive branches`, () => toggleCollapsedBranches(section, disclosure, group.target_branch, hiddenCount));
-          disclosure.setAttribute("aria-expanded", String(expanded));
-          disclosure.textContent = expanded ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
-          list.append(disclosure);
-        }
-        section.append(header, heading, list); return section;
+      function refIdentity(ref) {
+        return /^(refs\/heads\/)?(main|master)$/.test(ref.ref_name) ? { token: "main-rail", pattern: "solid" }
+          : { token: ref.color.colorToken, pattern: ref.color.pattern };
       }
-      function stationLabel(group) {
-        return group.terminal
-          ? `${group.target_branch} branch head`
-          : group.fork_point
-            ? `Fork ${group.fork_point.commit.slice(0, 8)}`
-            : `Unknown base with ${group.target_branch}`;
+      function strokePattern(pattern) { return pattern === "long-dash" ? "16 6" : pattern === "dot" ? "2 7" : ""; }
+      function swatch(identity) {
+        const node = svg("svg", { class: "branch-swatch", viewBox: "0 0 28 10", "aria-hidden": "true" });
+        if (identity.token === "branch-yellow") node.append(svg("path", { d: "M2 5 H26", class: "rail-keyline" }));
+        node.append(svg("path", { d: "M2 5 H26", stroke: "var(--" + identity.token + ")", "stroke-width": 5, "stroke-dasharray": strokePattern(identity.pattern), fill: "none" }));
+        return node;
       }
-      function worktreeStationLabel(lane) {
-        return `Select worktree station ${lane.branch || "detached HEAD"}`;
+      function position(node, rect) {
+        node.style.left = rect.x + "px"; node.style.top = rect.y + "px";
+        if (rect.width !== undefined) node.style.width = rect.width + "px";
       }
-      function createWorktreeStation(lane, visible, expanded) {
-        const station = graphButton("timeline-station worktree-station", worktreeStationLabel(lane), () => selectLane(lane));
-        if (!visible) { station.dataset.collapsedBranch = "true"; station.hidden = !expanded; }
-        return station;
-      }
-      function createForkAnnotation(group) {
-        const label = stationLabel(group);
-        const annotation = graphButton("fork-node fork-station worktree-fork-meta", `Inspect ancestry: ${label}`, () => showStation(group));
-        annotation.textContent = group.fork_point ? `${label} · ${group.fork_point.tags.length ? group.fork_point.tags.join(", ") : "No exact tag"}` : group.terminal ? "Integration terminal" : "Git ancestry unavailable";
-        return annotation;
-      }
-      function createWorktreeCluster(lane, group, visible, expanded) {
-        const cluster = document.createElement("article"); cluster.className = `worktree-cluster workspace-branch${lane.is_current ? " current" : ""}`;
-        if (!visible) { cluster.dataset.collapsedBranch = "true"; cluster.hidden = !expanded; }
-        const stem = document.createElement("span"); stem.className = "worktree-stem"; stem.setAttribute("aria-hidden", "true");
-        const fork = createForkAnnotation(group);
-        const workspace = createWorktreeButton(lane);
-        const state = createWorktreeState(lane.relationship);
-        const roster = createAgentRoster(lane);
-        const returned = createReturnState(lane.relationship);
-        cluster.append(stem, fork, workspace, state, roster, returned); return cluster;
-      }
-      function createWorktreeButton(lane) {
-        const workspace = graphButton("worktree-stop workspace-button worktree-identity", `Select workspace ${lane.branch || "detached HEAD"}`, () => selectLane(lane));
-        const branch = document.createElement("span"); branch.className = "branch-name"; branch.textContent = lane.branch || "detached HEAD";
-        if (lane.is_current) { const current = document.createElement("span"); current.className = "current-pill"; current.textContent = "CURRENT"; branch.append(current); }
-        const path = document.createElement("span"); path.className = "workspace-short"; path.textContent = shortWorkspace(lane.workspace_path);
-        workspace.append(branch, path); return workspace;
-      }
-      function createWorktreeState(relationship) {
-        const state = document.createElement("span"); state.className = `worktree-state ${relationship.dirty ? "dirty" : "clean"}`;
-        state.textContent = relationship.dirty ? `● DIRTY ${relationship.changed_file_count}` : "○ CLEAN";
-        return state;
-      }
-      function createReturnState(relationship) {
-        const state = relationship.merged === true ? "merged" : relationship.merged === false ? "unmerged" : "unknown";
-        const returned = document.createElement("div"); returned.className = `return-state return-edge ${state}`;
-        returned.textContent = relationship.merge_target === null ? "Terminal" : relationship.merged === true ? `Merged → ${relationship.merge_target}` : relationship.merged === false ? `Not merged → ${relationship.merge_target}` : `Unknown → ${relationship.merge_target || "target"}`;
-        const counts = document.createElement("span"); counts.className = "counts"; counts.textContent = relationship.ahead === null ? "ahead ? · behind ?" : `ahead ${relationship.ahead} · behind ${relationship.behind}`;
-        returned.append(counts); return returned;
-      }
-      function toggleCollapsedBranches(section, disclosure, target, hiddenCount) {
-        const expanding = !expandedTargets.has(target);
-        if (expanding) expandedTargets.add(target); else expandedTargets.delete(target);
-        for (const row of section.querySelectorAll("[data-collapsed-branch]")) row.hidden = !expanding;
-        disclosure.setAttribute("aria-expanded", String(expanding));
-        disclosure.textContent = expanding ? "Collapse inactive branches" : `+ ${hiddenCount} merged / inactive branches`;
-        announce(expanding ? "Showing all branches" : "Inactive branches collapsed");
-      }
-      function createAgentRoster(lane) {
-        const roster = document.createElement("div"); roster.className = "agent-roster";
-        if (lane.chats.length === 0) { roster.append(createUnlinkedTask()); return roster; }
-        const ordered = [...lane.chats].sort(compareConversations);
-        const active = ordered.filter((chat) => { const category = conversationCategory(chat); return category === "active"; });
-        const idle = ordered.filter((chat) => { const category = conversationCategory(chat); return category === "idle"; });
-        const history = ordered.filter((chat) => conversationCategory(chat) === "history");
-        const recentHistory = history.slice(0, MAX_RECENT_HISTORY);
-        const olderHistory = history.slice(MAX_RECENT_HISTORY);
-        const historical = olderHistory;
-        for (const chat of [...active, ...idle, ...recentHistory]) roster.append(createTask(chat));
-        if (olderHistory.length === 0) return roster;
-        const historyNodes = historical.map(createTask);
-        const disclosure = button("historical-conversations", `Show ${historical.length} historical conversations`, () => {
-          const expanding = !expandedConversationHistory.has(lane.worktree_id);
-          if (expanding) {
-            expandedConversationHistory.add(lane.worktree_id);
-            for (const node of historyNodes) roster.insertBefore(node, disclosure);
-          } else {
-            expandedConversationHistory.delete(lane.worktree_id);
-            for (const node of historyNodes) node.remove();
+      function routePath(points) { return points.map((p, i) => (i ? "L" : "M") + p.x + " " + p.y).join(" "); }
+      function connectionLayer(layout) {
+        const root = svg("svg", { class: "metro-connections", width: layout.width, height: layout.height, "aria-hidden": "true" });
+        const defs = svg("defs"); root.append(defs);
+        const lanes = new Map(layout.lanes.map(lane => [lane.id, lane]));
+        for (const [index, edge] of layout.edges.entries()) {
+          const group = svg("g"); group.dataset.edgeId = edge.id;
+          group.dataset.fromOid = edge.from_oid; group.dataset.toOid = edge.to_oid;
+          const identity = laneIdentity(lanes.get(edge.lane_id));
+          if (edge.gaps.length) {
+            const maskId = "metro-gap-" + index;
+            const mask = svg("mask", { id: maskId, maskUnits: "userSpaceOnUse", x: 0, y: 0, width: layout.width, height: layout.height });
+            mask.append(svg("rect", { width: layout.width, height: layout.height, fill: "white" }));
+            for (const gap of edge.gaps) mask.append(svg("path", { d: routePath(gap.points), stroke: "black", "stroke-width": 12, "stroke-linecap": "butt" }));
+            defs.append(mask); group.setAttribute("mask", "url(#" + maskId + ")");
           }
-          disclosure.setAttribute("aria-expanded", String(expanding));
-          disclosure.textContent = expanding ? "Collapse history" : `+${historical.length} historical conversations`;
-          announce(expanding ? "Historical conversations expanded" : "Historical conversations collapsed");
-        });
-        const expanded = expandedConversationHistory.has(lane.worktree_id);
-        disclosure.setAttribute("aria-expanded", String(expanded));
-        disclosure.textContent = expanded ? "Collapse history" : `+${historical.length} historical conversations`;
-        if (expanded) for (const node of historyNodes) roster.append(node);
-        roster.append(disclosure); return roster;
+          if (identity.token === "branch-yellow") group.append(svg("path", { d: routePath(edge.points), class: "rail-keyline" }));
+          group.append(svg("path", { d: routePath(edge.points), class: "rail-edge", stroke: "var(--" + identity.token + ")", "stroke-dasharray": strokePattern(identity.pattern) }));
+          root.append(group);
+        }
+        for (const record of [...layout.attachments, ...layout.refs, ...layout.boundaries]) if (record.stem) {
+          const path = svg("path", { d: routePath(record.stem.points), class: "association" });
+          path.dataset.associationId = record.stem.id; root.append(path);
+        }
+        return root;
+      }
+      function createStation(node, layout, value) {
+        const identity = laneIdentity(layout.lanes.find(lane => lane.id === node.lane_id));
+        const commit = value.topology.commits.find(commit => commit.oid === node.id);
+        const label = commit ? (commit.subject || "Commit") + " · " + node.id : "History boundary · " + node.id;
+        const control = graphButton("station " + node.kind + (identity.token === "branch-yellow" ? " light" : ""), label, () => showCommit(node.id));
+        control.dataset.commitOid = node.id; control.dataset.objectId = "commit:" + node.id;
+        control.title = label; position(control, node); control.style.setProperty("--rail-color", "var(--" + identity.token + ")");
+        const dot = element("span", "station-dot"); dot.dataset.stationDot = ""; control.append(dot);
+        const caption = graphButton("node-label", label, () => showCommit(node.id));
+        caption.dataset.objectId = "commit:" + node.id; caption.title = label;
+        caption.append(element("span", "label-text", node.kind === "boundary" ? "Boundary" : node.id.slice(0, 8)));
+        position(caption, node.label_rect); return [control, caption];
+      }
+      function createRef(ref) {
+        const fullLabel = ref.display_name + " · " + ref.ref_kind + " · " + ref.oid;
+        const control = graphButton("ref-label", fullLabel, () => { locateObject("commit:" + ref.oid); showCommit(ref.oid); });
+        control.dataset.objectId = ref.id; control.dataset.refName = ref.ref_name; control.title = fullLabel;
+        control.append(swatch(refIdentity(ref)), element("span", "label-text", ref.display_name));
+        position(control, ref); return control;
+      }
+      function createBoundary(boundary) {
+        const label = (BOUNDARIES[boundary.reason] || "History boundary") + " · " + boundary.oid.slice(0, 8);
+        const control = graphButton("boundary-label", label, () => showCommit(boundary.oid));
+        control.dataset.objectId = "boundary:" + boundary.id; control.title = label;
+        control.append(warningIcon(true), element("span", "label-text", label)); position(control, boundary); return control;
+      }
+      function observationLabel(value) {
+        const timestamp = value.task_observation?.observed_at, ms = instant(timestamp);
+        if (ms === null) return "Task observation unavailable";
+        const age = Date.now() - ms;
+        const quality = age < 0 || age > Core.TASK_FRESHNESS_MS ? "stale" : "fresh";
+        return "Tasks observed " + formatAge(age) + " · " + quality + (value.task_observation.complete ? "" : " · incomplete");
+      }
+      function tasksConfirmed(value) {
+        const ms = instant(value?.task_observation?.observed_at), age = Date.now() - ms;
+        return ms !== null && age >= 0 && age <= Core.TASK_FRESHNESS_MS && value.task_observation.complete === true;
+      }
+      function populateRisk(container, lane, facts, value) {
+        const attention = workspaceAttention(lane, facts, value);
+        const reasons = attention.reasons.filter(reason => reason !== "shared_workspace").map(reason => REASONS[reason]);
+        if (facts?.working_state === "dirty" && !reasons.some(reason => reason.startsWith("Uncommitted"))) reasons.unshift("Uncommitted changes");
+        const text = reasons.join(" · ");
+        if (container.textContent !== text) container.textContent = text;
+        container.hidden = !text;
+      }
+      function populateFacts(container, lane, facts, value) {
+        const lines = [];
+        if (!facts) lines.push(["Working state unknown · limited snapshot", "unknown"]);
+        else {
+          const changed = lane.relationship?.changed_file_count;
+          lines.push([facts.working_state === "dirty" ? "Uncommitted changes" + (changed > 0 ? " · " + changed + " files" : "") : facts.working_state === "clean" ? "Working tree clean" : "Working state unknown", ""]);
+          const target = facts.target_ref?.replace(/^refs\/heads\//, "") || "target";
+          lines.push([facts.integration === "included" ? "Commits included in " + target : facts.integration === "ahead" ? "Commits not included in " + target : facts.integration === "terminal" ? "Integration terminal" : "Target inclusion unknown", ""]);
+          lines.push([facts.upstream === "published" ? "Published to observed upstream" : facts.upstream === "local_only" ? "Local commits not published" : "Publication unknown", ""]);
+          if (facts.detached) lines.push([facts.head_ref_coverage === "protected" ? "Detached checkout · protected by a stable ref" : "Detached checkout", ""]);
+          const attention = workspaceAttention(lane, facts, value);
+          for (const reason of attention.reasons) if (reason !== "git_state_unknown") {
+            lines.push([reason === "shared_workspace" ? attention.activeCount + " active tasks · shared workspace" : REASONS[reason], reason === "shared_workspace" ? "" : reason === "task_activity_unknown" ? "unknown" : "attention"]);
+          }
+        }
+        lines.push([value.schema_version === "devmap/dock/4" ? observationLabel(value) : "Task observation unavailable in limited view", ""]);
+        if (value.warnings.some(warning => warning.code === "workspace_detail_partial" && warning.subject_id === lane.worktree_id)) lines.push(["Partial task detail · inventory exceeds display budget", "unknown"]);
+        const signature = JSON.stringify(lines);
+        if (container.dataset.factsSignature === signature) return;
+        container.dataset.factsSignature = signature;
+        container.replaceChildren();
+        for (const [text, kind] of lines) {
+          const line = element("p", "fact-line " + kind);
+          if (kind) line.append(warningIcon(kind === "unknown"));
+          line.append(element("span", "", text)); container.append(line);
+        }
+      }
+      function createWorkspace(lane, facts, value, width) {
+        const cluster = element("article", "worktree-cluster workspace-branch" + (lane.worktree_id === value.current_worktree_id ? " current" : ""));
+        cluster.dataset.worktreeId = lane.worktree_id; cluster.dataset.objectId = "workspace:" + lane.worktree_id;
+        cluster.style.width = width + "px"; cluster.setAttribute("data-no-pan", "");
+        const displayName = worktreeDisplayName(lane.workspace_path) || "Workspace · " + lane.worktree_id.slice(-8);
+        const linkedCount = uniqueTasks(lane).length;
+        cluster.style.maxHeight = MAX_WORKSPACE_HEIGHT + "px";
+        cluster.style.overflowY = "auto";
+        cluster.setAttribute("tabindex", "0");
+        cluster.setAttribute("aria-label", "Workspace " + displayName + " · " + linkedCount + " linked tasks · scroll for workspace facts and all expanded tasks");
+        const identityLabel = "Select workspace " + displayName + " · " + (lane.workspace_path || lane.worktree_id) + " · " + lane.worktree_id + " · Branch " + (lane.branch || "detached HEAD");
+        const workspace = graphButton("worktree-stop worktree-identity", identityLabel, () => selectLane(lane));
+        workspace.dataset.objectId = cluster.dataset.objectId; workspace.title = identityLabel;
+        const name = element("span", "worktree-name", lane.workspace_path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) || displayName);
+        const branch = element("span", "branch-meta", "Branch · " + (lane.branch || "detached HEAD"));
+        if (lane.worktree_id === value.current_worktree_id) branch.append(element("span", "current-pill", "Current"));
+        workspace.append(name, branch);
+        // The stable ID disambiguates repeated directory basenames; full path is accessible.
+        branch.append(element("span", "workspace-short-id", " · " + lane.worktree_id.slice(-8)));
+        const factsNode = element("div", "workspace-facts"); populateFacts(factsNode, lane, facts, value);
+        cluster.append(workspace);
+        const riskNode = element("p", "workspace-risk"); populateRisk(riskNode, lane, facts, value); cluster.append(riskNode);
+        // Active identities precede verbose observations; every factual reason remains in the card.
+        cluster.append(createAgentRoster(lane, value), factsNode);
+        if (value.schema_version === "devmap/dock/4") {
+          if (!facts?.head_oid || /^0+$/.test(facts.head_oid)) cluster.append(element("p", "unlinked", "No commits yet · workspace files and linked tasks are shown below"));
+          else {
+            const head = button("task-disclosure", "Locate HEAD " + facts.head_oid, () => { locateObject("commit:" + facts.head_oid); showCommit(facts.head_oid); });
+            head.textContent = "Locate HEAD · " + facts.head_oid.slice(0, 8); cluster.append(head);
+          }
+        }
+        return cluster;
+      }
+      function createAgentRoster(lane, value) {
+        const roster = element("div", "agent-roster"), tasks = uniqueTasks(lane);
+        if (tasks.length === 0) {
+          const partial = value.warnings.some(warning => warning.code === "workspace_detail_partial" && warning.subject_id === lane.worktree_id);
+          roster.append(partial ? element("p", "unlinked", "Linked tasks omitted · partial inventory") : createUnlinkedTask()); return roster;
+        }
+        const active = tasks.filter(chat => conversationCategory(chat) === "active");
+        const idle = tasks.filter(chat => conversationCategory(chat) === "idle");
+        const history = tasks.filter(chat => conversationCategory(chat) === "history");
+        const expanded = expandedWorkspaces.has(lane.worktree_id);
+        const visible = expanded ? [...active, ...idle] : active.slice(0, 2);
+        for (const chat of visible) { const node = createTask(chat, lane.worktree_id, value); node.dataset.objectId = "task:" + taskId(chat); roster.append(node); }
+        const observedCount = [active.length + (active.length === 1 ? " active task" : " active tasks"), idle.length ? idle.length + " idle" : ""].filter(Boolean).join(" · ");
+        const incomplete = tasks.some(chat => chat.capture_incomplete);
+        const taskCountLabel = (tasksConfirmed(value) && !incomplete ? "" : "Last observed · ") + observedCount;
+        if (!expanded) { const count = element("p", "task-count-summary", taskCountLabel); count.dataset.observedCount = observedCount; count.dataset.captureIncomplete = String(incomplete); roster.append(count); }
+        if (active.length > 2 || idle.length) {
+          const label = expanded ? "Collapse tasks" : "Show all active and idle tasks";
+          const disclosure = button("task-disclosure", label + " · " + taskCountLabel + " · " + worktreeDisplayName(lane.workspace_path), () => {
+            if (expanded) expandedWorkspaces.delete(lane.worktree_id); else expandedWorkspaces.add(lane.worktree_id);
+            rerenderWorkspace(lane.worktree_id);
+          });
+          disclosure.textContent = label; disclosure.setAttribute("aria-expanded", String(expanded)); disclosure.dataset.objectId = "tasks:" + lane.worktree_id; roster.append(disclosure);
+          disclosure.dataset.observedCount = observedCount; disclosure.dataset.captureIncomplete = String(incomplete);
+        }
+        if (history.length) {
+          const open = expandedConversationHistory.has(lane.worktree_id);
+          if (open) for (const chat of history) { const node = createTask(chat, lane.worktree_id, value); node.dataset.objectId = "task:" + taskId(chat); roster.append(node); }
+          const disclosure = button("historical-conversations", (open ? "Collapse history" : "+" + history.length + " previous tasks"), () => {
+            if (open) expandedConversationHistory.delete(lane.worktree_id); else expandedConversationHistory.add(lane.worktree_id);
+            rerenderWorkspace(lane.worktree_id);
+          });
+          disclosure.textContent = open ? "Collapse history" : "+" + history.length + " previous tasks";
+          disclosure.dataset.objectId = "history:" + lane.worktree_id; disclosure.setAttribute("aria-expanded", String(open)); roster.append(disclosure);
+        }
+        return roster;
       }
       function relativeActivity(timestamp) {
-        const elapsed = Math.max(0, Date.now() - conversationInstant({ last_event_at: timestamp }));
-        if (elapsed < 60_000) return "now";
-        if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
-        if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
-        return `${Math.floor(elapsed / 86_400_000)}d ago`;
+        const ms = instant(timestamp); return ms === null ? "Activity time unknown" : formatAge(Date.now() - ms);
       }
-      function createTask(chat) {
+      function selectedRect(layout, objectId) {
+        if (!layout || !objectId) return null;
+        if (objectId.startsWith("workspace:")) return layout.attachments.find(a => a.id === objectId) || null;
+        if (objectId.startsWith("commit:")) return layout.nodes.find(n => "commit:" + n.id === objectId) || null;
+        return layout.refs.find(r => r.id === objectId) || null;
+      }
+      function fitScale() {
+        const layout = byId("relationship-map").metroLayout, viewport = byId("topology-viewport");
+        return layout ? Math.min(1, Math.max(1, viewport.clientWidth - 32) / layout.width, Math.max(1, viewport.clientHeight - 32) / layout.height) : 1;
+      }
+      function applyMapScale() {
+        const surface = byId("relationship-map"), layout = surface.metroLayout, world = byId("topology-world");
+        const overview = !!layout && mapScale < .6;
+        surface.dataset.scale = String(mapScale); surface.dataset.overview = String(overview);
+        surface.style.setProperty("--map-scale", String(mapScale));
+        surface.style.transform = layout ? "scale(" + mapScale + ")" : "none";
+        world.style.width = layout ? Math.max(layout.width * mapScale + 32, overview ? byId("topology-viewport").clientWidth : 0) + "px" : "100%";
+        world.style.height = layout ? layout.height * mapScale + 32 + "px" : "auto";
+        byId("overview-workspaces").hidden = !overview || (!byId("selection-details").hidden && !!byId("selection-details").dataset.workspaceGroup);
+        byId("zoom-reset").textContent = Math.round(mapScale * 1000) / 10 + "%";
+        for (const id of ["zoom-in", "zoom-out", "zoom-reset", "zoom-fit"]) byId(id).disabled = !layout;
+        byId("zoom-in").disabled = !layout || mapScale >= 2;
+        byId("zoom-out").disabled = !layout || mapScale <= fitScale();
+        renderOverviewMarkers();
+      }
+      function renderOverviewMarkers() {
+        const surface = byId("relationship-map"), panel = byId("overview-markers"), viewport = byId("topology-viewport");
+        const focused = document.activeElement?.dataset.headOid;
+        panel.hidden = surface.dataset.overview !== "true"; panel.replaceChildren();
+        if (panel.hidden) return;
+        const groups = new Map(), placed = [], layout = surface.metroLayout;
+        const markerWidth = Math.min(236, Math.max(140, viewport.clientWidth - 32));
+        for (const [i, row] of (surface.overviewRows || []).entries()) {
+          const oid = layout.attachments.find(a => a.worktree_id === row.lane.worktree_id)?.head_oid;
+          if (!layout.nodes.some(n => n.id === oid)) continue;
+          if (!groups.has(oid)) groups.set(oid, []);
+          groups.get(oid).push({ ...row, number: i + 1 });
+        }
+        for (const [oid, rows] of groups) {
+          const node = layout.nodes.find(n => n.id === oid), x = 16 + node.x * mapScale, top = 16 + node.y * mapScale;
+          const left = Math.max(8, Math.min(x - markerWidth / 2, viewport.clientWidth - markerWidth - 8));
+          let y = top + 20;
+          const stop = button("overview-marker" + (rows.some(r => r.current) ? " current" : ""), (rows.length === 1 ? "View workspace " : "Expand " + rows.length + " workspaces · ") + rows.map(r => r.lane.workspace_path).join(", "), () => {
+            if (rows.length === 1) zoomWorkspace(rows[0].lane.worktree_id);
+            else showWorkspaceChoices(oid, rows);
+          });
+          stop.dataset.headOid = oid; stop.dataset.workspaceCount = String(rows.length);
+          stop.style.width = markerWidth + "px"; stop.style.left = left + "px";
+          const name = rows.length === 1 ? worktreeDisplayName(rows[0].lane.workspace_path) || rows[0].lane.worktree_id : rows.length + " workspaces at this commit";
+          stop.append(element("strong", "", name));
+          if (rows.some(r => r.current)) stop.append(element("span", "current-pill", "Current workspace"));
+          stop.append(element("span", "branch-meta", rows.length === 1 ? "Branch · " + (rows[0].lane.branch || "Detached HEAD") : rows.map(r => worktreeDisplayName(r.lane.workspace_path)).join(" · ")));
+          if (rows.length === 1) {
+            stop.append(element("span", "branch-meta", rows[0].count));
+            if (rows[0].risk) stop.append(element("span", "workspace-risk", rows[0].risk));
+          } else {
+            const facts = [...new Set(rows.map(r => r.risk).filter(Boolean))];
+            if (facts.length) stop.append(element("span", "workspace-risk", "Includes: " + facts.join(" · ")));
+          }
+          stop.append(element("span", "marker-action", rows.length === 1 ? "View workspace" : "Expand workspaces"));
+          panel.append(stop);
+          const height = stop.getBoundingClientRect().height;
+          for (const p of placed) if (left < p.left + markerWidth + 12 && left + markerWidth + 12 > p.left && y < p.y + p.height + 12) y = p.y + p.height + 12;
+          placed.push({ left, y, height }); stop.style.top = y + "px";
+          const stem = element("div", ""); stem.style.cssText = "position:absolute;border-left:1px dashed var(--muted);left:" + x + "px;top:" + top + "px;height:" + (y - top) + "px";
+          panel.append(stem);
+          if (focused === oid) stop.focus({ preventScroll: true });
+        }
+        byId("topology-world").style.height = Math.max(parseFloat(byId("topology-world").style.height), ...placed.map(p => p.y + p.height + 16)) + "px";
+      }
+      function showWorkspaceChoices(oid, rows) {
+        const panel = byId("selection-details");
+        panel.dataset.workspaceGroup = oid;
+        byId("overview-workspaces").hidden = true;
+        panel.replaceChildren(); panel.hidden = false;
+        const close = button("dismiss-details", "Close workspace choices", () => { panel.hidden = true; byId("overview-workspaces").hidden = mapScale >= .6; [...byId("overview-markers").querySelectorAll(".overview-marker")].find(n => n.dataset.headOid === oid)?.focus({ preventScroll: true }); });
+        close.textContent = "Close";
+        const title = element("h2", "", rows.length + " workspaces at the same commit"); title.id = "selection-title";
+        panel.append(close, title, element("p", "overview-help", "Choose a workspace to see its tasks and changes."));
+        for (const row of rows) {
+          const choice = button("workspace-choice", "View workspace " + row.lane.workspace_path, () => zoomWorkspace(row.lane.worktree_id));
+          choice.dataset.worktreeId = row.lane.worktree_id;
+          choice.append(element("strong", "worktree-name", worktreeDisplayName(row.lane.workspace_path) || row.lane.worktree_id), element("span", "branch-meta", row.lane.workspace_path), element("span", "branch-meta", "Branch · " + (row.lane.branch || "Detached HEAD")), element("span", "branch-meta", row.count));
+          if (row.current) choice.append(element("span", "current-pill", "Current workspace"));
+          if (row.risk) choice.append(element("span", "workspace-risk", row.risk));
+          panel.append(choice);
+        }
+        close.focus({ preventScroll: true });
+      }
+      function zoomWorkspace(id) {
+        selectedWorkspaceId = id; selectedTaskId = null; selectedObjectId = "workspace:" + id;
+        byId("selection-details").hidden = true; locateWorkspace(id);
+        const target = [...byId("relationship-map").querySelectorAll(".worktree-identity")].find(n => n.dataset.objectId === selectedObjectId);
+        if (target) selectGraphObject(target, () => target.focus({ preventScroll: true }));
+      }
+      function setMapScale(next) {
+        const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        if (!surface.metroLayout || !Number.isFinite(next)) return;
+        const rect = selectedRect(surface.metroLayout, selectedObjectId);
+        let screen = { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 };
+        if (rect) {
+          const point = { x: 16 + (rect.x + (rect.width || 0) / 2) * mapScale - viewport.scrollLeft, y: 16 + rect.y * mapScale - viewport.scrollTop };
+          if (point.x >= 0 && point.x <= viewport.clientWidth && point.y >= 0 && point.y <= viewport.clientHeight) screen = point;
+        }
+        const anchor = { x: (viewport.scrollLeft + screen.x - 16) / mapScale, y: (viewport.scrollTop + screen.y - 16) / mapScale };
+        mapScale = Math.min(2, Math.max(Math.min(mapScale, fitScale()), next)); applyMapScale();
+        setViewportPosition({ left: Math.max(0, 16 + anchor.x * mapScale - screen.x), top: Math.max(0, 16 + anchor.y * mapScale - screen.y), behavior: "instant" });
+      }
+      function fitMap() {
+        if (!byId("relationship-map").metroLayout) return;
+        byId("selection-details").hidden = true;
+        byId("edge-wayfinding").hidden = true;
+        byId("overview-workspaces").hidden = false;
+        mapScale = fitScale(); applyMapScale();
+        setViewportPosition({ left: 0, top: 0, behavior: "instant" });
+      }
+      function renderOverview(records, value) {
+        const panel = byId("overview-workspaces");
+        const rows = records.map(({ lane, facts }) => {
+          const tasks = uniqueTasks(lane), active = tasks.filter(task => activeConversationStates.has(effectiveConversationState(task))).length;
+          const risk = element("span", "workspace-risk"); populateRisk(risk, lane, facts, value);
+          const integration = facts?.integration === "ahead" ? "Commits not included in " + (facts.target_ref?.replace(/^refs\/heads\//, "") || "target") : "";
+          const count = (tasksConfirmed(value) && tasks.every(task => !task.capture_incomplete) ? "" : "Last observed · ") + tasks.length + " tasks · " + active + " active";
+          return { lane, count, current: lane.worktree_id === value.current_worktree_id, risk: [risk.textContent, integration].filter(Boolean).join(" · ") };
+        });
+        const signature = JSON.stringify([rows, value.current_worktree_id]);
+        byId("relationship-map").overviewRows = rows;
+        if (panel.dataset.signature === signature) return;
+        const focused = document.activeElement?.dataset.overviewId, scroll = panel.scrollTop;
+        panel.dataset.signature = signature; panel.replaceChildren(element("p", "overview-help", "All workspaces · choose a name to view tasks and changes."));
+        for (const [i, row] of rows.entries()) {
+          const { lane } = row;
+          const control = button("overview-workspace", "Zoom to workspace " + lane.workspace_path, () => zoomWorkspace(lane.worktree_id));
+          control.dataset.worktreeId = lane.worktree_id; control.dataset.overviewId = lane.worktree_id;
+          const head = byId("relationship-map").metroLayout?.refs.find(ref => ref.ref_name === "refs/heads/" + lane.branch);
+          const heading = element("span", "overview-heading");
+          if (head) heading.append(swatch(refIdentity(head)));
+          heading.append(element("strong", "", worktreeDisplayName(lane.workspace_path) || lane.worktree_id));
+          if (lane.worktree_id === value.current_worktree_id) heading.append(element("span", "current-pill", "Current"));
+          control.append(heading, element("span", "branch-meta", (lane.branch || "Detached HEAD") + " · " + lane.worktree_id.slice(-8)), element("span", "branch-meta", row.count));
+          if (row.risk) control.append(element("span", "workspace-risk", row.risk));
+          panel.append(control);
+          if (focused === lane.worktree_id) control.focus({ preventScroll: true });
+        }
+        panel.scrollTop = scroll;
+        renderOverviewMarkers();
+      }
+      function renderSnapshot(value) {
+        const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        const focusedId = document.activeElement?.dataset.objectId;
+        const focusedTag = document.activeElement?.tagName;
+        const cardScroll = new Map([...surface.querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card.scrollTop]));
+        const records = workspaceRecords(value), width = Math.min(320, Math.max(200, viewport.clientWidth - 80));
+        if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
+          preferredWorkspaceByHead.clear();
+          const current = records.find(record => record.lane.worktree_id === value.current_worktree_id);
+          if (current) preferredWorkspaceByHead.set(current.facts?.head_oid || current.lane.head, current.lane.worktree_id);
+        }
+        const stage = element("div", "measurement-world"), cards = new Map();
+        let layout = null, candidateKey = null;
+        const oldRect = selectedRect(surface.metroLayout, selectedObjectId);
+        const savedViewport = { ...viewportPosition };
+        const offset = oldRect ? { x: 16 + oldRect.x * mapScale - savedViewport.left, y: 16 + oldRect.y * mapScale - savedViewport.top } : null;
+        try {
+          for (const { lane, facts } of records) { const card = createWorkspace(lane, facts, value, width); cards.set(lane.worktree_id, card); stage.append(card); }
+          viewport.append(stage);
+          const dimensions = records.map(({ lane, facts }) => {
+            const box = cards.get(lane.worktree_id).getBoundingClientRect();
+            return { worktree_id: lane.worktree_id, head_oid: facts?.head_oid ?? lane.head, width: Math.ceil(box.width), height: Math.ceil(box.height) };
+          });
+          if (value.schema_version === "devmap/dock/4") {
+            const preferredWorkspaces = [...preferredWorkspaceByHead].filter(([head, id]) => dimensions.some(a => a.worktree_id === id && a.head_oid === head)).map(([, id]) => id);
+            candidateKey = JSON.stringify([value.repository_id, value.topology, dimensions, preferredWorkspaces]);
+            layout = geometryCache?.key === candidateKey ? geometryCache.layout : Core.layoutTopology(value.topology, dimensions, { repositoryId: value.repository_id, rowGap: 48, columnGap: 96, preferredWorkspaces });
+            const fragment = document.createDocumentFragment(); fragment.append(connectionLayer(layout));
+            for (const node of layout.nodes) fragment.append(...createStation(node, layout, value));
+            for (const ref of layout.refs) fragment.append(createRef(ref));
+            for (const boundary of layout.boundaries) fragment.append(createBoundary(boundary));
+            for (const attachment of layout.attachments) { const card = cards.get(attachment.worktree_id); position(card, attachment); fragment.append(card); }
+            if (!records.length && !layout.nodes.length) fragment.append(element("p", "empty", "No commits or workspaces observed. Refresh after opening a repository."));
+            // Commit only after validation, measurement and all candidate rendering succeed.
+            surface.replaceChildren(fragment); surface.className = "relationship-map topology-canvas topology-surface";
+            surface.style.width = layout.width + "px"; surface.style.height = layout.height + "px";
+            geometryCache = { key: candidateKey, layout };
+          } else {
+            surface.replaceChildren(...cards.values()); surface.className = "relationship-map topology-canvas topology-surface limited-world";
+            surface.style.width = "100%"; surface.style.height = "auto"; geometryCache = null;
+          }
+        } finally { stage.remove(); }
+        for (const [id, card] of cards) card.scrollTop = cardScroll.get(id) || 0;
+        surface.metroLayout = layout;
+        if (!layout) mapScale = 1;
+        renderOverview(records, value); applyMapScale();
+        byId("revision").textContent = "Revision " + value.revision + " · " + (layout ? "verified commit topology" : "compatibility snapshot");
+        updateTaskFreshness(value);
+        byId("metric-workspaces").textContent = String(value.counts?.workspaces ?? records.length);
+        byId("metric-tasks").textContent = String(value.counts?.tasks ?? new Set(records.flatMap(r => uniqueTasks(r.lane).map(taskId))).size);
+        renderAttention(records, value);
+        const coverage = byId("coverage");
+        coverage.hidden = value.schema_version === "devmap/dock/4" && value.topology.complete && !value.truncated;
+        coverage.textContent = value.schema_version === "devmap/dock/3" ? "Limited view · v3 snapshot has no verified commit topology or observation facts" : "Partial history · explicit boundary labels mark unavailable connections" + (value.truncated ? " · snapshot truncated" : "");
+        const warning = byId("warnings");
+        warning.hidden = !value.warnings.length;
+        warning.textContent = value.warnings.map(w => w.code + (w.subject_id ? " · " + w.subject_id : "")).join(" · ");
+        const branches = byId("branch-list"); branches.replaceChildren();
+        for (const ref of layout?.refs || []) {
+          const control = button("branch-choice", "Locate reference " + ref.display_name, () => locateObject(ref.id));
+          control.title = ref.ref_name; control.append(swatch(refIdentity(ref)), element("span", "", ref.display_name)); branches.append(control);
+        }
+        byId("branch-count").textContent = String(layout?.refs.length || 0);
+        byId("locate-current").disabled = !records.some(r => r.lane.worktree_id === value.current_worktree_id);
+        for (const node of surface.querySelectorAll("[data-object-id]")) if (node.dataset.objectId === selectedObjectId) node.setAttribute("aria-current", "true");
+        const newRect = selectedRect(layout, selectedObjectId);
+        if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
+          const current = records.find(r => r.lane.worktree_id === value.current_worktree_id);
+          if (current) {
+            selectedWorkspaceId = current.lane.worktree_id; selectedTaskId = null; selectedObjectId = "workspace:" + selectedWorkspaceId;
+            locateWorkspace(selectedWorkspaceId, value);
+          } else fitMap();
+        }
+        else if (offset && newRect && selectedObjectId?.startsWith("commit:")) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
+        else setViewportPosition({ ...savedViewport, behavior: "instant" });
+        if (focusedId) {
+          const control = [...surface.querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusedId && n.tagName === focusedTag);
+          control?.focus({ preventScroll: true });
+        }
+        observeCards(cards);
+      }
+      function renderAttention(records, value) {
+        const flagged = records.map(record => ({ ...record, attention: workspaceAttention(record.lane, record.facts, value) })).filter(r => r.attention.level === "attention");
+        byId("metric-open").textContent = String(flagged.length);
+        const summary = byId("attention-summary");
+        const signature = JSON.stringify(flagged.map(record => [record.lane.worktree_id, record.lane.workspace_path, record.attention.reasons, record.attention.activeCount]));
+        summary.hidden = false;
+        if (summary.dataset.attentionSignature === signature) return;
+        summary.dataset.attentionSignature = signature; summary.replaceChildren();
+        summary.append(element("summary", "", flagged.length ? flagged.length + (flagged.length === 1 ? " workspace needs" : " workspaces need") + " attention" : "No workspaces flagged for intervention"));
+        summary.append(element("p", "overview-help", "Uncommitted changes are shown on each workspace. Intervention flags depend on task activity and observation coverage."));
+        if (!flagged.length) return;
+        const list = element("div", "attention-list");
+        for (const record of flagged) {
+          const label = (worktreeDisplayName(record.lane.workspace_path) || record.lane.worktree_id) + " · " + record.attention.reasons.filter(r => r !== "shared_workspace").map(r => REASONS[r]).join("; ");
+          const control = button("attention-link", label, () => { summary.open = false; byId("selection-details").hidden = true; locateWorkspace(record.lane.worktree_id); selectedWorkspaceId = record.lane.worktree_id; selectedTaskId = null; selectedObjectId = "workspace:" + record.lane.worktree_id; });
+          control.append(warningIcon(), element("span", "", label)); list.append(control);
+        }
+        summary.append(list);
+      }
+      function locateObject(objectId) {
+        setMapScale(1);
+        const surface = byId("relationship-map"), viewport = byId("topology-viewport"), rect = selectedRect(surface.metroLayout, objectId);
+        if (objectId.startsWith("workspace:")) {
+          const card = [...surface.querySelectorAll("[data-worktree-id]")].find(card => "workspace:" + card.dataset.worktreeId === objectId);
+          if (card) card.scrollTop = 0;
+        }
+        if (rect) setViewportPosition({
+          left: Math.max(0, 16 + rect.x - Math.max(16, (viewport.clientWidth - (rect.width || 44)) / 2)),
+          top: Math.max(0, 16 + rect.y - 32), behavior: "instant"
+        });
+        else {
+          const node = [...surface.querySelectorAll("[data-object-id]")].find(node => node.dataset.objectId === objectId);
+          if (node) node.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        }
+      }
+      function setViewportPosition(options) {
+        const viewport = byId("topology-viewport");
+        viewport.scrollTo(options);
+        viewportPosition = { left: viewport.scrollLeft, top: viewport.scrollTop };
+        renderEdgeWayfinding();
+      }
+      function renderEdgeWayfinding() {
+        const viewport = byId("topology-viewport"), layout = byId("relationship-map").metroLayout;
+        const panel = byId("edge-wayfinding"), list = byId("edge-list");
+        const bounds = { left: (viewport.scrollLeft - 16) / mapScale, right: (viewport.scrollLeft + viewport.clientWidth - 16) / mapScale, top: (viewport.scrollTop - 16) / mapScale, bottom: (viewport.scrollTop + viewport.clientHeight - 16) / mapScale };
+        const inside = p => p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom;
+        // All routes are orthogonal. A crossing segment can be visible even when
+        // both real endpoints are offscreen; include those long through-routes.
+        const intersects = (a, b) => a.x === b.x
+          ? a.x >= bounds.left && a.x <= bounds.right && Math.max(a.y, b.y) >= bounds.top && Math.min(a.y, b.y) <= bounds.bottom
+          : a.y >= bounds.top && a.y <= bounds.bottom && Math.max(a.x, b.x) >= bounds.left && Math.min(a.x, b.x) <= bounds.right;
+        const exits = (layout?.edges || []).filter(edge => edge.points.some(p => !inside(p)) && edge.points.slice(1).some((p, i) => intersects(edge.points[i], p)));
+        panel.hidden = !exits.length;
+        const signature = JSON.stringify([exits.map(edge => edge.id), layout?.refs.map(ref => [ref.oid, ref.display_name])]);
+        if (panel.dataset.signature === signature) return;
+        panel.dataset.signature = signature;
+        byId("edge-summary").textContent = exits.length + " connections beyond view · trace endpoints";
+        list.replaceChildren();
+        for (const edge of exits) {
+          const row = element("div", "edge-route");
+          for (const [direction, oid, navigation] of [["Parent", edge.from_oid, edge.navigation.from], ["Child", edge.to_oid, edge.navigation.to]]) {
+            const refs = layout.refs.filter(ref => ref.oid === oid).map(ref => ref.display_name);
+            const boundary = navigation.action === "explain_boundary";
+            const identity = (refs.length ? refs.join(", ") + " · " : "") + oid.slice(0, 8);
+            const label = direction + " · " + (boundary ? "history boundary · " : "") + identity;
+            const control = button("edge-destination", label + " · " + oid, () => { panel.open = false; locateObject("commit:" + oid); showCommit(oid); });
+            control.dataset.endpointOid = oid; control.dataset.edgeId = edge.id; control.dataset.navigationAction = navigation.action;
+            control.textContent = label; control.title = direction + " · " + oid; row.append(control);
+          }
+          list.append(row);
+        }
+      }
+      function locateWorkspace(id, value = lastSnapshot) {
+        if (!value || !id) return;
+        setMapScale(1);
+        const record = value ? workspaceRecords(value).find(record => record.lane.worktree_id === id) : null;
+        const head = record?.facts?.head_oid || record?.lane.head;
+        let layout = byId("relationship-map").metroLayout;
+        const siblings = layout?.attachments.filter(a => a.head_oid === head) || [];
+        if (siblings.length > 1 && siblings.reduce((first, a) => a.y < first.y ? a : first).worktree_id !== id) {
+          preferredWorkspaceByHead.set(head, id);
+          renderSnapshot(value);
+          layout = byId("relationship-map").metroLayout;
+        }
+        const station = layout?.nodes.find(node => node.id === head);
+        const attachment = layout?.attachments.find(a => a.worktree_id === id);
+        if (station && attachment) {
+          const viewport = byId("topology-viewport");
+          const left = Math.min(station.x - 22, attachment.x), right = Math.max(station.x + 22, attachment.x + attachment.width);
+          setViewportPosition({ left: Math.max(0, 16 + left - Math.max(8, (viewport.clientWidth - (right - left)) / 2)), top: Math.max(0, 16 + station.y - 24), behavior: "instant" });
+        } else locateObject("workspace:" + id);
+        const card = [...byId("relationship-map").querySelectorAll("[data-worktree-id]")].find(card => card.dataset.worktreeId === id);
+        if (card) card.scrollTop = 0;
+      }
+      function rerenderWorkspace(id) {
+        if (!lastSnapshot) return;
+        const focusId = document.activeElement?.dataset.objectId;
+        selectedObjectId = "workspace:" + id; renderSnapshot(lastSnapshot);
+        const control = [...byId("relationship-map").querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusId);
+        control?.focus({ preventScroll: true });
+      }
+      let cardObserver = null;
+      function observeCards(cards) {
+        if (typeof ResizeObserver !== "function") return;
+        cardObserver?.disconnect();
+        cardObserver = new ResizeObserver(entries => {
+          const layout = byId("relationship-map").metroLayout;
+          const changed = entries.some(entry => {
+            const box = entry.target.getBoundingClientRect();
+            const previous = layout?.attachments.find(a => a.worktree_id === entry.target.dataset.worktreeId);
+            return previous && (Math.abs(box.height / mapScale - previous.height) > 1 || Math.abs(box.width / mapScale - previous.width) > 1);
+          });
+          if (!changed || resizeFrame !== null || !lastSnapshot) return;
+          resizeFrame = requestAnimationFrame(() => { resizeFrame = null; renderSnapshot(lastSnapshot); });
+        });
+        for (const card of cards.values()) cardObserver.observe(card);
+      }
+      function directTaskUrl(chat) {
+        return transport === "browser" && chat.host === "local" && chat.association_source === "codex_task_cwd" && safeCodexThreadId(chat.codex_thread_id)
+          ? "codex://threads/" + chat.codex_thread_id : null;
+      }
+      function createTask(chat, worktreeId, value) {
         const stateValue = effectiveConversationState(chat);
         const category = conversationCategory(chat);
+        const directUrl = directTaskUrl(chat);
         let node;
-        node = graphButton(
+        const activate = (event) => requestTaskNavigation(chat, node, event, worktreeId);
+        node = directUrl ? graphLink(
+          `task-node conversation-node agent-task-node ${category} ${stateValue}`,
+          `Open Codex task: ${chat.display_title}`, directUrl, activate,
+        ) : graphButton(
           `task-node conversation-node agent-task-node ${category} ${stateValue}`,
           chat.codex_thread_id ? `Open Codex task: ${chat.display_title}` : `Inspect conversation: ${chat.display_title}`,
-          () => requestTaskNavigation(chat, node),
+          activate,
         );
-        node.dataset.navigable = String(Boolean(chat.codex_thread_id));
+        node.dataset.navigable = String(safeCodexThreadId(chat.codex_thread_id));
         const title = document.createElement("span"); title.className = "task-title conversation-title"; title.textContent = chat.display_title;
+        const heading = element("span", "task-heading");
+        heading.append(title, element("span", "task-onward", safeCodexThreadId(chat.codex_thread_id) ? "Open task" : "Inspect only"));
         const facts = document.createElement("span"); facts.className = "conversation-facts";
         const agent = document.createElement("span"); agent.className = "agent-identity"; agent.textContent = `Agent · ${chat.actor_id}`;
-        const state = document.createElement("span"); state.className = "task-state conversation-state"; state.textContent = category.toUpperCase();
+        const state = document.createElement("span"); state.className = "task-state conversation-state";
+        state.dataset.observedState = stateValue.toUpperCase();
+        state.textContent = (tasksConfirmed(value) && !chat.capture_incomplete ? "" : "Last observed ") + state.dataset.observedState;
+        state.dataset.captureIncomplete = String(chat.capture_incomplete === true);
         facts.append(agent, state);
         const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
         const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
-        node.append(title, facts, context, audit); return node;
+        node.append(heading, facts, context, audit); return node;
       }
-      async function requestTaskNavigation(chat, node) {
+      async function requestTaskNavigation(chat, node, event, worktreeId) {
+        selectedWorkspaceId = worktreeId || selectedWorkspaceId;
+        selectedTaskId = taskId(chat);
+        selectedObjectId = "task:" + selectedTaskId;
         showTask(chat);
         if (!chat.codex_thread_id) {
           announce("Conversation details selected · no verified Codex task link");
@@ -521,6 +937,12 @@
           announce("Task link rejected");
           return;
         }
+        const directUrl = directTaskUrl(chat);
+        if (directUrl && !window.openai?.sendFollowUpMessage) {
+          announce("Codex task request sent · verify the destination · " + threadId);
+          return;
+        }
+        event?.preventDefault?.();
         const prompt = `Open the local Codex task with id ${threadId}.`;
         node.disabled = true;
         node.setAttribute("aria-busy", "true");
@@ -541,7 +963,7 @@
             announce("Open this task from Codex");
             return;
           }
-          announce("Opening Codex task…");
+          announce("Codex accepted the task request · verify the destination");
         } catch (_) {
           if (navigationRequestId !== null) finishTaskNavigationRequest(navigationRequestId, "Codex task could not be opened");
           else announce("Codex task could not be opened");
@@ -565,53 +987,118 @@
       }
       function createUnlinkedTask() {
         const node = document.createElement("div"); node.className = "unlinked";
-        const title = document.createElement("strong"); title.textContent = "No linked conversation";
-        const state = document.createElement("span"); state.textContent = "UNINSTRUMENTED";
-        node.append(title, state); return node;
+        node.textContent = "No linked task observed"; return node;
       }
       function button(className, label, handler) {
-        const node = document.createElement("button"); node.type = "button"; node.className = className; node.setAttribute("aria-label", label); node.addEventListener("click", handler); return node;
+        const node = document.createElement("button"); node.type = "button"; node.className = className; node.setAttribute("aria-label", label); node.addEventListener("click", event => handler(event)); return node;
+      }
+      function graphLink(className, label, href, handler) {
+        const node = document.createElement("a"); node.className = className; node.href = href;
+        node.setAttribute("href", href); node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener"); node.setAttribute("aria-label", label);
+        node.addEventListener("click", event => selectGraphObject(node, () => handler(event)));
+        return node;
+      }
+      function selectGraphObject(node, handler) {
+        for (const selected of document.querySelectorAll("[aria-current=\"true\"]")) selected.removeAttribute("aria-current");
+        node.setAttribute("aria-current", "true");
+        selectedObjectId = node.dataset.objectId || selectedObjectId;
+        handler();
       }
       function graphButton(className, label, handler) {
         let node;
-        node = button(className, label, () => {
-          for (const selected of document.querySelectorAll("[aria-current=\"true\"]")) selected.removeAttribute("aria-current");
-          node.setAttribute("aria-current", "true");
-          handler();
-        });
+        node = button(className, label, event => selectGraphObject(node, () => handler(event)));
         return node;
       }
-      function setDensity(mode, shouldAnnounce = true) {
-        if (!new Set(["map", "read", "full"]).has(mode)) return;
-        document.documentElement.dataset.density = mode;
-        for (const control of byId("density-switch").querySelectorAll("[data-density-value]")) control.setAttribute("aria-pressed", String(control.dataset.densityValue === mode));
-        if (shouldAnnounce) announce(`${mode.toUpperCase()} density`);
-      }
-      function shortWorkspace(path) { const parts = path.replaceAll("\\", "/").split("/").filter(Boolean); return parts.slice(-2).join("/") || path; }
-      function showRail(rail) {
-        showDetails(`${rail.name} integration branch`, [["Reference", rail.ref_name], ["HEAD", rail.head], ["Returns to", rail.parent || "Terminal"], ["Resolution", rail.source]], rail.head);
-      }
-      function showStation(group) {
-        if (!group.fork_point) {
-          showDetails(group.terminal ? `${group.target_branch} terminal` : `Unknown base with ${group.target_branch}`, [["Target", group.target_branch], ["State", group.terminal ? "Integration terminal" : "Git ancestry unavailable"], ["Workspaces", String(group.lanes.length)]]); return;
+      function worktreeDisplayName(path) { const parts = path.replaceAll("\\", "/").split("/").filter(Boolean); return parts.slice(-2).join("/") || path; }
+      function showCommit(oid) {
+        if (!lastSnapshot?.topology) return;
+        selectedObjectId = "commit:" + oid; selectedWorkspaceId = null; selectedTaskId = null;
+        const commit = lastSnapshot.topology.commits.find(commit => commit.oid === oid);
+        const boundaries = lastSnapshot.topology.boundaries.filter(boundary => boundary.oid === oid);
+        const refs = lastSnapshot.topology.refs.filter(ref => ref.oid === oid);
+        showDetails(commit?.subject || "History boundary", [
+          ["Commit", oid], ["References", refs.map(ref => ref.display_name).join(", ") || "No retained reference"],
+          ["Authored", commit?.authored_at || "Unavailable"],
+          ["Coverage", boundaries.map(boundary => BOUNDARIES[boundary.reason]).join("; ") || (commit ? "Commit retained" : "Unavailable")]
+        ], oid);
+        const edges = byId("relationship-map").metroLayout?.edges || [];
+        const destinations = new Map();
+        for (const edge of edges) {
+          if (edge.from_oid === oid) destinations.set(edge.to_oid, { ...edge.navigation.to, direction: "Child" });
+          if (edge.to_oid === oid) destinations.set(edge.from_oid, { ...edge.navigation.from, direction: "Parent" });
         }
-        const fork = group.fork_point;
-        showDetails(`Common base with ${fork.target_branch}`, [["Full hash", fork.commit], ["Exact tags", fork.tags.length ? fork.tags.join(", ") : "No exact tag"], ["Subject", fork.subject || "Unavailable"], ["Authored", fork.authored_at || "Unavailable"], ["Distance to target", fork.distance_to_target === null ? "Unknown" : String(fork.distance_to_target)], ["Workspaces", String(group.lanes.length)]], fork.commit);
+        for (const [id, endpoint] of destinations) {
+          const label = endpoint.direction + " · " + (endpoint.action === "explain_boundary" ? "history boundary " : "") + id.slice(0, 8);
+          const control = button("control edge-navigation", label, () => { locateObject("commit:" + id); showCommit(id); });
+          control.dataset.endpointOid = id; control.dataset.navigationAction = endpoint.action; control.textContent = label;
+          byId("selection-details").append(control);
+        }
       }
-      function selectLane(lane) {
-        const taskTitles = lane.chats.length ? lane.chats.map((chat) => chat.display_title).join(", ") : "No linked conversation";
-        showDetails(lane.branch || "Detached workspace", [["Workspace", lane.workspace_path], ["HEAD", lane.head], ["Merge target", lane.relationship.merge_target || "Terminal"], ["Common base", lane.relationship.fork_point?.commit || "Unknown"], ["Ahead / behind", `${lane.relationship.ahead ?? "?"} / ${lane.relationship.behind ?? "?"}`], ["Merge state", lane.relationship.merged === true ? "Merged" : lane.relationship.merged === false ? "Not merged" : "Unknown"], ["Working tree", lane.relationship.dirty ? `DIRTY ${lane.relationship.changed_file_count}` : "Clean"], ["Tasks", taskTitles]], lane.head);
-        const route = lane.chats.find((chat) => chat.route_id)?.route_id || "none";
-        if (transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
+      function selectLane(lane, notify = true) {
+        selectedObjectId = "workspace:" + lane.worktree_id;
+        selectedWorkspaceId = lane.worktree_id; selectedTaskId = null;
+        const facts = lastSnapshot?.workspace_facts?.find(f => f.worktree_id === lane.worktree_id);
+        const taskTitles = uniqueTasks(lane).map(chat => chat.display_title).join(", ") || "No linked task observed";
+        showDetails(worktreeDisplayName(lane.workspace_path) || lane.worktree_id, [
+          ["Workspace", lane.workspace_path || "Canonical path unavailable"], ["Workspace ID", lane.worktree_id],
+          ["Branch", lane.branch || "Detached HEAD"], ["HEAD", facts?.head_oid || lane.head || "No commits yet"],
+          ["Working tree", facts?.working_state || "Unknown"], ["Target inclusion", facts?.integration || "Unknown"],
+          ["Target", facts?.target_ref || "Unknown"], ["Publication", facts?.upstream || "Unknown"],
+          ["Git observed", facts?.git_observed_at || "Unknown"], ["Task observation", observationLabel(lastSnapshot)],
+          ["Tasks", taskTitles]
+        ], facts?.head_oid || lane.head);
+        const route = lane.chats.find(chat => chat.route_id)?.route_id || "none";
+        if (notify && transport === "mcp") post({ jsonrpc: "2.0", method: "ui/update-model-context", params: { content: [{ type: "text", text: `DevMap selection: worktree_id=${lane.worktree_id} route_id=${route}` }] } });
       }
       function showTask(chat) {
-        showDetails(chat.display_title, [["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]]);
+        const threadId = safeCodexThreadId(chat.codex_thread_id) ? chat.codex_thread_id : null;
+        const lane = workspaceRecords(lastSnapshot).find(record => record.lane.worktree_id === selectedWorkspaceId)?.lane;
+        showDetails(chat.display_title, [["Task ID", threadId || "No verified Codex task ID"], ["Workspace", lane?.workspace_path || "Unavailable"], ["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Last activity", chat.last_event_at], ["Task observation", observationLabel(lastSnapshot)], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]], null, threadId);
       }
-      function showDetails(titleText, rows, copyValue) {
+      function refreshSelectedDetails() {
+        if (byId("selection-details").hidden || !lastSnapshot) return;
+        const group = byId("selection-details").dataset.workspaceGroup;
+        if (group) {
+          const panel = byId("selection-details"), scroll = panel.scrollTop;
+          const focusedId = document.activeElement?.dataset.worktreeId, hadFocus = panel.querySelectorAll("button").length && [...panel.querySelectorAll("button")].includes(document.activeElement);
+          const surface = byId("relationship-map"), ids = new Set((surface.metroLayout?.attachments || []).filter(a => a.head_oid === group).map(a => a.worktree_id));
+          const rows = (surface.overviewRows || []).filter(r => ids.has(r.lane.worktree_id));
+          if (!rows.length) { panel.hidden = true; return; }
+          const previousFocus = document.activeElement;
+          showWorkspaceChoices(group, rows); panel.scrollTop = scroll;
+          if (focusedId) [...panel.querySelectorAll(".workspace-choice")].find(n => n.dataset.worktreeId === focusedId)?.focus({ preventScroll: true });
+          else if (!hadFocus) previousFocus?.focus({ preventScroll: true });
+          return;
+        }
+        if (!selectedObjectId) return;
+        const section = byId("selection-details"), scrollTop = section.scrollTop;
+        const focusedControl = [...section.querySelectorAll("button")].find(node => node === document.activeElement);
+        const focusedAction = focusedControl && {
+          className: focusedControl.className,
+          endpointOid: focusedControl.dataset.endpointOid || null,
+          navigationAction: focusedControl.dataset.navigationAction || null
+        };
+        const records = workspaceRecords(lastSnapshot);
+        if (selectedTaskId) {
+          const record = records.find(record => uniqueTasks(record.lane).some(chat => taskId(chat) === selectedTaskId));
+          if (record) { selectedWorkspaceId = record.lane.worktree_id; showTask(uniqueTasks(record.lane).find(chat => taskId(chat) === selectedTaskId)); }
+        } else if (selectedWorkspaceId) {
+          const record = records.find(record => record.lane.worktree_id === selectedWorkspaceId);
+          if (record) selectLane(record.lane, false);
+        } else if (selectedObjectId.startsWith("commit:")) showCommit(selectedObjectId.slice(7));
+        section.scrollTop = scrollTop;
+        if (focusedAction) [...section.querySelectorAll("button")].find(node => node.className === focusedAction.className
+          && (node.dataset.endpointOid || null) === focusedAction.endpointOid
+          && (node.dataset.navigationAction || null) === focusedAction.navigationAction)?.focus({ preventScroll: true });
+      }
+      function showDetails(titleText, rows, copyValue, copyTaskId) {
         const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
+        delete section.dataset.workspaceGroup;
         const list = document.createElement("dl"); list.className = "detail-grid";
         for (const [label, value] of rows) { const term = document.createElement("dt"); term.textContent = label; const detail = document.createElement("dd"); const code = document.createElement("code"); code.textContent = value; detail.append(code); list.append(term, detail); }
-        section.replaceChildren(title, list);
+        const dismiss = button("dismiss-details", "Close selection details", () => { section.hidden = true; selectedObjectId = null; selectedWorkspaceId = null; selectedTaskId = null; byId("topology-viewport").focus(); });
+        dismiss.textContent = "Close"; section.hidden = false;
+        section.replaceChildren(dismiss, title, list);
         if (copyValue && safeHash(copyValue)) {
           const copy = button("copy-hash", "Copy full hash", async () => {
             try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyValue); copy.textContent = "Copied"; announce("Full hash copied"); }
@@ -619,8 +1106,20 @@
           });
           copy.textContent = "Copy hash"; section.append(copy);
         }
+        if (copyTaskId && safeCodexThreadId(copyTaskId)) {
+          const copy = button("copy-task-id", "Copy Codex task ID", async () => {
+            try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyTaskId); copy.textContent = "Copied"; announce("Task ID copied"); }
+            catch (_) { copy.textContent = "Copy unavailable"; announce("Copy unavailable; select the task ID in details instead"); }
+          });
+          copy.textContent = "Copy task ID"; section.append(copy);
+        }
       }
-      function announce(text) { byId("connection").textContent = text; }
+      function showUnavailableSelection(messages) {
+        showDetails("Selection unavailable", messages.map(message => ["Status", message]));
+        announce(messages.join(" · "));
+      }
+      function announce(text) { const feedback = byId("interaction-feedback"); feedback.hidden = false; feedback.textContent = text; }
+      function snapshotFeedback(text) { const feedback = byId("snapshot-feedback"); feedback.hidden = !text; feedback.textContent = text; }
       function finishRefresh(message) {
         clearTimeout(refreshRequestTimer);
         const refresh = byId("refresh"); refresh.disabled = false; refresh.textContent = "Refresh all";
@@ -648,10 +1147,39 @@
           refreshRequestTimer = setTimeout(() => finishRefresh("No task changes reported"), 15000);
         } catch (_) { await gitOnlyRefresh(); }
       }
-      function setOnline() { const node = byId("connection"); node.className = "connection"; node.textContent = "LIVE · updated now"; scheduleAge(); }
-      function setOffline() { const node = byId("connection"); node.className = "connection offline"; const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never"; node.textContent = `OFFLINE · last update ${age}`; scheduleAge(); }
+      function updateTaskFreshness(value) {
+        const node = byId("task-inventory");
+        const label = value ? observationLabel(value) : "Task observation unavailable";
+        const text = "Tasks · " + label.replace(/^Tasks /, "");
+        if (node.textContent !== text) node.textContent = text;
+      }
+      function refreshDynamicState() {
+        if (!lastSnapshot) return;
+        updateTaskFreshness(lastSnapshot);
+        const records = workspaceRecords(lastSnapshot);
+        const cards = new Map([...byId("relationship-map").querySelectorAll("[data-worktree-id]")].map(card => [card.dataset.worktreeId, card]));
+        for (const record of records) {
+          const card = cards.get(record.lane.worktree_id);
+          const facts = card?.querySelector(".workspace-facts");
+          if (facts) populateFacts(facts, record.lane, record.facts, lastSnapshot);
+          const risk = card?.querySelector(".workspace-risk");
+          if (risk) populateRisk(risk, record.lane, record.facts, lastSnapshot);
+          for (const state of card?.querySelectorAll(".conversation-state") || []) state.textContent = (tasksConfirmed(lastSnapshot) && state.dataset.captureIncomplete !== "true" ? "" : "Last observed ") + state.dataset.observedState;
+          const count = card?.querySelector(".task-count-summary");
+          if (count) count.textContent = (tasksConfirmed(lastSnapshot) && count.dataset.captureIncomplete !== "true" ? "" : "Last observed · ") + count.dataset.observedCount;
+          for (const disclosure of card?.querySelectorAll(".task-disclosure") || []) if (disclosure.dataset.observedCount) {
+            const qualifier = tasksConfirmed(lastSnapshot) && disclosure.dataset.captureIncomplete !== "true" ? "" : "Last observed · ";
+            disclosure.setAttribute("aria-label", disclosure.textContent + " · " + qualifier + disclosure.dataset.observedCount + " · " + worktreeDisplayName(record.lane.workspace_path));
+          }
+        }
+        renderAttention(records, lastSnapshot);
+        renderOverview(records, lastSnapshot);
+        refreshSelectedDetails();
+      }
+      function setOnline() { const node = byId("connection"); node.className = "connection"; node.textContent = "GIT LIVE · observed now"; refreshDynamicState(); scheduleAge(); }
+      function setOffline() { const node = byId("connection"); node.className = "connection offline"; const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never"; node.textContent = `GIT OFFLINE · last observation ${age}`; scheduleAge(); }
       function formatAge(milliseconds) { if (!Number.isFinite(milliseconds)) return "unknown"; const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`; }
-      function scheduleAge() { clearTimeout(ageTimer); if (document.visibilityState === "visible") ageTimer = setTimeout(() => { if (lastValidAt && Date.now() - lastValidAt > 6000) setOffline(); else scheduleAge(); }, 1000); }
+      function scheduleAge() { clearTimeout(ageTimer); if (document.visibilityState === "visible") ageTimer = setTimeout(() => { refreshDynamicState(); if (lastValidAt && Date.now() - lastValidAt > 6000) setOffline(); else scheduleAge(); }, 1000); }
       async function fetchSnapshot() { try { const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" }); if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot"); } catch (_) { setOffline(); } }
       function connectEvents() {
         if (eventStream) eventStream.close(); eventStream = new EventSource(`/api/v1/dock/events${browserQuery}`);
@@ -660,43 +1188,55 @@
       }
       function installPanControls(viewport) {
         let pointer = null;
+        const panPage = () => Math.max(160, Math.round(viewport.clientWidth * .72));
+        const panTo = (left, behavior = "smooth") => setViewportPosition({ left, top: viewport.scrollTop, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : behavior });
         const stopPointer = () => { pointer = null; viewport.classList.remove("is-panning"); };
+        viewport.addEventListener("scroll", () => { viewportPosition = { left: viewport.scrollLeft, top: viewport.scrollTop }; renderEdgeWayfinding(); });
         viewport.addEventListener("pointerdown", (event) => {
           if (event.button !== 0 || event.target.closest("button, a, input, textarea, select, [data-no-pan]")) return;
-          pointer = { id: event.pointerId, x: event.clientX, scrollLeft: viewport.scrollLeft };
+          pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
           viewport.setPointerCapture(event.pointerId); viewport.classList.add("is-panning");
         });
         viewport.addEventListener("pointermove", (event) => {
           if (!pointer || pointer.id !== event.pointerId) return;
           viewport.scrollLeft = pointer.scrollLeft - (event.clientX - pointer.x);
+          if (Number.isFinite(event.clientY) && Number.isFinite(pointer.y)) viewport.scrollTop = pointer.scrollTop - (event.clientY - pointer.y);
+          viewportPosition = { left: viewport.scrollLeft, top: viewport.scrollTop };
         });
         viewport.addEventListener("pointerup", stopPointer);
         viewport.addEventListener("pointercancel", stopPointer);
         viewport.addEventListener("lostpointercapture", stopPointer);
         viewport.addEventListener("wheel", (event) => {
-          if (!event.shiftKey || event.deltaY === 0) return;
+          if (!event.shiftKey || event.deltaY === 0 || event.target.closest("[data-no-pan]")) return;
           const maximum = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
           const next = Math.max(0, Math.min(maximum, viewport.scrollLeft + event.deltaY));
           if (next === viewport.scrollLeft) return;
-          event.preventDefault(); viewport.scrollLeft = next;
+          event.preventDefault(); viewport.scrollLeft = next; viewportPosition = { left: viewport.scrollLeft, top: viewport.scrollTop };
         }, { passive: false });
         viewport.addEventListener("keydown", (event) => {
-          if (event.target !== viewport) return;
-          const page = Math.max(160, Math.round(viewport.clientWidth * .72));
+          if (event.target !== viewport || event.ctrlKey || event.metaKey || event.altKey) return;
+          if (["+", "=", "-", "0"].includes(event.key)) {
+            event.preventDefault();
+            if (event.key === "0") fitMap(); else setMapScale(mapScale * (event.key === "-" ? 1 / 1.4 : 1.4));
+            return;
+          }
+          const page = panPage();
           const destination = event.key === "ArrowLeft" ? viewport.scrollLeft - page
             : event.key === "ArrowRight" ? viewport.scrollLeft + page
               : event.key === "Home" ? 0 : event.key === "End" ? viewport.scrollWidth : null;
           if (destination === null) return;
           event.preventDefault();
-          viewport.scrollTo({ left: destination, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+          panTo(destination);
         });
+        byId("pan-left").addEventListener("click", () => panTo(viewport.scrollLeft - panPage()));
+        byId("pan-right").addEventListener("click", () => panTo(viewport.scrollLeft + panPage()));
       }
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return; const message = event.data; if (message?.jsonrpc !== "2.0") return;
         if (message.method === "ui/notifications/tool-result") { if (!acceptSnapshot(message.params?.structuredContent)) setOffline(); return; }
         if (pendingRequests.has(message.id)) { const pending = pendingRequests.get(message.id);
           if (pending === "task-navigation") {
-            finishTaskNavigationRequest(message.id, message.error ? "Codex task could not be opened" : "Opening Codex task…");
+            finishTaskNavigationRequest(message.id, message.error ? "Codex task could not be opened" : "Codex accepted the task request · verify the destination");
             return;
           }
           pendingRequests.delete(message.id);
@@ -710,9 +1250,15 @@
         if (document.visibilityState === "visible") { if (transport === "mcp") { callTool("devmap_dock_snapshot", {}); scheduleRefresh(); } else { fetchSnapshot(); connectEvents(); } scheduleAge(); }
       });
       byId("refresh").addEventListener("click", requestFullRefresh);
-      for (const control of byId("density-switch").querySelectorAll("[data-density-value]")) control.addEventListener("click", () => setDensity(control.dataset.densityValue));
+      byId("zoom-out").addEventListener("click", () => setMapScale(mapScale / 1.4));
+      byId("zoom-in").addEventListener("click", () => setMapScale(mapScale * 1.4));
+      byId("zoom-reset").addEventListener("click", () => setMapScale(1));
+      byId("zoom-fit").addEventListener("click", fitMap);
+      byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
+      window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
+      document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
       installPanControls(byId("topology-viewport"));
-      setDensity("map", false);
+      if (typeof ResizeObserver === "function") new ResizeObserver(renderEdgeWayfinding).observe(byId("topology-viewport"));
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();
   </script>

@@ -60,10 +60,45 @@ impl SourceGitInspector {
     }
 
     pub fn workspace(&self) -> Result<SourceWorkspace, DevMapError> {
+        let head = self.required_git(["rev-parse", "HEAD"])?;
+        self.workspace_with_head(head)
+    }
+
+    pub fn workspace_allow_unborn(&self) -> Result<SourceWorkspace, DevMapError> {
+        let head_output = git_at(&self.root, ["rev-parse", "HEAD"])?;
+        let head = if head_output.status.success() {
+            output_text(&head_output, "git rev-parse HEAD")?
+        } else {
+            let original = DevMapError::GitCommand {
+                command: "git rev-parse HEAD".into(),
+                stderr: String::from_utf8_lossy(&head_output.stderr)
+                    .trim()
+                    .to_owned(),
+            };
+            let symbolic = git_at(&self.root, ["symbolic-ref", "--quiet", "HEAD"])?;
+            if !symbolic.status.success() {
+                return Err(original);
+            }
+            let symbolic = output_text(&symbolic, "git symbolic-ref --quiet HEAD")?;
+            if !symbolic.starts_with("refs/heads/") {
+                return Err(original);
+            }
+            let exists = git_at(
+                &self.root,
+                ["show-ref", "--verify", "--quiet", symbolic.as_str()],
+            )?;
+            match exists.status.code() {
+                Some(1) => String::new(),
+                _ => return Err(original),
+            }
+        };
+        self.workspace_with_head(head)
+    }
+
+    fn workspace_with_head(&self, head: String) -> Result<SourceWorkspace, DevMapError> {
         let root = self.required_git(["rev-parse", "--show-toplevel"])?;
         let git_dir = self.required_git(["rev-parse", "--git-dir"])?;
         let git_common_dir = self.required_git(["rev-parse", "--git-common-dir"])?;
-        let head = self.required_git(["rev-parse", "HEAD"])?;
         let branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
         let root = PathBuf::from(root);
         let resolve = |value: String| {
@@ -133,6 +168,8 @@ where
         .arg(root)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .output()?)
 }
 

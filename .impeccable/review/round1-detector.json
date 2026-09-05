@@ -1,0 +1,12 @@
+[
+  {
+    "antipattern": "cream-palette",
+    "name": "Cream / beige palette",
+    "description": "A warm cream or beige page background has become the default tasteful AI surface, reached for by reflex. Choose a background that comes from a deliberate palette, not the safe warm off-white.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "assets/dock.html",
+    "line": 0,
+    "snippet": "cream/beige page background rgb(255, 253, 248)"
+  }
+]

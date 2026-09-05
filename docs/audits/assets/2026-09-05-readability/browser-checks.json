@@ -1,0 +1,45 @@
+{
+  "fixture": "Synthetic six-workspace snapshot; not live task state",
+  "errors": [],
+  "results": [
+    {
+      "mode": "current",
+      "width": 560,
+      "scale": "1",
+      "overflow": false
+    },
+    {
+      "mode": "overview",
+      "width": 560,
+      "markers": 5,
+      "overlaps": 0,
+      "overflow": false
+    },
+    {
+      "mode": "current",
+      "width": 360,
+      "scale": "1",
+      "overflow": false
+    },
+    {
+      "mode": "overview",
+      "width": 360,
+      "markers": 5,
+      "overlaps": 0,
+      "overflow": false
+    },
+    {
+      "mode": "current",
+      "width": 1280,
+      "scale": "1",
+      "overflow": false
+    },
+    {
+      "mode": "overview",
+      "width": 1280,
+      "markers": 5,
+      "overlaps": 0,
+      "overflow": false
+    }
+  ]
+}

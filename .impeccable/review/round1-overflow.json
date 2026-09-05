@@ -1,0 +1,32 @@
+{
+  "canvasScroll": {
+    "x": 1967.199951171875,
+    "y": 538.4000244140625
+  },
+  "card": {
+    "bottom": 940.5999984741212,
+    "height": 1024,
+    "left": 64.80000305175781,
+    "right": 384.8000030517578,
+    "top": -83.4000015258789,
+    "width": 320,
+    "x": 64.80000305175781,
+    "y": -83.4000015258789
+  },
+  "clientHeight": 1022,
+  "focus": "worktree-cluster workspace-branch current",
+  "last": "QA · Agent 400 — 并行任务可访问性测试Agent · codexACTIVElocal · 14m agoqa-task-399 · codex_task_cwd · CAPTURE INCOMPLETE",
+  "lastRect": {
+    "bottom": 887.7000122070312,
+    "height": 57.5,
+    "left": 64.80000305175781,
+    "right": 369.6000213623047,
+    "top": 830.2000122070312,
+    "width": 304.8000183105469,
+    "x": 64.80000305175781,
+    "y": 830.2000122070312
+  },
+  "scrollHeight": 23326,
+  "scrollTop": 22304,
+  "tasks": 400
+}

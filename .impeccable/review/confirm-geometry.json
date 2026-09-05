@@ -1,0 +1,92 @@
+{
+  "currentHeight": 234.0500030517578,
+  "edges": [
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:0446964a41c818bb6fa51d4ae383bff5d47c2904:9ed6f77d0bc2a7e8058f595ab5b94a1c8330f85e",
+      "toError": 0.000003814697265625
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:0446964a41c818bb6fa51d4ae383bff5d47c2904:b413c7b368122a9a68b6be10ad661de479fa0088",
+      "toError": 0.00005089440942431005
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:0446964a41c818bb6fa51d4ae383bff5d47c2904:d430379e5d21cb58d340462a4b615a25ce8ba7bf",
+      "toError": 0.00001618438982818331
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000011444091796875,
+      "id": "edge:16d031fb65d84f25b488d117a9b8f022f0079e01:8df837f43109439c1992095d68393585364b2ca2",
+      "toError": 0.00001618438982818331
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000011444091796875,
+      "id": "edge:16d031fb65d84f25b488d117a9b8f022f0079e01:df5b48d3e458cb4c576e0097798d7263f8783339",
+      "toError": 0.00005089440942431005
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:428c351785d71bafb6a39be7e237d96d10408415:0446964a41c818bb6fa51d4ae383bff5d47c2904",
+      "toError": 0.000003814697265625
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:428c351785d71bafb6a39be7e237d96d10408415:16d031fb65d84f25b488d117a9b8f022f0079e01",
+      "toError": 0.000011444091796875
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:428c351785d71bafb6a39be7e237d96d10408415:c3bc7f9605213da265c3e74d461d2e8056469a18",
+      "toError": 0.000049591064453125
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:6c0de6a5c7e23c3700a9d8eb8d1e357dbcc9f513:428c351785d71bafb6a39be7e237d96d10408415",
+      "toError": 0.000003814697265625
+    },
+    {
+      "collisions": [],
+      "fromError": 0.00001618438982818331,
+      "id": "edge:8df837f43109439c1992095d68393585364b2ca2:9ed6f77d0bc2a7e8058f595ab5b94a1c8330f85e",
+      "toError": 0.000003814697265625
+    },
+    {
+      "collisions": [],
+      "fromError": 0.000003814697265625,
+      "id": "edge:9ed6f77d0bc2a7e8058f595ab5b94a1c8330f85e:fcc9e1b61e68617fb38e84f9796e330650138665",
+      "toError": 0.000003814697265625
+    },
+    {
+      "collisions": [],
+      "fromError": 0.00005089440942431005,
+      "id": "edge:df5b48d3e458cb4c576e0097798d7263f8783339:1ca3a76c390ef0f12be248fc32b326836e055b26",
+      "toError": 0.000049591064453125
+    }
+  ],
+  "height": 1000,
+  "masks": 8,
+  "scale": {
+    "x": 1,
+    "y": 1
+  },
+  "stationRows": [
+    149,
+    532,
+    978,
+    1743,
+    1883,
+    2394
+  ],
+  "width": 1440
+}

@@ -16,14 +16,18 @@
 - User-rejected shared-fork layout, iteration 7 before: `.superpowers/brainstorm/product-design/task-roster-before.png`
 - Worktree-owned station layout, iteration 7 final: `.superpowers/brainstorm/product-design/task-roster-final.png`
 - Direct rejected/final comparison, iteration 7: `.superpowers/brainstorm/product-design/comparison-task-roster-final.png`
+- User-reported branch-first identity, iteration 8 before: `.superpowers/brainstorm/product-design/worktree-identity-before.png`
+- Worktree-first identity, iteration 8 final: `.superpowers/brainstorm/product-design/worktree-identity-after.jpg`
+- Focused identity comparison, iteration 8: `.superpowers/brainstorm/product-design/comparison-worktree-identity-final.png`
 - Source pixels: 748 × 794. The source includes its design-host header and surrounding canvas.
 - Final implementation pixels: 830 × 780 at the Codex in-app Browser desktop viewport. Browser device scale was not exposed; no density resampling was applied.
 - Iteration 7 comparison pixels: 1,684 × 588. The rejected 762 × 499 capture and final 830 × 780 capture were placed together at native readable scale and cropped only to the shared topology region. The source mock remains the palette, typography, node-treatment, and rail-style reference; the rejected/final pair is the direct structural comparison because the live repository data differs from the synthetic source.
+- Iteration 8 evidence pixels: 684 × 258 before, 1,280 × 720 after, and 1,640 × 350 focused comparison. The focused comparison preserves each image's aspect ratio and compares the same MAP-density worktree identity region; it is a semantic hierarchy check rather than a pixel-for-pixel layout comparison because the user capture is cropped.
 - State: real local repository, light theme, MAP density, collapsed history disclosure, seven worktrees, and 12 linked Codex tasks (1 active, 1 idle, 10 history).
 
 ## Findings
 
-No actionable P0/P1/P2 differences remain after the worktree-ownership pass. The final comparison shows a single shared main timeline with one station per worktree, fork metadata attached to each lane rather than owning the lane group, vertical task/Agent stacks directly below each worktree, graphical return edges, an in-canvas title/control bar, and scoped horizontal navigation.
+No actionable P0/P1/P2 differences remain after the worktree-identity pass. The final comparison shows a single shared main timeline with one station per worktree, Worktree path as the primary node identity, Branch as secondary metadata, fork metadata attached to each lane rather than owning the lane group, vertical task/Agent stacks directly below each worktree, graphical return edges, an in-canvas title/control bar, and scoped horizontal navigation.
 
 ### P3 follow-up polish
 
@@ -36,7 +40,7 @@ No actionable P0/P1/P2 differences remain after the worktree-ownership pass. The
 - **Spacing and layout rhythm:** the shell can use up to 1,440 px while the topology surface expands independently to the space required by its worktrees and conversations. Map surfaces use 16 px radii, white nodes use restrained 9 px radii, and shadows are limited to the map shell and interactive surfaces. The live data produces more vertical rows than the synthetic source, which is expected rather than design drift.
 - **Colors and visual tokens:** page `#f4f5f7`, canvas `#fafbfc`, surface `#ffffff`, text/main rail `#202124`, and development rail `#1677ff` now follow the source's light visual system. Semantic green, amber, and red remain small-area accents.
 - **Image quality and assets:** no repository-specific imagery is required. The missing decorative grid and brand tile are listed as P3 rather than replaced with prohibited code-drawn approximations.
-- **Copy and content:** `DevMap · Rail View`, `Repository topology`, MAP/READ/FULL, branch names, merge state, dirty state, and ahead/behind data remain explicit and truthful.
+- **Copy and content:** `DevMap · Rail View`, `Repository topology`, MAP/READ/FULL, Worktree path labels, secondary Branch labels, merge state, dirty state, and ahead/behind data remain explicit and truthful.
 
 ## Interaction and accessibility evidence
 
@@ -44,7 +48,7 @@ No actionable P0/P1/P2 differences remain after the worktree-ownership pass. The
 - The main-timeline station markers retain a 14 px visual footprint while each button exposes a 44 × 44 px hit target.
 - The legend is progressively disclosed in FULL only, keeping MAP and READ focused on topology.
 - FULL mode reports no geometric overlap between `.worktree-stop` and `.task-stack` in any branch lane.
-- Selecting a worktree sets `aria-current="true"` and updates the detail title to the selected branch.
+- Selecting a worktree sets `aria-current="true"`, updates the detail title to the Worktree path label, and exposes the Branch as a separate detail row.
 - The current document reports 815/815 px `clientWidth`/`scrollWidth`, so the topology does not create document-level horizontal overflow.
 - The current scoped topology viewport reports 2,760 px of content inside a 750 px viewport. Its native bottom scrollbar remains visible.
 - Pointer drag moved the viewport from 300 px to 500 px, and keyboard Home, ArrowLeft/ArrowRight, and End reached the expected bounded positions.
@@ -114,6 +118,14 @@ No actionable P0/P1/P2 differences remain after the worktree-ownership pass. The
 - Post-fix visual evidence: `task-roster-before.png`, `task-roster-final.png`, and `comparison-task-roster-final.png`. The final capture visibly separates `codex/rail-view-design-alignment` and `codex/git-workflow-orchestrator-design` into distinct rail stations, and the task roster sits under its owning worktree.
 - Post-fix geometry and interaction evidence: 7 stations, 7 clusters, 0 px maximum center difference, 0 overlaps, 2,760/750 px scoped horizontal extent, 815/815 px document width, 603/603 px collapsed height, 951/951 px expanded height, 12 task records, all three density modes, drag and keyboard panning, exact task selection, truthful standalone fallback, and no console warnings or errors.
 - Focused comparison was not needed beyond the readable native-scale rejected/final topology crop: worktree labels, Agent/status text, station stems, and ownership relationships are legible in the combined image, while color and typography were unchanged from the already-passed iteration 6 source comparison.
+
+### Iteration 8
+
+- Earlier P1: Worktree nodes used `lane.branch` as their prominent visible label, so branch names such as `codex/rail-view-design-alignment` appeared to be the level-one identity even though each node represented a distinct Worktree.
+- Earlier P2: detached Worktrees displayed only `detached HEAD`, hiding the directory that actually distinguishes them.
+- Fixes: derive the primary visible identity from the last two segments of `workspace_path`; show `Branch · …` as secondary metadata in every density; use the same Worktree label in station accessibility names and selection-details headings; retain the complete path as the node tooltip and detail value.
+- Post-fix visual evidence: `worktree-identity-after.jpg` and `comparison-worktree-identity-final.png`. The current node reads `ChatGPT/DevMap-phase-1a-worktree` with `Branch · codex/rail-view-design-alignment` beneath it, while Codex-managed detached Worktrees are differentiated by labels such as `5f3c/AI auto-git context` and `42c1/AI auto-git context`.
+- Post-fix interaction evidence: all seven Worktree nodes expose distinct Worktree-first accessible labels; selecting `ChatGPT/AI auto-git context` sets `aria-current="true"`, uses that Worktree label as the detail heading, and renders `codex/git-workflow-orchestrator-design` in a separate Branch row. Selecting the active task still resolves the exact task and does not enter the panning state.
 
 ## Final result
 

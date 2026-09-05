@@ -1,77 +1,7 @@
 use devmap::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 
-#[test]
-fn dock_asset_renders_shared_integration_rails_and_fork_stations() {
-    let html = dock_html();
-    for contract in [
-        "relationship-map",
-        "integration-rail",
-        "fork-station",
-        "workspace-branch",
-        "task-node",
-        "selection-details",
-        "Copy hash",
-        "No exact tag",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing graph contract: {contract}"
-        );
-    }
-    assert!(html.contains("Merged →"));
-    assert!(html.contains("Not merged"));
-    assert!(html.contains("Unknown"));
-    assert!(html.contains("ahead"));
-    assert!(html.contains("behind"));
-    assert!(!html.contains("target-left"));
-    assert!(!html.contains("target-right"));
-}
-
-#[test]
-fn dock_asset_renders_worktree_stations_with_progressive_density() {
-    let html = dock_html();
-    for contract in [
-        "topology-canvas",
-        "worktree-stage",
-        "worktree-cluster",
-        "fork-node",
-        "worktree-stop",
-        "agent-roster",
-        "density-switch",
-        "data-density=\"map\"",
-        "aria-pressed",
-        "MAP",
-        "READ",
-        "FULL",
-        "integration-rail",
-        "task-node",
-        "return-state",
-        "selection-details",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing Rail View contract: {contract}"
-        );
-    }
-}
-
-#[test]
-fn dock_asset_exposes_bounded_branch_disclosure_without_dropping_status_text() {
-    let html = dock_html();
-    for contract in [
-        "collapsed-branches",
-        "merged / inactive branches",
-        "Merged →",
-        "Not merged →",
-        "Unknown →",
-        "DIRTY",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing branch disclosure contract: {contract}"
-        );
-    }
-}
+// Semantic/runtime renderer coverage lives in tests/dock_renderer.cjs.
+// Browser geometry, responsive pixels and visual acceptance remain separate gates.
 
 #[test]
 fn dock_asset_uses_neutral_surfaces_and_small_area_semantic_colors() {
@@ -91,69 +21,6 @@ fn dock_asset_uses_neutral_surfaces_and_small_area_semantic_colors() {
 }
 
 #[test]
-fn dock_asset_matches_the_approved_light_rail_view_theme() {
-    let html = dock_html();
-    for contract in [
-        "color-scheme: light",
-        "--bg: #f4f5f7",
-        "--surface: #ffffff",
-        "--text: #202124",
-        "--main-rail: #202124",
-        "--accent: #1677ff",
-        "--danger: #d92d54",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing light Rail View theme contract: {contract}"
-        );
-    }
-    assert!(!html.contains("color-scheme: dark"));
-    assert!(!html.contains("--bg: #090d12"));
-}
-
-#[test]
-fn dock_asset_places_branch_lanes_on_one_shared_commit_timeline() {
-    let html = dock_html();
-    for contract in [
-        "topology-grid-labels",
-        "timeline-station",
-        ".timeline-station::after",
-        "timeline-head",
-        "worktree-stage",
-        "agent-roster",
-        "return-edge",
-        "--station-count",
-        "worktree-station",
-        r#"html[data-density="map"] .workspace-short"#,
-        r#"html[data-density="full"] .legend"#,
-        ".workspace-branch.current .worktree-stop",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing shared timeline contract: {contract}"
-        );
-    }
-    assert!(!html.contains("stationPercent"));
-}
-
-#[test]
-fn dock_asset_keeps_topology_title_and_density_controls_inside_the_map_shell() {
-    let html = dock_html();
-    let map_shell = html
-        .find("<section class=\"map-frame\"")
-        .expect("map shell must exist");
-    let title = html
-        .find("<h1 id=\"map-title\">Repository topology</h1>")
-        .expect("topology title must exist");
-    let canvas = html
-        .find("<div class=\"relationship-map topology-canvas topology-surface\"")
-        .expect("topology canvas must exist");
-    assert!(map_shell < title && title < canvas);
-    assert!(html.contains("map-toolbar"));
-    assert!(html.contains("masthead-actions"));
-}
-
-#[test]
 fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     let html = dock_html();
     assert_eq!(DOCK_RESOURCE_URI, "ui://devmap/dock/v1.html");
@@ -164,50 +31,15 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     assert!(html.contains("devmap_dock_snapshot"));
     assert!(html.contains("window.parent.postMessage"));
     assert!(!html.contains("https://"));
-    assert!(!html.contains("http://"));
+    // SVG namespace identifies elements; it is not an external request.
+    assert!(
+        !html
+            .replace("http://www.w3.org/2000/svg", "")
+            .contains("http://")
+    );
     assert!(!html.contains("localStorage"));
     assert!(!html.contains("sessionStorage"));
     assert!(html.len() < 128 * 1024);
-}
-
-#[test]
-fn dock_asset_is_accessible_responsive_and_explicit_about_uncertainty() {
-    let html = dock_html();
-    assert_eq!(html.matches("<main").count(), 1);
-    assert!(html.contains("type=\"button\""));
-    assert!(html.contains("aria-live=\"polite\""));
-    assert!(html.contains("Workspaces"));
-    assert!(html.contains("Linked chats"));
-    assert!(html.contains("Development rail"));
-    assert!(html.contains("UNINSTRUMENTED"));
-    assert!(html.contains(".workspace-branch.current"));
-    assert!(html.contains("Unknown →"));
-    assert!(html.contains("CAPTURE INCOMPLETE"));
-    assert!(html.contains("OFFLINE · last update"));
-    assert!(html.contains("Date.now() - lastValidAt > 6000"));
-    assert!(html.contains("@container"));
-    assert!(html.contains("max-width: 619px"));
-    assert!(html.contains("prefers-reduced-motion"));
-    assert!(html.contains(":focus-visible"));
-    assert!(html.contains("visibilitychange"));
-}
-
-#[test]
-fn dock_asset_validates_untrusted_models_and_never_uses_html_injection() {
-    let html = dock_html();
-    assert!(html.contains(r#"value.schema_version !== "devmap/dock/3""#));
-    assert!(!html.contains("devmap/dock/2"));
-    assert!(html.contains("Number.isSafeInteger"));
-    assert!(html.contains("safeRouteId"));
-    assert!(html.contains("renderedRevision"));
-    assert!(html.contains("value.revision === renderedRevision"));
-    assert!(html.contains("2048"));
-    assert!(html.contains("textContent"));
-    assert!(html.contains("replaceChildren"));
-    assert!(!html.contains("innerHTML"));
-    for forbidden in ["tool_input", "tool_output", "transcript"] {
-        assert!(!html.contains(forbidden), "raw field leaked: {forbidden}");
-    }
 }
 
 #[test]
@@ -238,6 +70,9 @@ fn dock_task_navigation_uses_only_a_validated_codex_thread_id() {
         "Open this task from Codex",
         "sendFollowUpMessage",
         "method: \"ui/message\"",
+        "codex://threads/",
+        "verify the destination",
+        "Copy task ID",
     ] {
         assert!(
             html.contains(contract),
@@ -245,7 +80,7 @@ fn dock_task_navigation_uses_only_a_validated_codex_thread_id() {
         );
     }
     assert!(!html.contains("Open the local Codex task with title"));
-    assert!(!html.contains("codex://"));
+    assert!(!html.contains("codex://threads/${"));
 }
 
 #[test]
@@ -270,7 +105,7 @@ fn dock_task_navigation_recovers_when_portable_bridge_does_not_reply() {
         "clearTimeout(timeout)",
         "let navigationRequestId = null",
         "if (navigationRequestId !== null) finishTaskNavigationRequest",
-        "finishTaskNavigationRequest(message.id, message.error ? \"Codex task could not be opened\" : \"Opening Codex task…\")",
+        "finishTaskNavigationRequest(message.id, message.error ? \"Codex task could not be opened\" : \"Codex accepted the task request · verify the destination\")",
         "if (pendingRequests.has(message.id))",
     ] {
         assert!(
@@ -296,96 +131,6 @@ fn dock_refresh_requests_a_fresh_host_task_inventory() {
 }
 
 #[test]
-fn dock_asset_keeps_worktrees_primary_and_conversations_visible_in_every_density() {
-    let html = dock_html();
-    for contract in [
-        "worktree-identity",
-        "agent-roster",
-        "agent-task-node",
-        "conversation-node",
-        "conversation-title",
-        "agent-identity",
-        "conversation-state",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing conversation hierarchy contract: {contract}"
-        );
-    }
-    assert!(!html.contains(r#"html[data-density="map"] .agent-roster { display: none"#));
-}
-
-#[test]
-fn dock_asset_orders_and_bounds_historical_conversations() {
-    let html = dock_html();
-    for contract in [
-        "function compareConversations",
-        "const MAX_RECENT_HISTORY = 3",
-        "function conversationCategory",
-        "historical-conversations",
-        "historical conversations",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing bounded conversation history contract: {contract}"
-        );
-    }
-}
-
-#[test]
-fn dock_asset_nests_vertical_agent_rosters_under_horizontal_worktree_stations() {
-    let html = dock_html();
-    for contract in [
-        "worktree-stage",
-        "worktree-cluster",
-        "worktree-state",
-        "agent-roster",
-        "agent-task-node",
-        "--station-count",
-        "worktree-station",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing roster contract: {contract}"
-        );
-    }
-    assert!(html.contains("list.append(createWorktreeCluster"));
-    assert!(!html.contains("createConversationTrack"));
-}
-
-#[test]
-fn dock_asset_keeps_active_idle_and_three_recent_history_items_visible() {
-    let html = dock_html();
-    assert!(html.contains("conversationCategory"));
-    assert!(html.contains("category === \"active\""));
-    assert!(html.contains("category === \"idle\""));
-    assert!(html.contains("MAX_RECENT_HISTORY = 3"));
-    assert!(html.contains("+${historical.length} historical conversations"));
-}
-
-#[test]
-fn dock_asset_uses_a_scoped_horizontal_viewport_for_the_vertical_roster_stage() {
-    let html = dock_html();
-    for contract in [
-        "topology-viewport",
-        "topology-surface",
-        "scrollbar-gutter: stable",
-        "function topologyWidth",
-        "--topology-width",
-        "worktree-stage",
-        "agent-roster",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing panoramic topology contract: {contract}"
-        );
-    }
-    assert!(html.contains(".topology-viewport"));
-    assert!(html.contains("overflow-x: auto"));
-    assert!(html.contains(".worktree-identity"));
-}
-
-#[test]
 fn dock_asset_supports_safe_horizontal_pan_inputs() {
     let html = dock_html();
     for contract in [
@@ -396,6 +141,9 @@ fn dock_asset_supports_safe_horizontal_pan_inputs() {
         r#"event.target.closest("button, a, input, textarea, select, [data-no-pan]")"#,
         "ArrowLeft",
         "ArrowRight",
+        "Pan repository topology",
+        "id=\"pan-left\"",
+        "id=\"pan-right\"",
     ] {
         assert!(
             html.contains(contract),
@@ -405,126 +153,63 @@ fn dock_asset_supports_safe_horizontal_pan_inputs() {
 }
 
 #[test]
-fn dock_asset_offsets_the_worktree_stage_from_the_integration_identity() {
+fn dock_asset_preserves_required_titles_and_hides_unselected_inspector() {
     let html = dock_html();
-    assert!(html.contains(".worktree-stage"));
-    assert!(html.contains("margin-left: calc(var(--identity-width) + 18px)"));
-    assert!(html.contains("padding-right: var(--target-width)"));
+    assert!(html.contains("<title>DevMap · Rail View — Repository topology</title>"));
+    assert!(html.contains(">DevMap · Rail View</p>"));
+    assert!(html.contains("<h1 id=\"map-title\">Repository topology</h1>"));
+    assert!(html.contains("id=\"selection-details\" aria-labelledby=\"selection-title\" hidden"));
+    assert!(html.contains("id=\"interaction-feedback\" role=\"status\" aria-live=\"polite\""));
+    assert!(html.contains("id=\"task-inventory\" aria-live=\"polite\""));
+    assert_eq!(html.matches("<main").count(), 1);
 }
 
 #[test]
-fn dock_asset_renders_one_quiet_empty_conversation_state() {
+fn dock_asset_rejects_html_injection_and_keeps_embedded_validation_bounds() {
     let html = dock_html();
-    assert!(html.contains("if (lane.chats.length === 0)"));
-    assert!(html.contains("roster.append(createUnlinkedTask())"));
-    assert!(html.contains("No linked conversation"));
-}
-
-#[test]
-fn dock_asset_preserves_horizontal_panorama_at_narrow_widths() {
-    let html = dock_html();
-    assert!(!html.contains(".timeline-station { display: none; }"));
-    assert!(!html.contains(".rail-line { margin-left: 22px; width: 3px; height: 24px; }"));
-    assert!(html.contains("--identity-width: 214px"));
-}
-
-#[test]
-fn dock_asset_aligns_main_forks_and_branch_edges_in_one_geometry_plane() {
-    let html = dock_html();
-    for contract in [
-        "--station-count",
-        "grid-template-columns: repeat(var(--station-count), minmax(300px, 1fr))",
-        "timeline-station worktree-station",
-        "worktree-fork-meta",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing shared rail geometry contract: {contract}"
-        );
-    }
-    assert!(!html.contains("function alignRailGeometry"));
-    assert!(!html.contains("function alignAllRailGeometry"));
-    assert!(!html.contains("getBoundingClientRect()"));
-    assert!(!html.contains("--fork-x"));
-    assert!(!html.contains("--station-span"));
-    assert!(!html.contains("fork-group"));
-}
-
-#[test]
-fn dock_asset_keeps_live_worktrees_outside_the_history_disclosure_limit() {
-    let html = dock_html();
-    for contract in [
-        "function laneHasLiveConversation",
-        r#"category === "active" || category === "idle""#,
-        "function defaultVisibleLaneIds",
-        "const live = ordered.filter(laneHasLiveConversation)",
-        "const bounded = ordered.filter((lane) => !laneHasLiveConversation(lane)).slice(0, MAX_VISIBLE_BRANCHES)",
-        "const hiddenCount = ordered.length - visibleIds.size",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing live-worktree visibility contract: {contract}"
-        );
-    }
-    assert!(!html.contains("ordered.slice(0, MAX_VISIBLE_BRANCHES)"));
-}
-
-#[test]
-fn dock_asset_uses_identical_rail_and_stage_track_widths() {
-    let html = dock_html();
-    assert!(html.contains(".rail-line, .worktree-stage { padding-right: var(--target-width); }"));
-    assert_eq!(
-        html.matches("padding-right: var(--target-width)").count(),
-        1
-    );
-    assert!(html.contains(".timeline-head { position: absolute; top: 50%; right: -1px;"));
-}
-
-#[test]
-fn dock_asset_builds_stations_and_clusters_from_one_ordered_lane_sequence() {
-    let html = dock_html();
-    for contract in [
-        "function orderedRailEntries",
-        "const entries = orderedRailEntries(matching)",
-        "const ordered = entries.map(({ lane }) => lane)",
-        "line.append(createWorktreeStation(entry.lane",
-        "list.append(createWorktreeCluster(entry.lane, entry.group",
-        "const stationCount = Math.max(1, entries.length)",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing flattened worktree station contract: {contract}"
-        );
+    assert!(html.contains("Core.validateSnapshot(value)"));
+    assert!(html.contains("devmap/dock/3"));
+    assert!(html.contains("devmap/dock/4"));
+    assert!(html.contains("Number.isSafeInteger"));
+    assert!(html.contains("safeRouteId"));
+    assert!(html.contains("textContent"));
+    assert!(html.contains("replaceChildren"));
+    assert!(!html.contains("innerHTML"));
+    for forbidden in ["tool_input", "tool_output", "transcript"] {
+        assert!(!html.contains(forbidden), "raw field leaked: {forbidden}");
     }
 }
 
 #[test]
-fn dock_asset_labels_each_station_by_worktree_and_keeps_fork_metadata_per_lane() {
+fn dock_asset_keeps_accessible_scrolling_and_transport_age_state() {
     let html = dock_html();
-    for contract in [
-        "function worktreeStationLabel",
-        "timeline-station worktree-station",
-        "function createForkAnnotation",
-        "worktree-fork-meta",
-        "createForkAnnotation(group)",
-    ] {
-        assert!(
-            html.contains(contract),
-            "missing worktree-owned station contract: {contract}"
-        );
-    }
-    assert!(html.contains("lane.branch || \"detached HEAD\""));
-    assert!(html.contains("justify-self: center; align-self: center;"));
+    assert!(html.contains("tabindex=\"0\" aria-label=\"Scrollable repository topology\""));
+    assert!(html.contains("Locate current workspace"));
+    assert!(html.contains("prefers-reduced-motion"));
+    assert!(html.contains(":focus-visible"));
+    assert!(html.contains("visibilitychange"));
+    assert!(html.contains("GIT OFFLINE · last observation"));
+    assert!(html.contains("Date.now() - lastValidAt > 6000"));
+    assert!(html.contains("CAPTURE INCOMPLETE"));
 }
 
 #[test]
-fn dock_asset_uses_content_led_desktop_height_with_a_narrow_viewport_bound() {
+fn dock_asset_tracks_exploration_state_independently_from_rendered_nodes() {
     let html = dock_html();
-    assert!(html.contains(
-        ".topology-viewport { position: relative; width: 100%; height: auto; min-height: 320px;"
-    ));
-    assert!(
-        html.contains(".topology-viewport { max-height: min(72vh, 720px); overflow-y: auto; }")
-    );
-    assert!(!html.contains("height: min(68vh, 720px)"));
+    for contract in [
+        "selectedWorkspaceId",
+        "selectedTaskId",
+        "expandedWorkspaces",
+        "expandedConversationHistory",
+        "viewportPosition",
+        "reconcileExplorationState",
+        "Selected task ",
+        "Selected workspace ",
+        "is no longer available",
+    ] {
+        assert!(
+            html.contains(contract),
+            "missing exploration state contract: {contract}"
+        );
+    }
 }

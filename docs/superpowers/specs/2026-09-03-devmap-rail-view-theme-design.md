@@ -68,20 +68,21 @@ At narrow widths below 620 px, the same DOM order becomes a vertical tree. The d
 
 ## 6. Color system
 
-The approved dark palette uses restrained graphite surfaces and a single structural accent:
+The approved palette follows the selected visual source directly: a quiet light workspace with white nodes, a near-black integration rail, and blue development rails.
 
-- page background: near-black graphite;
-- primary surface: dark slate;
-- raised/selected surface: slightly lighter slate;
-- primary text: cool off-white;
-- secondary text: blue-gray;
-- topology accent: medium blue, used for rails, selection, and focus;
+- page background: cool off-white;
+- topology canvas: very light neutral gray;
+- primary surface: white;
+- raised/selected surface: pale blue-gray;
+- primary text and integration rail: near-black;
+- secondary text: neutral gray;
+- topology accent: clear medium blue, used for development rails, selection, and focus;
 - merged: green, used only for a short stroke, dot, or label;
 - not merged/review: amber, used only for a short stroke, dot, or label;
 - dirty/error: coral red, used only for a dot and text;
 - unknown: neutral dashed stroke plus explicit `Unknown` text.
 
-Purple and cyan card fills are removed. State is never conveyed by color alone. Large surfaces remain neutral, borders are low contrast, and shadows are reserved for the selected worktree stop and detail drawer.
+Purple and cyan card fills are removed. State is never conveyed by color alone. Large surfaces remain neutral, borders are low contrast, and shadows stay subtle around the map shell and selected worktree stop.
 
 ## 7. Component contract
 

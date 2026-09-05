@@ -92,6 +92,58 @@ fn viewer_applies_renamed_and_cleared_task_inventory() {
 }
 
 #[test]
+fn sse_delivers_fresh_observation_with_an_unchanged_structural_revision() {
+    let repo = support::committed_repo();
+    let (handle, runtime) = start_live_viewer_with_tasks(
+        repo.path(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        vec![observed_task(repo.path(), "Stable task")],
+    )
+    .unwrap();
+    let snapshot_path = format!("/api/v1/dock/snapshot?token={}", handle.token);
+    let first: Value =
+        serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
+    let structural_revision = first["revision"].as_u64().unwrap();
+    let observation_revision = first["observation_revision"].as_u64().unwrap();
+
+    runtime
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Stable task")],
+            OffsetDateTime::parse("2026-09-03T10:04:00Z", &Rfc3339).unwrap(),
+        )
+        .unwrap();
+    let events = request(
+        handle.address,
+        "GET",
+        &format!(
+            "/api/v1/dock/events?token={}&after={observation_revision}",
+            handle.token
+        ),
+    );
+    let event_data = body(&events)
+        .lines()
+        .find_map(|line| line.strip_prefix("data: "))
+        .expect("fresh observation must produce an SSE event");
+    let event: Value = serde_json::from_str(event_data).unwrap();
+
+    assert_eq!(event["revision"], structural_revision);
+    assert!(event["observation_revision"].as_u64().unwrap() > observation_revision);
+    assert_eq!(
+        event["task_observation"]["observed_at"],
+        "2026-09-03T10:04:00Z"
+    );
+    assert_eq!(
+        event["workspace_facts"][0]["task_observed_at"], "2026-09-03T10:04:00Z",
+        "the task-observation source, not a structural change or task activity time, drives inventory freshness"
+    );
+    assert_eq!(
+        event["branch_groups"][0]["lanes"][0]["chats"][0]["display_title"],
+        "Stable task"
+    );
+    runtime.shutdown().unwrap();
+}
+
+#[test]
 fn viewer_is_loopback_token_protected_read_only_and_stoppable() {
     let repo = support::committed_repo();
     let before = support::source_snapshot(repo.path());
@@ -127,8 +179,8 @@ fn viewer_is_loopback_token_protected_read_only_and_stoppable() {
     assert!(snapshot.contains("Content-Type: application/json"));
     assert!(snapshot.contains("Cache-Control: no-store"));
     let model: Value = serde_json::from_str(body(&snapshot)).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/3");
-    let revision = model["revision"].as_u64().unwrap();
+    assert_eq!(model["schema_version"], "devmap/dock/4");
+    let revision = model["observation_revision"].as_u64().unwrap();
 
     let events = request(
         handle.address,

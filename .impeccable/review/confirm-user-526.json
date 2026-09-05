@@ -1,0 +1,61 @@
+{
+  "current": {
+    "name": {
+      "bottom": 204.15000915527344,
+      "height": 21.75,
+      "left": 127.20000457763672,
+      "right": 429.5999984741211,
+      "top": 182.40000915527344,
+      "width": 302.3999938964844,
+      "x": 127.20000457763672,
+      "y": 182.40000915527344
+    },
+    "rect": {
+      "bottom": 406.8500061035156,
+      "height": 234.0500030517578,
+      "left": 118.4000015258789,
+      "right": 438.4000015258789,
+      "top": 172.8000030517578,
+      "width": 320,
+      "x": 118.4000015258789,
+      "y": 172.8000030517578
+    },
+    "task": {
+      "bottom": 283.8500061035156,
+      "height": 57.5,
+      "left": 118.4000015258789,
+      "right": 438.4000015258789,
+      "top": 226.3500061035156,
+      "width": 320,
+      "x": 118.4000015258789,
+      "y": 226.3500061035156
+    },
+    "text": "main-workspace\nBranch · mainCurrent · 2a9c3a85\nQA · Agent M — Release readiness\nOpen task\nAgent · codex\nLast observed ACTIVE\n\nLast observed · 1 active task\n\nWorking tree clean\n\nIntegration terminal\n\nPublication unknown\n\nTasks observed 29s ago · fresh\n\nLocate HEAD · fcc9e1b6",
+    "title": "main-workspace"
+  },
+  "font": {
+    "metadata": "12px",
+    "names": "15px"
+  },
+  "height": 794,
+  "page": {
+    "height": 794,
+    "width": 526
+  },
+  "scroll": {
+    "x": 1857.5999755859375,
+    "y": 88
+  },
+  "stations": 1,
+  "viewport": {
+    "bottom": 721.6000366210938,
+    "height": 597.6000366210938,
+    "left": 8,
+    "right": 518.3999938964844,
+    "top": 124,
+    "width": 510.3999938964844,
+    "x": 8,
+    "y": 124
+  },
+  "width": 526
+}

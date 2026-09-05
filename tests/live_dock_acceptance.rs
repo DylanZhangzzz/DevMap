@@ -318,7 +318,59 @@ fn bounded_large_reduction_and_live_revision_meet_mvp_latency_targets() {
     let reduction = started.elapsed();
     println!("100 worktrees / 1000 Presence reduction: {reduction:?}");
     assert!(reduction < Duration::from_secs(1));
-    assert_eq!(model.current.len(), 10);
+    assert_eq!(model.lanes.len(), 100);
+    assert_eq!(model.workspace_facts.len(), 100);
+    for worktree_index in 0..100 {
+        let worktree_id = format!("wt-{worktree_index:064x}");
+        assert!(
+            model
+                .lanes
+                .iter()
+                .any(|lane| lane.worktree_id == worktree_id)
+        );
+        assert!(
+            model
+                .workspace_facts
+                .iter()
+                .any(|facts| facts.worktree_id == worktree_id)
+        );
+    }
+    assert_eq!(
+        model
+            .lanes
+            .iter()
+            .map(|lane| lane.chats.len())
+            .sum::<usize>(),
+        1000
+    );
+    let current_lane = model
+        .lanes
+        .iter()
+        .find(|lane| lane.is_current)
+        .expect("authoritative lanes retain the current workspace");
+    assert_eq!(current_lane.worktree_id, model.current_worktree_id);
+    assert_eq!(
+        current_lane
+            .chats
+            .iter()
+            .map(|chat| chat.session_id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "perf-000-00",
+            "perf-000-01",
+            "perf-000-02",
+            "perf-000-03",
+            "perf-000-04",
+            "perf-000-05",
+            "perf-000-06",
+            "perf-000-07",
+            "perf-000-08",
+            "perf-000-09",
+        ]
+    );
+    assert!(!model.task_observation.complete);
+    assert!(model.truncated);
+    assert!(canonical_json(&model).unwrap().len() <= devmap::dock::MAX_DOCK_MODEL_BYTES);
 
     let repo = support::committed_repo();
     let (viewer, runtime) = start_live_viewer(

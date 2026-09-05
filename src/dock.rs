@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::Path;
+use std::process::Command;
 
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -14,13 +16,14 @@ use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::git_relationship::{
     DevelopmentTarget, ForkPoint, GitRelationship, GitRelationshipResolver, IntegrationBranch,
 };
+use crate::git_topology::{GitTopologyCollector, TopologyBoundary, TopologyGraph};
 use crate::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
 use crate::presence::{
     Confidence, PresenceLoadReport, PresenceRecord, PresenceStatus, PresenceStore, StatusSource,
 };
 use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 
-pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/3";
+pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/4";
 pub const MAX_DOCK_MODEL_BYTES: usize = 768 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -95,15 +98,55 @@ pub struct BranchGroup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WriterEvidence {
+    pub task_id: String,
+    pub observed_at: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkspaceFacts {
+    pub worktree_id: String,
+    pub head_oid: String,
+    pub detached: bool,
+    pub head_ref_coverage: String,
+    pub integration: String,
+    pub target_ref: Option<String>,
+    pub merge_commit_oid: Option<String>,
+    pub working_state: String,
+    pub upstream: String,
+    pub task_observed_at: Option<String>,
+    pub git_observed_at: Option<String>,
+    pub writer_evidence: Vec<WriterEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TaskObservation {
+    pub observed_at: Option<String>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DockCounts {
+    pub workspaces: usize,
+    pub tasks: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockReadModel {
     pub schema_version: &'static str,
     pub repository_id: String,
     pub revision: u64,
+    pub observation_revision: u64,
     pub generated_at: String,
     pub current_worktree_id: String,
     pub development_target: Option<DevelopmentTarget>,
     pub integration_branches: Vec<IntegrationBranch>,
     pub branch_groups: Vec<BranchGroup>,
+    pub topology: TopologyGraph,
+    pub workspace_facts: Vec<WorkspaceFacts>,
+    pub task_observation: TaskObservation,
+    pub counts: DockCounts,
     pub task_inventory_synced_at: Option<String>,
     pub lanes: Vec<DockLane>,
     pub current: Vec<DockEntry>,
@@ -160,6 +203,34 @@ impl<R: RouteProvider> DockReducer<R> {
         journals: BTreeMap<String, JournalSummary>,
         now: OffsetDateTime,
         observed_tasks: &[ObservedTask],
+    ) -> Result<DockReadModel, DevMapError> {
+        let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
+        self.reduce_with_inputs(
+            workspace,
+            worktrees,
+            presence,
+            journals,
+            now,
+            observed_tasks,
+            TaskObservation {
+                observed_at: None,
+                complete: false,
+            },
+            topology,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn reduce_with_inputs(
+        &self,
+        workspace: &SourceWorkspace,
+        worktrees: Vec<WorktreeDescriptor>,
+        presence: PresenceLoadReport,
+        journals: BTreeMap<String, JournalSummary>,
+        now: OffsetDateTime,
+        observed_tasks: &[ObservedTask],
+        task_observation: TaskObservation,
+        topology: TopologyGraph,
     ) -> Result<DockReadModel, DevMapError> {
         let repository_id = repository_id(workspace);
         let current_worktree_id = worktrees
@@ -252,6 +323,13 @@ impl<R: RouteProvider> DockReducer<R> {
                     {
                         chat.display_title = task.display_title.clone();
                         chat.host_status = Some(task.host_status.clone());
+                        chat.codex_thread_id = Some(task.session_id.clone());
+                        chat.association_source = "codex_task_cwd";
+                        chat.host = task.host.clone();
+                        chat.status = task.status;
+                        chat.status_source = StatusSource::HostExplicit;
+                        chat.confidence = Confidence::Observed;
+                        chat.last_event_at = task.updated_at.clone();
                     } else {
                         chats.push(chat_from_observed_task(task));
                     }
@@ -285,6 +363,7 @@ impl<R: RouteProvider> DockReducer<R> {
                             behind: None,
                             dirty: false,
                             changed_file_count: 0,
+                            status_observed: false,
                             fork_point: None,
                         }),
                     chats,
@@ -301,6 +380,31 @@ impl<R: RouteProvider> DockReducer<R> {
         });
         let branch_groups =
             branch_groups_from_lanes(&lanes, &relationship_report.integration_branches);
+        let git_observed_at = now.format(&Rfc3339)?;
+        let workspace_facts = workspace_facts(
+            &lanes,
+            &topology,
+            &relationship_report.integration_branches,
+            task_observation.observed_at.as_deref(),
+            &git_observed_at,
+        );
+        let counts = DockCounts {
+            workspaces: worktrees
+                .iter()
+                .map(|worktree| worktree.worktree_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            tasks: observed_tasks
+                .iter()
+                .filter(|task| {
+                    worktrees
+                        .iter()
+                        .any(|worktree| same_workspace_path(&task.workspace_path, &worktree.root))
+                })
+                .map(|task| task.session_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+        };
         warnings.sort_by(|left, right| {
             left.code
                 .cmp(&right.code)
@@ -331,11 +435,16 @@ impl<R: RouteProvider> DockReducer<R> {
             schema_version: DOCK_SCHEMA_VERSION,
             repository_id,
             revision: 0,
+            observation_revision: 0,
             generated_at: now.format(&Rfc3339)?,
             current_worktree_id,
             development_target: relationship_report.target,
             integration_branches: relationship_report.integration_branches,
             branch_groups,
+            topology,
+            workspace_facts,
+            task_observation,
+            counts,
             task_inventory_synced_at: None,
             lanes,
             current,
@@ -402,6 +511,11 @@ impl<R: RouteProvider> DockReducer<R> {
 
 impl DockReadModel {
     pub fn content_hash(&self) -> Result<String, DevMapError> {
+        let mut workspace_facts = self.workspace_facts.clone();
+        for facts in &mut workspace_facts {
+            facts.task_observed_at = None;
+            facts.git_observed_at = None;
+        }
         #[derive(Serialize)]
         struct Content<'a> {
             schema_version: &'a str,
@@ -410,7 +524,10 @@ impl DockReadModel {
             development_target: &'a Option<DevelopmentTarget>,
             integration_branches: &'a [IntegrationBranch],
             branch_groups: &'a [BranchGroup],
-            task_inventory_synced_at: &'a Option<String>,
+            topology: &'a TopologyGraph,
+            workspace_facts: &'a [WorkspaceFacts],
+            task_observation_complete: bool,
+            counts: &'a DockCounts,
             lanes: &'a [DockLane],
             current: &'a [DockEntry],
             active: &'a [DockEntry],
@@ -425,7 +542,10 @@ impl DockReadModel {
             development_target: &self.development_target,
             integration_branches: &self.integration_branches,
             branch_groups: &self.branch_groups,
-            task_inventory_synced_at: &self.task_inventory_synced_at,
+            topology: &self.topology,
+            workspace_facts: &workspace_facts,
+            task_observation_complete: self.task_observation.complete,
+            counts: &self.counts,
             lanes: &self.lanes,
             current: &self.current,
             active: &self.active,
@@ -441,23 +561,31 @@ pub struct DockService {
     workspace: SourceWorkspace,
     reducer: DockReducer<NoRoutes>,
     revision: u64,
+    observation_revision: u64,
     content_hash: Option<String>,
     snapshot: Option<DockReadModel>,
     observed_tasks: Vec<ObservedTask>,
     task_inventory_synced_at: Option<String>,
+    task_inventory_complete: bool,
+    topology_cache_key: Option<String>,
+    topology_cache: Option<TopologyGraph>,
 }
 
 impl DockService {
     pub fn open(source: &Path) -> Result<Self, DevMapError> {
-        let workspace = SourceGitInspector::open(source)?.workspace()?;
+        let workspace = SourceGitInspector::open(source)?.workspace_allow_unborn()?;
         let mut service = Self {
             workspace,
             reducer: DockReducer::new(NoRoutes),
             revision: 0,
+            observation_revision: 0,
             content_hash: None,
             snapshot: None,
             observed_tasks: Vec::new(),
             task_inventory_synced_at: None,
+            task_inventory_complete: false,
+            topology_cache_key: None,
+            topology_cache: None,
         };
         service.refresh(OffsetDateTime::now_utc())?;
         Ok(service)
@@ -465,7 +593,26 @@ impl DockService {
 
     pub fn replace_observed_tasks(
         &mut self,
+        tasks: Vec<ObservedTask>,
+        now: OffsetDateTime,
+    ) -> Result<&DockReadModel, DevMapError> {
+        self.replace_observed_tasks_with_completeness(tasks, true, now)
+    }
+
+    pub fn replace_observed_tasks_with_completeness(
+        &mut self,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        now: OffsetDateTime,
+    ) -> Result<&DockReadModel, DevMapError> {
+        self.replace_observed_tasks_preserving_timestamp(tasks, complete, now, now)
+    }
+
+    pub(crate) fn replace_observed_tasks_preserving_timestamp(
+        &mut self,
         mut tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
         now: OffsetDateTime,
     ) -> Result<&DockReadModel, DevMapError> {
         tasks.sort_by(|left, right| {
@@ -482,15 +629,32 @@ impl DockService {
         {
             return Err(DevMapError::InvalidDomain("codex_tasks.id"));
         }
-        if self.observed_tasks != tasks {
-            self.observed_tasks = tasks;
-            self.task_inventory_synced_at = Some(now.format(&Rfc3339)?);
-        }
+        self.observed_tasks = tasks;
+        self.task_inventory_synced_at = Some(observed_at.format(&Rfc3339)?);
+        self.task_inventory_complete = complete;
         self.refresh(now)
     }
 
     pub fn refresh(&mut self, now: OffsetDateTime) -> Result<&DockReadModel, DevMapError> {
         let worktrees = WorktreeScanner::scan(&self.workspace)?;
+        let topology_key = topology_cache_key(&self.workspace, &worktrees)?;
+        let topology = match topology_key {
+            Some(key) if self.topology_cache_key.as_deref() == Some(&key) => self
+                .topology_cache
+                .clone()
+                .expect("topology cache key is only stored with a graph"),
+            Some(key) => {
+                let topology = GitTopologyCollector::scan(&self.workspace, &worktrees)?;
+                self.topology_cache_key = Some(key);
+                self.topology_cache = Some(topology.clone());
+                topology
+            }
+            None => {
+                self.topology_cache_key = None;
+                self.topology_cache = None;
+                GitTopologyCollector::scan(&self.workspace, &worktrees)?
+            }
+        };
         let presence = PresenceStore::open_existing(&self.workspace)?
             .map(|store| store.load_all())
             .unwrap_or(PresenceLoadReport {
@@ -504,13 +668,19 @@ impl DockService {
             .map(|record| record.session_id.clone())
             .collect::<BTreeSet<_>>();
         let journals = summarize_existing_sessions(&self.workspace, &sessions);
-        let mut next = self.reducer.reduce_with_tasks(
+        let task_observation = TaskObservation {
+            observed_at: self.task_inventory_synced_at.clone(),
+            complete: self.task_inventory_complete,
+        };
+        let mut next = self.reducer.reduce_with_inputs(
             &self.workspace,
             worktrees,
             presence,
             journals,
             now,
             &self.observed_tasks,
+            task_observation,
+            topology,
         )?;
         next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
         let content_hash = next.content_hash()?;
@@ -521,7 +691,12 @@ impl DockService {
                 .ok_or(DevMapError::DockRevisionOverflow)?;
             self.content_hash = Some(content_hash);
         }
+        self.observation_revision = self
+            .observation_revision
+            .checked_add(1)
+            .ok_or(DevMapError::DockRevisionOverflow)?;
         next.revision = self.revision.max(1);
+        next.observation_revision = self.observation_revision;
         self.snapshot = Some(next);
         Ok(self.snapshot())
     }
@@ -535,6 +710,74 @@ impl DockService {
     pub fn observed_tasks(&self) -> &[ObservedTask] {
         &self.observed_tasks
     }
+
+    pub fn task_inventory_complete(&self) -> bool {
+        self.task_inventory_complete
+    }
+
+    pub fn task_inventory_observed_at(&self) -> Option<&str> {
+        self.task_inventory_synced_at.as_deref()
+    }
+}
+
+fn topology_cache_key(
+    workspace: &SourceWorkspace,
+    worktrees: &[WorktreeDescriptor],
+) -> Result<Option<String>, DevMapError> {
+    let mut bytes = Vec::new();
+    for worktree in worktrees {
+        bytes.extend_from_slice(worktree.worktree_id.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(worktree.head.as_bytes());
+        bytes.push(0);
+        if let Some(branch) = &worktree.branch {
+            bytes.extend_from_slice(branch.as_bytes());
+        }
+        bytes.push(0xff);
+    }
+    let inputs = [
+        vec![
+            OsString::from("for-each-ref"),
+            OsString::from("--count=257"),
+            OsString::from("--sort=refname"),
+            OsString::from("--format=%(refname)%00%(objectname)%00%(*objectname)"),
+            OsString::from("refs/heads"),
+            OsString::from("refs/remotes"),
+            OsString::from("refs/tags"),
+        ],
+        vec![
+            OsString::from("rev-parse"),
+            OsString::from("--is-shallow-repository"),
+        ],
+    ];
+    for (index, args) in inputs.into_iter().enumerate() {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&workspace.root)
+            .args(&args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_NO_LAZY_FETCH", "1")
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .output()?;
+        if !output.status.success() {
+            return Err(DevMapError::GitCommand {
+                command: format!(
+                    "git {}",
+                    args.iter()
+                        .map(|value| value.to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            });
+        }
+        if index == 1 && output.stdout.starts_with(b"true") {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&output.stdout);
+        bytes.push(0xfe);
+    }
+    Ok(Some(format!("sha256-{}", sha256_hex(&bytes))))
 }
 
 pub fn agents(args: AgentsArgs) -> Result<CommandOutput, DevMapError> {
@@ -595,7 +838,7 @@ fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
         host_status: Some(task.host_status.clone()),
         route_id: None,
         status: task.status,
-        status_source: StatusSource::GitOnly,
+        status_source: StatusSource::HostExplicit,
         confidence: Confidence::Observed,
         capture_grade: CaptureGrade::D,
         last_event_at: task.updated_at.clone(),
@@ -616,6 +859,96 @@ fn same_workspace_path(observed: &str, workspace: &Path) -> bool {
     } else {
         observed == workspace
     }
+}
+
+fn workspace_facts(
+    lanes: &[DockLane],
+    topology: &TopologyGraph,
+    integration_branches: &[IntegrationBranch],
+    task_observed_at: Option<&str>,
+    git_observed_at: &str,
+) -> Vec<WorkspaceFacts> {
+    lanes
+        .iter()
+        .map(|lane| {
+            let relationship = &lane.relationship;
+            let integration = match (relationship.merge_target.as_ref(), relationship.ahead) {
+                (None, _) => "terminal",
+                (Some(_), Some(0)) => "included",
+                (Some(_), Some(_)) => "ahead",
+                (Some(_), None) => "unknown",
+            };
+            let target_ref = relationship.merge_target.as_ref().and_then(|target| {
+                integration_branches
+                    .iter()
+                    .find(|branch| branch.name == *target)
+                    .map(|branch| branch.ref_name.clone())
+            });
+            let protected = topology
+                .refs
+                .iter()
+                .any(|reference| ref_reaches_head(topology, &reference.oid, &lane.head));
+            let head_ref_coverage =
+                if lane.head.is_empty() || lane.head.bytes().all(|byte| byte == b'0') {
+                    "unknown"
+                } else if protected {
+                    "protected"
+                } else if topology.complete {
+                    "unprotected"
+                } else {
+                    "unknown"
+                };
+            let published = topology.refs.iter().any(|reference| {
+                reference.kind == "remote" && ref_reaches_head(topology, &reference.oid, &lane.head)
+            });
+            WorkspaceFacts {
+                worktree_id: lane.worktree_id.clone(),
+                head_oid: lane.head.clone(),
+                detached: lane.branch.is_none(),
+                head_ref_coverage: head_ref_coverage.into(),
+                integration: integration.into(),
+                target_ref,
+                merge_commit_oid: None,
+                working_state: if !relationship.status_observed {
+                    "unknown"
+                } else if relationship.dirty {
+                    "dirty"
+                } else {
+                    "clean"
+                }
+                .into(),
+                upstream: if published { "published" } else { "unknown" }.into(),
+                task_observed_at: task_observed_at.map(str::to_owned),
+                git_observed_at: Some(git_observed_at.to_owned()),
+                writer_evidence: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+fn ref_reaches_head(topology: &TopologyGraph, ref_oid: &str, head_oid: &str) -> bool {
+    if head_oid.is_empty() || head_oid.bytes().all(|byte| byte == b'0') {
+        return false;
+    }
+    let commits = topology
+        .commits
+        .iter()
+        .map(|commit| (commit.oid.as_str(), commit.parents.as_slice()))
+        .collect::<HashMap<_, _>>();
+    let mut pending = vec![ref_oid];
+    let mut visited = HashSet::new();
+    while let Some(oid) = pending.pop() {
+        if oid == head_oid {
+            return true;
+        }
+        if !visited.insert(oid) {
+            continue;
+        }
+        if let Some(parents) = commits.get(oid) {
+            pending.extend(parents.iter().map(String::as_str));
+        }
+    }
+    false
 }
 
 fn branch_groups_from_lanes(
@@ -759,22 +1092,68 @@ fn bounded(value: &str, limit: usize) -> String {
 }
 
 fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
-    const STRUCTURAL_RESERVE: usize = 32 * 1024;
-    let available = MAX_DOCK_MODEL_BYTES.saturating_sub(STRUCTURAL_RESERVE);
-    let mut group_remaining = available * 45 / 100;
-    let mut lane_remaining = available * 25 / 100;
-    let mut compatibility_remaining = available - group_remaining - lane_remaining;
-    let mut output_truncated = false;
-    output_truncated |=
-        retain_branch_groups_within_budget(&mut model.branch_groups, &mut group_remaining)?;
-    output_truncated |= retain_lanes_within_budget(&mut model.lanes, &mut lane_remaining)?;
-    output_truncated |= retain_within_budget(&mut model.current, &mut compatibility_remaining)?;
-    output_truncated |= retain_within_budget(&mut model.active, &mut compatibility_remaining)?;
-    output_truncated |= retain_within_budget(&mut model.warnings, &mut compatibility_remaining)?;
-    output_truncated |= retain_within_budget(
-        &mut model.stale_or_uninstrumented,
-        &mut compatibility_remaining,
-    )?;
+    // Leave room for the service's final revision and observation envelope.
+    const ENVELOPE_RESERVE: usize = 2048;
+    let ceiling = MAX_DOCK_MODEL_BYTES - ENVELOPE_RESERVE;
+    let attached_heads = model
+        .workspace_facts
+        .iter()
+        .map(|facts| facts.head_oid.clone())
+        .filter(|oid| !oid.is_empty() && !oid.bytes().all(|byte| byte == b'0'))
+        .collect::<BTreeSet<_>>();
+    let mut topology_budget = ceiling;
+    let mut output_truncated =
+        retain_topology_within_budget(&mut model.topology, &attached_heads, &mut topology_budget)?;
+    if canonical_json(&model)?.len() > ceiling {
+        // Lanes are the authoritative named/canonical workspace inventory. Facts
+        // and exact HEADs are mandatory; compatibility duplicates are expendable.
+        model.branch_groups.clear();
+        model.current.clear();
+        model.active.clear();
+        model.stale_or_uninstrumented.clear();
+        let tasks = model
+            .lanes
+            .iter_mut()
+            .map(|lane| (lane.worktree_id.clone(), std::mem::take(&mut lane.chats)))
+            .collect::<Vec<_>>();
+        for (id, chats) in &tasks {
+            if !chats.is_empty() {
+                model.warnings.push(DockWarning {
+                    code: "workspace_detail_partial".into(),
+                    subject_id: Some(id.clone()),
+                });
+            }
+        }
+        let required_bytes = canonical_json(&model)?.len() - canonical_json(&model.topology)?.len();
+        let Some(mut remaining) = ceiling.checked_sub(required_bytes) else {
+            return Err(DevMapError::ResourceLimit {
+                resource: "Dock workspace coverage",
+                limit: MAX_DOCK_MODEL_BYTES,
+            });
+        };
+        // Spend only the actual remaining budget on history, preserving every
+        // workspace attachment through an explicit boundary when needed.
+        retain_topology_within_budget(&mut model.topology, &attached_heads, &mut remaining)?;
+        for (lane, (id, chats)) in model.lanes.iter_mut().zip(tasks) {
+            let original_count = chats.len();
+            for chat in chats {
+                let size = canonical_json(&chat)?.len() + 1;
+                if size <= remaining {
+                    remaining -= size;
+                    lane.chats.push(chat);
+                }
+            }
+            if lane.chats.len() != original_count {
+                model.task_observation.complete = false;
+            } else {
+                model.warnings.retain(|warning| {
+                    warning.code != "workspace_detail_partial"
+                        || warning.subject_id.as_ref() != Some(&id)
+                });
+            }
+        }
+        output_truncated = true;
+    }
     if output_truncated {
         model.truncated = true;
         model.warnings.push(DockWarning {
@@ -796,116 +1175,249 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     }
     Ok(model)
 }
-
-fn retain_branch_groups_within_budget(
-    groups: &mut Vec<BranchGroup>,
+fn retain_topology_within_budget(
+    topology: &mut TopologyGraph,
+    attached_heads: &BTreeSet<String>,
     remaining: &mut usize,
 ) -> Result<bool, DevMapError> {
-    let original_groups = groups.len();
-    let original_lanes = groups.iter().map(|group| group.lanes.len()).sum::<usize>();
-    let original_chats = groups
-        .iter()
-        .flat_map(|group| &group.lanes)
-        .map(|lane| lane.chats.len())
-        .sum::<usize>();
-    let mut kept_groups = Vec::with_capacity(original_groups);
-    let mut deferred_chats = Vec::new();
-    for mut group in groups.drain(..) {
-        let lanes = std::mem::take(&mut group.lanes);
-        let group_size = canonical_json(&group)?.len().saturating_add(1);
-        if group_size > *remaining {
-            continue;
-        }
-        *remaining -= group_size;
-        for mut lane in lanes {
-            let chats = std::mem::take(&mut lane.chats);
-            let lane_size = canonical_json(&lane)?.len().saturating_add(1);
-            if lane_size <= *remaining {
-                *remaining -= lane_size;
-                let group_index = kept_groups.len();
-                let lane_index = group.lanes.len();
-                group.lanes.push(lane);
-                deferred_chats.push((group_index, lane_index, chats));
-            }
-        }
-        if !group.lanes.is_empty() {
-            kept_groups.push(group);
+    let mut truncated = false;
+    for commit in &mut topology.commits {
+        if commit
+            .subject
+            .as_ref()
+            .is_some_and(|subject| subject.len() > 512)
+        {
+            commit.subject = commit.subject.as_deref().map(|subject| {
+                let mut end = 512;
+                while !subject.is_char_boundary(end) {
+                    end -= 1;
+                }
+                subject[..end].to_owned()
+            });
+            truncated = true;
         }
     }
-    for (group_index, lane_index, chats) in deferred_chats {
-        let Some(lane) = kept_groups
-            .get_mut(group_index)
-            .and_then(|group| group.lanes.get_mut(lane_index))
-        else {
-            continue;
+    if canonical_json(topology)?.len() > *remaining {
+        for commit in &mut topology.commits {
+            commit.subject = None;
+        }
+        truncated = true;
+    }
+    if canonical_json(topology)?.len() > *remaining {
+        for commit in &mut topology.commits {
+            commit.authored_at = None;
+        }
+        truncated = true;
+    }
+    while canonical_json(topology)?.len() > *remaining && !topology.commits.is_empty() {
+        let remove = (topology.commits.len() / 8).max(1);
+        topology
+            .commits
+            .truncate(topology.commits.len().saturating_sub(remove));
+        topology.complete = false;
+        truncated = true;
+        rebuild_budget_boundaries(topology, attached_heads);
+    }
+    let size = canonical_json(topology)?.len();
+    if size > *remaining {
+        return Err(DevMapError::ResourceLimit {
+            resource: "Dock topology",
+            limit: *remaining,
+        });
+    }
+    *remaining -= size;
+    Ok(truncated)
+}
+
+fn rebuild_budget_boundaries(topology: &mut TopologyGraph, attached_heads: &BTreeSet<String>) {
+    let retained = topology
+        .commits
+        .iter()
+        .map(|commit| commit.oid.as_str())
+        .collect::<BTreeSet<_>>();
+    topology
+        .edges
+        .retain(|edge| retained.contains(edge.to_oid.as_str()));
+    let mut boundaries = topology
+        .boundaries
+        .iter()
+        .map(|boundary| {
+            (
+                (boundary.reason.clone(), boundary.oid.clone()),
+                boundary.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for edge in &topology.edges {
+        if !retained.contains(edge.from_oid.as_str()) {
+            let key = ("history_limit".to_owned(), edge.from_oid.clone());
+            boundaries.entry(key).or_insert_with(|| TopologyBoundary {
+                id: format!("boundary:history_limit:{}", edge.from_oid),
+                oid: edge.from_oid.clone(),
+                reason: "history_limit".into(),
+            });
+        }
+    }
+    for reference in &topology.refs {
+        if !retained.contains(reference.oid.as_str()) {
+            let key = ("history_limit".to_owned(), reference.oid.clone());
+            boundaries.entry(key).or_insert_with(|| TopologyBoundary {
+                id: format!("boundary:history_limit:{}", reference.oid),
+                oid: reference.oid.clone(),
+                reason: "history_limit".into(),
+            });
+        }
+    }
+    for head_oid in attached_heads {
+        if !retained.contains(head_oid.as_str()) {
+            let key = ("history_limit".to_owned(), head_oid.clone());
+            boundaries.entry(key).or_insert_with(|| TopologyBoundary {
+                id: format!("boundary:history_limit:{head_oid}"),
+                oid: head_oid.clone(),
+                reason: "history_limit".into(),
+            });
+        }
+    }
+    topology.boundaries = boundaries.into_values().collect();
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    fn coverage_model(path_repetitions: usize) -> DockReadModel {
+        // Synthetic valid-length canonical identities isolate the hard ceiling;
+        // no operating-system path-length assumption or Git fixture is needed.
+        let head = "a".repeat(40);
+        let lanes = (0..256)
+            .map(|index| DockLane {
+                worktree_id: format!("wt-{index:064x}"),
+                workspace_path: format!(
+                    "C:/workspaces/{index}/{}",
+                    "long/".repeat(path_repetitions)
+                ),
+                is_current: index == 0,
+                branch: None,
+                head: head.clone(),
+                chats: vec![],
+                relationship: GitRelationship {
+                    base_target: None,
+                    merge_target: None,
+                    merged: None,
+                    ahead: None,
+                    behind: None,
+                    dirty: true,
+                    changed_file_count: 1,
+                    status_observed: true,
+                    fork_point: None,
+                },
+            })
+            .collect::<Vec<_>>();
+        let topology = TopologyGraph {
+            commits: vec![crate::git_topology::TopologyCommit {
+                oid: head.clone(),
+                parents: vec![],
+                authored_at: None,
+                subject: None,
+            }],
+            refs: vec![],
+            edges: vec![],
+            boundaries: vec![],
+            complete: true,
         };
-        for chat in chats {
-            let size = canonical_json(&chat)?.len().saturating_add(1);
-            if size <= *remaining {
-                *remaining -= size;
-                lane.chats.push(chat);
-            }
+        let facts = workspace_facts(
+            &lanes,
+            &topology,
+            &[],
+            Some("2026-09-05T00:00:00Z"),
+            "2026-09-05T00:00:00Z",
+        );
+        DockReadModel {
+            schema_version: DOCK_SCHEMA_VERSION,
+            repository_id: format!("sha256-{}", "b".repeat(64)),
+            revision: 1,
+            observation_revision: 1,
+            generated_at: "2026-09-05T00:00:00Z".into(),
+            current_worktree_id: lanes[0].worktree_id.clone(),
+            development_target: None,
+            integration_branches: vec![],
+            branch_groups: vec![],
+            topology,
+            workspace_facts: facts,
+            task_observation: TaskObservation {
+                observed_at: Some("2026-09-05T00:00:00Z".into()),
+                complete: true,
+            },
+            counts: DockCounts {
+                workspaces: 256,
+                tasks: 0,
+            },
+            task_inventory_synced_at: None,
+            lanes,
+            current: vec![],
+            active: vec![],
+            stale_or_uninstrumented: vec![],
+            warnings: vec![],
+            truncated: false,
         }
     }
-    let kept_lanes = kept_groups
-        .iter()
-        .map(|group| group.lanes.len())
-        .sum::<usize>();
-    let kept_chats = kept_groups
-        .iter()
-        .flat_map(|group| &group.lanes)
-        .map(|lane| lane.chats.len())
-        .sum::<usize>();
-    let truncated = kept_groups.len() != original_groups
-        || kept_lanes != original_lanes
-        || kept_chats != original_chats;
-    *groups = kept_groups;
-    Ok(truncated)
-}
 
-fn retain_within_budget<T: Serialize>(
-    values: &mut Vec<T>,
-    remaining: &mut usize,
-) -> Result<bool, DevMapError> {
-    let original = values.len();
-    let mut kept = Vec::with_capacity(original);
-    for value in values.drain(..) {
-        let size = canonical_json(&value)?.len().saturating_add(1);
-        if size <= *remaining {
-            *remaining -= size;
-            kept.push(value);
-        }
+    #[test]
+    fn irreducible_workspace_coverage_exceeding_ceiling_fails_explicitly() {
+        let model = coverage_model(800);
+        assert!(matches!(
+            bound_model(model),
+            Err(DevMapError::ResourceLimit {
+                resource: "Dock workspace coverage",
+                limit: MAX_DOCK_MODEL_BYTES
+            })
+        ));
     }
-    let truncated = kept.len() != original;
-    *values = kept;
-    Ok(truncated)
-}
 
-fn retain_lanes_within_budget(
-    lanes: &mut Vec<DockLane>,
-    remaining: &mut usize,
-) -> Result<bool, DevMapError> {
-    let original_lanes = lanes.len();
-    let original_chats = lanes.iter().map(|lane| lane.chats.len()).sum::<usize>();
-    let mut kept = Vec::with_capacity(original_lanes);
-    for mut lane in lanes.drain(..) {
-        let chats = std::mem::take(&mut lane.chats);
-        let base_size = canonical_json(&lane)?.len().saturating_add(1);
-        if base_size > *remaining {
-            continue;
+    #[test]
+    fn history_pruning_reserves_an_explicit_boundary_for_every_checkout_head() {
+        let mut model = coverage_model(60);
+        let head = "a".repeat(40);
+        for index in 1..2048 {
+            let parent = model.topology.commits.last().unwrap().oid.clone();
+            let oid = format!("{index:040x}");
+            model
+                .topology
+                .edges
+                .push(crate::git_topology::TopologyEdge {
+                    id: format!("edge:{parent}:{oid}"),
+                    from_oid: parent.clone(),
+                    to_oid: oid.clone(),
+                });
+            model
+                .topology
+                .commits
+                .push(crate::git_topology::TopologyCommit {
+                    oid,
+                    parents: vec![parent],
+                    authored_at: None,
+                    subject: None,
+                });
         }
-        *remaining -= base_size;
-        for chat in chats {
-            let size = canonical_json(&chat)?.len().saturating_add(1);
-            if size <= *remaining {
-                *remaining -= size;
-                lane.chats.push(chat);
-            }
-        }
-        kept.push(lane);
+        model.topology.commits.reverse();
+        let bounded = bound_model(model).unwrap();
+        assert!(bounded.truncated);
+        assert_eq!(bounded.lanes.len(), 256);
+        assert_eq!(bounded.workspace_facts.len(), 256);
+        assert!(
+            !bounded
+                .topology
+                .commits
+                .iter()
+                .any(|commit| commit.oid == head)
+        );
+        assert!(
+            bounded
+                .topology
+                .boundaries
+                .iter()
+                .any(|boundary| boundary.oid == head && boundary.reason == "history_limit")
+        );
+        assert!(canonical_json(&bounded).unwrap().len() <= MAX_DOCK_MODEL_BYTES);
     }
-    let kept_chats = kept.iter().map(|lane| lane.chats.len()).sum::<usize>();
-    let truncated = kept.len() != original_lanes || kept_chats != original_chats;
-    *lanes = kept;
-    Ok(truncated)
 }

@@ -12,6 +12,7 @@ pub mod events;
 pub(crate) mod fs_security;
 pub mod git;
 pub mod git_relationship;
+pub mod git_topology;
 pub mod hook;
 pub mod journal;
 pub mod mcp;

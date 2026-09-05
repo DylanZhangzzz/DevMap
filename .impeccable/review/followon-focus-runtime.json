@@ -1,0 +1,30 @@
+{
+  "before": {
+    "action": "locate_node",
+    "focusedOid": "8df837f43109439c1992095d68393585364b2ca2",
+    "focusedText": "Parent · 8df837f4",
+    "heading": "Repository topology",
+    "title": "DevMap · Rail View — Repository topology",
+    "viewportLeft": 1151.199951171875,
+    "viewportTop": 0
+  },
+  "afterAge": {
+    "action": "locate_node",
+    "focusedOid": "8df837f43109439c1992095d68393585364b2ca2",
+    "focusedText": "Parent · 8df837f4",
+    "heading": "Repository topology",
+    "title": "DevMap · Rail View — Repository topology",
+    "viewportLeft": 1151.199951171875,
+    "viewportTop": 0
+  },
+  "afterRefresh": {
+    "action": "locate_node",
+    "focusedOid": "8df837f43109439c1992095d68393585364b2ca2",
+    "focusedText": "Parent · 8df837f4",
+    "heading": "Repository topology",
+    "title": "DevMap · Rail View — Repository topology",
+    "viewportLeft": 1151.199951171875,
+    "viewportTop": 0
+  },
+  "scope": "real candidate with real Git fixture and explicitly synthetic tasks; no native task activation"
+}

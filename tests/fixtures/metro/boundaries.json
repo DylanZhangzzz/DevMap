@@ -1,0 +1,62 @@
+{
+  "graph": {
+    "commits": [
+      {
+        "oid": "0000000000000000000000000000000000000002",
+        "parents": [
+          "ffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "authored_at": null,
+        "subject": "retained"
+      }
+    ],
+    "refs": [
+      {
+        "ref_name": "refs/heads/unavailable",
+        "display_name": "unavailable",
+        "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "kind": "branch"
+      }
+    ],
+    "edges": [
+      {
+        "id": "ffffffffffffffffffffffffffffffffffffffff:0000000000000000000000000000000000000002",
+        "from_oid": "ffffffffffffffffffffffffffffffffffffffff",
+        "to_oid": "0000000000000000000000000000000000000002"
+      }
+    ],
+    "boundaries": [
+      {
+        "id": "limit",
+        "oid": "ffffffffffffffffffffffffffffffffffffffff",
+        "reason": "history_limit"
+      },
+      {
+        "id": "shallow",
+        "oid": "0000000000000000000000000000000000000002",
+        "reason": "shallow"
+      },
+      {
+        "id": "enrichment",
+        "oid": "0000000000000000000000000000000000000002",
+        "reason": "missing"
+      },
+      {
+        "id": "omitted-ref",
+        "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "reason": "unrelated"
+      }
+    ],
+    "complete": false
+  },
+  "attachments": [
+    {
+      "worktree_id": "wt-000000000000000000000000000000000000000000000000000000000000000a",
+      "head_oid": "0000000000000000000000000000000000000002"
+    },
+    {
+      "worktree_id": "wt-000000000000000000000000000000000000000000000000000000000000000b",
+      "head_oid": "ffffffffffffffffffffffffffffffffffffffff"
+    }
+  ]
+}

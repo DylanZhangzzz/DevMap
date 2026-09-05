@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild the DevMap Dock as a topology-first horizontal Rail View with progressive Agent detail and a restrained accessible dark color system.
+**Goal:** Rebuild the DevMap Dock as a topology-first horizontal Rail View with progressive Agent detail and the selected light source's white-node, black-main-rail, blue-development-rail color system.
 
 **Architecture:** Keep the existing bounded `devmap/dock/2` read model and transport unchanged. Replace only the self-contained HTML renderer and its contract tests: integration branches remain top rails, each worktree becomes a parallel horizontal branch lane, six priority lanes remain expanded, and MAP/READ/FULL controls expose progressively richer Agent information.
 
@@ -102,7 +102,7 @@ Expected: FAIL because the current Viewer has none of those observable controls 
 
 - [ ] **Step 1: Replace the visual tokens and static shell**
 
-Define the graphite color tokens from the spec, set `<html data-density="map">`, add `.density-switch` with three native buttons, and keep the existing summary, connection, refresh, and warning regions. Use neutral surfaces for the graph, node, and inspector.
+Define the light color tokens from the spec, set `<html data-density="map">`, add `.density-switch` with three native buttons, and keep the existing summary, connection, refresh, and warning regions. Use a cool off-white page, white nodes, a near-black integration rail, blue development rails, and restrained semantic colors.
 
 - [ ] **Step 2: Implement lane ranking and bounded disclosure**
 

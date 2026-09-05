@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-05T02:29:43Z",
+  "title": "Design System: DevMap",
+  "extensions": {
+    "colorMeta": {
+      "bg": { "role": "neutral", "displayName": "Warm Paper" },
+      "bg-canvas": { "role": "neutral", "displayName": "Warm Topology Canvas" },
+      "surface": { "role": "neutral", "displayName": "Clear Surface" },
+      "surface-raised": { "role": "neutral", "displayName": "Raised Wash" },
+      "line": { "role": "neutral", "displayName": "Control Rule" },
+      "line-soft": { "role": "neutral", "displayName": "Soft Divider" },
+      "text": { "role": "neutral", "displayName": "Ink" },
+      "muted": { "role": "neutral", "displayName": "Slate Metadata" },
+      "main-rail": { "role": "primary", "displayName": "Charcoal Main" },
+      "branch-red": { "role": "secondary", "displayName": "Underground Red" },
+      "branch-blue": { "role": "secondary", "displayName": "Underground Blue" },
+      "branch-green": { "role": "secondary", "displayName": "Underground Green" },
+      "branch-yellow": { "role": "secondary", "displayName": "Underground Yellow" },
+      "branch-cyan": { "role": "secondary", "displayName": "Underground Cyan" },
+      "branch-magenta": { "role": "secondary", "displayName": "Underground Magenta" },
+      "accent": { "role": "primary", "displayName": "Operational Blue" },
+      "accent-soft": { "role": "primary", "displayName": "Operational Blue Wash" },
+      "success": { "role": "tertiary", "displayName": "Observed Live Green" },
+      "warning": { "role": "tertiary", "displayName": "Attention Ochre" },
+      "unknown": { "role": "neutral", "displayName": "Unknown Slate" },
+      "focus": { "role": "primary", "displayName": "Focus Blue" },
+      "keyline": { "role": "neutral", "displayName": "Pale Rail Keyline" }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Dock Headline", "purpose": "Compact page and selection headings." },
+      "title": { "displayName": "Workspace Title", "purpose": "Primary workspace identity." },
+      "body": { "displayName": "Operational Body", "purpose": "Controls and readable supporting copy." },
+      "body-strong": { "displayName": "Task Title", "purpose": "Actionable task and operational names." },
+      "label": { "displayName": "Observation Label", "purpose": "Branch metadata, state, counts, and freshness." },
+      "status-label": { "displayName": "Current Status", "purpose": "Compact current-workspace emphasis." },
+      "mono": { "displayName": "Technical Mono", "purpose": "Exact commit hashes and inspector values." }
+    },
+    "shadows": [
+      {
+        "name": "pale-rail-keyline",
+        "value": "0 0 0 1px var(--keyline), inset 0 0 0 1px var(--keyline)",
+        "purpose": "Structural contrast for yellow station rings; never elevation."
+      }
+    ],
+    "motion": [
+      {
+        "name": "pan-feedback",
+        "value": "smooth scrolling; instant when prefers-reduced-motion is reduce",
+        "purpose": "Short user-invoked horizontal panning only; initial placement and state preservation are immediate."
+      }
+    ],
+    "breakpoints": [
+      { "name": "compact-dock", "value": "619px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Control Button",
+      "kind": "button",
+      "refersTo": "control",
+      "description": "Compact bordered control for locate, pan, refresh, copy, and dismiss actions.",
+      "html": "<button class=\"ds-control\" type=\"button\">Locate current</button>",
+      "css": ".ds-control { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; text-align: left; cursor: pointer; } .ds-control:hover { background: var(--surface-raised); } .ds-control:active { background: var(--accent-soft); } .ds-control:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-control:disabled { cursor: wait; color: var(--muted); }"
+    },
+    {
+      "name": "Commit Station",
+      "kind": "custom",
+      "refersTo": "station",
+      "description": "A semantic 44px commit target with a precise branch-colored station ring.",
+      "html": "<button class=\"ds-station\" type=\"button\" aria-label=\"Commit station\" style=\"--rail-color: var(--branch-blue)\"><span class=\"ds-station-dot\"></span></button>",
+      "css": ".ds-station { position: relative; width: 44px; height: 44px; min-width: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text); cursor: pointer; } .ds-station:hover { background: var(--accent-soft); } .ds-station:active { background: var(--accent-soft); } .ds-station:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-station-dot { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%, -50%); border: 3px solid var(--rail-color, var(--main-rail)); border-radius: 50%; background: var(--bg-canvas); }"
+    },
+    {
+      "name": "Current Workspace Group",
+      "kind": "card",
+      "refersTo": "workspace-current",
+      "description": "Flat workspace identity and facts attached directly to its checked-out commit.",
+      "html": "<article class=\"ds-workspace\" tabindex=\"0\"><button class=\"ds-workspace-stop\" type=\"button\"><span class=\"ds-workspace-name\">main-workspace</span><span class=\"ds-branch-meta\">Branch · main <strong class=\"ds-current\">Current</strong></span></button><p class=\"ds-workspace-fact\">Working tree clean · Publication unknown</p></article>",
+      "css": ".ds-workspace { width: 320px; padding: 4px 0; border-block: 1px solid var(--line-soft); background: transparent; color: var(--text); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; } .ds-workspace:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-workspace-stop { display: block; width: 100%; min-height: 44px; padding: 4px 8px; border: 0; background: var(--accent-soft); color: inherit; text-align: left; cursor: pointer; } .ds-workspace-stop:hover { background: var(--surface-raised); } .ds-workspace-stop:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-workspace-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9375rem; font-weight: 700; } .ds-branch-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; } .ds-current { margin-left: 8px; color: var(--accent); font-weight: 650; } .ds-workspace-fact { margin: 2px 8px; color: var(--muted); font-size: .75rem; }"
+    },
+    {
+      "name": "Task Link",
+      "kind": "custom",
+      "refersTo": "task-node",
+      "description": "Full-width linked-task row with the navigation action visible at rest.",
+      "html": "<a class=\"ds-task-node ds-active\" href=\"#\"><span class=\"ds-task-heading\"><span class=\"ds-task-title\">QA · Agent — Release readiness</span><span class=\"ds-task-onward\">Open task</span></span><span class=\"ds-task-facts\">Agent · codex <span class=\"ds-task-state\">Last observed ACTIVE</span></span></a>",
+      "css": ".ds-task-node { display: block; width: 100%; min-height: 44px; padding: 8px; border-top: 1px solid var(--line-soft); background: transparent; color: var(--text); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; text-decoration: none; cursor: pointer; } .ds-task-node:hover { background: var(--surface-raised); } .ds-task-node:active { background: var(--accent-soft); } .ds-task-node:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-task-heading { display: flex; align-items: start; gap: 8px; } .ds-task-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: .875rem; font-weight: 600; } .ds-task-onward { flex: none; color: var(--accent); font-size: .75rem; text-decoration: underline; text-underline-offset: 3px; } .ds-task-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: var(--muted); font-size: .75rem; } .ds-active .ds-task-state { color: var(--accent); }"
+    },
+    {
+      "name": "Branch Choice",
+      "kind": "button",
+      "refersTo": "control",
+      "description": "Branch-index action pairing a persistent line identity with its readable ref label.",
+      "html": "<button class=\"ds-branch-choice\" type=\"button\"><svg class=\"ds-branch-swatch\" viewBox=\"0 0 28 10\" aria-hidden=\"true\"><path d=\"M2 5 H26\" stroke=\"var(--branch-green)\" stroke-width=\"5\" fill=\"none\"/></svg><span>feature/ui</span></button>",
+      "css": ".ds-branch-choice { display: inline-flex; align-items: center; gap: 8px; max-width: 320px; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; background: transparent; color: var(--text); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; cursor: pointer; } .ds-branch-choice:hover { background: var(--surface-raised); } .ds-branch-choice:active { background: var(--accent-soft); } .ds-branch-choice:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-branch-choice > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-branch-swatch { width: 28px; height: 10px; flex: none; overflow: visible; }"
+    },
+    {
+      "name": "Attention Link",
+      "kind": "button",
+      "refersTo": "attention-link",
+      "description": "Workspace locator that keeps attention semantics separate from branch color.",
+      "html": "<button class=\"ds-attention-link\" type=\"button\"><svg class=\"ds-status-icon\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 1 L19 18 H1 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M10 6 V11 M10 14 V15\" stroke=\"currentColor\" stroke-width=\"2\"/></svg><span>Workspace · commits not included in target</span></button>",
+      "css": ".ds-attention-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; background: transparent; color: var(--warning); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; text-align: left; cursor: pointer; } .ds-attention-link:hover { background: var(--surface-raised); } .ds-attention-link:active { background: var(--accent-soft); } .ds-attention-link:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-status-icon { flex: none; width: 16px; height: 16px; }"
+    },
+    {
+      "name": "Selection Details",
+      "kind": "card",
+      "refersTo": "selection-details",
+      "description": "Dismissible secondary inspector for exact repository and task facts.",
+      "html": "<section class=\"ds-selection-details\"><h2>Workspace details</h2><button class=\"ds-dismiss\" type=\"button\">Dismiss</button><dl class=\"ds-detail-grid\"><dt>Branch</dt><dd>main</dd><dt>Commit</dt><dd><code>fcc9e1b6</code></dd></dl></section>",
+      "css": ".ds-selection-details { padding: 16px 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; } .ds-selection-details h2 { display: inline; margin: 0; font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; } .ds-dismiss { float: right; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; } .ds-dismiss:hover { background: var(--surface-raised); } .ds-dismiss:active { background: var(--accent-soft); } .ds-dismiss:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; } .ds-detail-grid { display: grid; grid-template-columns: minmax(100px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 14px 0 0; } .ds-detail-grid dt { color: var(--muted); } .ds-detail-grid dd { margin: 0; overflow-wrap: anywhere; } .ds-detail-grid code { font: .75rem/1.5 ui-monospace, 'Cascadia Code', Consolas, monospace; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Development Metro",
+    "overview": "DevMap is a precise operational map, not a decorative transit poster. A warm paper-like canvas carries charcoal main rails, stable Underground-inspired branch colors, exact station rings, and quiet workspace/task structures. The visual system makes repository relationships traceable while keeping task ownership and unfinished work legible in a narrow Dock.\n\nThe interface is compact without becoming miniature. Flat tonal layers, one-pixel dividers, measured whitespace, and a single UI-sans family keep the graph dominant. Color identifies branch continuity; independent symbols and factual text communicate attention, freshness, and uncertainty.",
+    "keyCharacteristics": [
+      "Warm-light, flat operational surfaces",
+      "Stable branch identity carried by rail color and pattern",
+      "Precise circular commit stations and dashed association stems",
+      "Compact workspace groups with visible task actions",
+      "Explicit focus, uncertainty, and offscreen wayfinding"
+    ],
+    "rules": [
+      { "name": "The Stable Line Rule", "body": "Branch identity is derived from repository ID and full ref name; risk, freshness, and task state never recolor the rail.", "section": "colors" },
+      { "name": "The Pale Rail Rule", "body": "The yellow branch rail always receives the dark structural keyline on warm-light surfaces.", "section": "colors" },
+      { "name": "The Independent Risk Rule", "body": "Warning color accompanies a warning glyph and factual reason; it never substitutes for branch identity.", "section": "colors" },
+      { "name": "The Operational Minimum Rule", "body": "Workspace names and task titles remain at 0.875rem or larger; meaningful metadata remains at 0.75rem and wraps before type shrinks.", "section": "typography" },
+      { "name": "The Wrap Before Shrink Rule", "body": "Task titles and factual reasons wrap; compact ref labels may ellipsize only when the full value remains available through accessible text.", "section": "typography" },
+      { "name": "The One World Rule", "body": "Rails, stations, crossing masks, labels, refs, and workspace stems share one CSS-pixel coordinate system.", "section": "layout" },
+      { "name": "The Current Workspace Rule", "body": "Initial framing keeps the current station, workspace name, active task preview, and locate control visible at narrow Dock widths.", "section": "layout" },
+      { "name": "The Offscreen Is Not Unknown Rule", "body": "A route outside the viewport remains navigable through endpoint wayfinding; only unavailable history receives a boundary treatment.", "section": "layout" },
+      { "name": "The Flat Operational Rule", "body": "Surfaces are separated by tone and one-pixel rules; shadows do not imply card hierarchy, and the station keyline is structural rather than elevation.", "section": "elevation" },
+      { "name": "The Station Ring Rule", "body": "Commit nodes are circular rings centered on their rail; dashed rings mean boundaries, not ordinary commits.", "section": "shapes" },
+      { "name": "The Crossing Gap Rule", "body": "A crossing without a commit node must show a local gap in the under-route and must never read as a connection.", "section": "shapes" },
+      { "name": "The Action Cue Rule", "body": "Every verified task row exposes an underlined Open task cue at rest; inspect-only rows use muted, non-underlined copy.", "section": "components" },
+      { "name": "The 44 Pixel Rule", "body": "Primary interactive rows and controls retain a 44px minimum hit target, including stations and coarse-pointer use.", "section": "components" }
+    ],
+    "dos": [
+      "Do keep branch color and stroke pattern stable for the full repository/ref identity.",
+      "Do pair every warning or unknown state with its own vector glyph and factual text.",
+      "Do let long and multilingual task titles wrap while keeping their task action visible.",
+      "Do preserve native scrolling, visible focus, keyboard panning, and explicit offscreen endpoint navigation.",
+      "Do keep current-workspace identity and active task context readable in the first narrow viewport."
+    ],
+    "donts": [
+      "Don't recolor a branch to express risk, activity, freshness, or integration state.",
+      "Don't draw a junction at a crossing unless the graph contains a real shared commit node.",
+      "Don't use floating merge arrows, disconnected origins, or inferred branch-parent relationships.",
+      "Don't hide active tasks or risk reasons inside collapsed history.",
+      "Don't add ambient shadows, gradients, decorative textures, or floating rounded cards to this flat operational world.",
+      "Don't shrink operational names below 0.875rem or meaningful metadata below 0.75rem to make a narrow layout fit."
+    ]
+  }
+}

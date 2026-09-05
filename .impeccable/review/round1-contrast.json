@@ -1,0 +1,44 @@
+{
+  "textStyles": [
+    "12px|rgb(23, 107, 56)",
+    "12px|rgb(79, 91, 108)",
+    "12px|rgb(23, 33, 47)",
+    "14px|rgb(23, 33, 47)",
+    "15px|rgb(23, 33, 47)",
+    "12px|rgb(138, 75, 0)"
+  ],
+  "tokens": {
+    "--accent": "#005bbb",
+    "--bg-canvas": "#fffdf8",
+    "--branch-blue": "#003688",
+    "--branch-cyan": "#0098d4",
+    "--branch-green": "#00782a",
+    "--branch-magenta": "#9b0056",
+    "--branch-red": "#e32017",
+    "--branch-yellow": "#ffd300",
+    "--danger": "#b42318",
+    "--keyline": "#4f5b6c",
+    "--main-rail": "#202124",
+    "--muted": "#4f5b6c",
+    "--success": "#176b38",
+    "--text": "#17212f",
+    "--warning": "#8a4b00"
+  },
+  "ratios": {
+    "--accent": 6.427361276300796,
+    "--bg-canvas": 1,
+    "--branch-blue": 10.969508251810629,
+    "--branch-cyan": 3.206708042604642,
+    "--branch-green": 5.553078783539072,
+    "--branch-magenta": 8.171219065552261,
+    "--branch-red": 4.6057651126839465,
+    "--branch-yellow": 1.4178442397466997,
+    "--danger": 6.467088285402974,
+    "--keyline": 6.783140823828962,
+    "--main-rail": 15.83644181150378,
+    "--muted": 6.783140823828962,
+    "--success": 6.462328930216499,
+    "--text": 15.951530286058427,
+    "--warning": 6.691610572685852
+  }
+}

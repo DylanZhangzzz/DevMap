@@ -112,6 +112,14 @@ fn dock_resource_and_decoupled_tools_are_advertised() {
         .find(|tool| tool["name"] == DOCK_RENDER_TOOL)
         .unwrap();
     assert_eq!(snapshot["annotations"]["readOnlyHint"], true);
+    assert_eq!(
+        snapshot["inputSchema"]["properties"]["codex_tasks_complete"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        snapshot["inputSchema"]["properties"]["codex_tasks"]["items"]["properties"]["id"]["pattern"],
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    );
     assert!(snapshot.get("_meta").is_none());
     assert_eq!(render["_meta"]["ui"]["resourceUri"], DOCK_RESOURCE_URI);
 
@@ -121,7 +129,12 @@ fn dock_resource_and_decoupled_tools_are_advertised() {
     let content = &responses[3]["result"]["contents"][0];
     assert_eq!(content["uri"], DOCK_RESOURCE_URI);
     assert_eq!(content["mimeType"], DOCK_MIME_TYPE);
-    assert!(content["text"].as_str().unwrap().contains("Git Work Map"));
+    assert!(
+        content["text"]
+            .as_str()
+            .unwrap()
+            .contains("Repository topology")
+    );
     assert_eq!(content["_meta"]["ui"]["csp"]["connectDomains"], json!([]));
 }
 
@@ -177,7 +190,7 @@ fn dock_calls_are_read_only_closed_world_and_revisioned() {
     assert!(revisions.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(
         responses[1]["result"]["structuredContent"]["schema_version"],
-        "devmap/dock/3"
+        "devmap/dock/4"
     );
     assert!(responses[1]["result"].get("_meta").is_none());
     assert_eq!(
@@ -238,6 +251,86 @@ fn browser_tool_is_the_only_dock_tool_that_opens_and_reuses_a_listener() {
             .unwrap()
             .contains("token=")
     );
+}
+
+#[test]
+fn data_inventory_refresh_reaches_the_running_viewer() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let task = json!({"id": "01a00000-0000-7000-8000-000000000001", "title": "Before", "status": "active", "cwd": repo.path().to_string_lossy(), "updatedAt": 1_788_426_685_u64, "hostId": "local", "kind": "codex"});
+    let opened = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": [task.clone()]}),
+        ))
+        .unwrap();
+    let url = opened["result"]["structuredContent"]["url"]
+        .as_str()
+        .unwrap();
+    let before = browser_model(url);
+    let mut previous = before.clone();
+    let mut renamed = task;
+    renamed["title"] = json!("After");
+    for (index, tool, arguments) in [
+        (
+            3,
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks": [renamed.clone()], "codex_tasks_complete": false}),
+        ),
+        (4, DOCK_RENDER_TOOL, json!({"codex_tasks": [renamed]})),
+        (5, DOCK_DATA_TOOL, json!({})),
+        (6, DOCK_DATA_TOOL, json!({"codex_tasks": []})),
+    ] {
+        let response = runtime
+            .handle(&call(json!(index), tool, arguments))
+            .unwrap();
+        assert_ne!(response["result"]["isError"], true);
+        let data = &response["result"]["structuredContent"];
+        let visible = browser_model(url);
+        assert_eq!(visible["lanes"], data["lanes"]);
+        assert_eq!(visible["task_observation"], data["task_observation"]);
+        assert_ne!(
+            visible["task_observation"]["observed_at"],
+            before["task_observation"]["observed_at"]
+        );
+        if index == 5 {
+            assert_eq!(visible["task_observation"], previous["task_observation"]);
+        } else {
+            assert_ne!(
+                visible["task_observation"]["observed_at"],
+                previous["task_observation"]["observed_at"]
+            );
+            let (address, query) = url
+                .strip_prefix("http://")
+                .unwrap()
+                .split_once('/')
+                .unwrap();
+            let events = http_get(
+                address.parse().unwrap(),
+                &format!(
+                    "/api/v1/dock/events{query}&after={}",
+                    previous["observation_revision"]
+                ),
+            );
+            let event: Value = serde_json::from_str(
+                http_body(&events)
+                    .lines()
+                    .find_map(|line| line.strip_prefix("data: "))
+                    .expect("inventory replacement emits an SSE envelope"),
+            )
+            .unwrap();
+            assert_eq!(event["task_observation"], data["task_observation"]);
+            assert_eq!(event["lanes"], data["lanes"]);
+        }
+        assert_eq!(visible["task_observation"]["complete"], index != 3);
+        previous = visible.clone();
+        if index == 6 {
+            assert_eq!(visible["counts"]["tasks"], 0);
+        }
+    }
+    assert_eq!(runtime.audit().tcp_listeners_opened, 1);
 }
 
 #[test]
@@ -362,6 +455,44 @@ fn codex_task_inventory_rejects_unsupported_status() {
 }
 
 #[test]
+fn codex_task_inventory_rejects_ids_that_are_not_host_routable_uuids() {
+    let repo = support::committed_repo();
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    for invalid_id in [
+        "task-one",
+        "01a00000-0000-7000-8000-00000000000z",
+        "01a00000-0000-7000-8000-000000000001-extra",
+    ] {
+        let response = runtime
+            .handle(&call(
+                json!(2),
+                DOCK_DATA_TOOL,
+                json!({
+                    "codex_tasks": [{
+                        "id": invalid_id,
+                        "title": "Unroutable task",
+                        "status": "active",
+                        "cwd": repo.path().to_string_lossy(),
+                        "updatedAt": 1_788_425_000_u64,
+                        "hostId": "local",
+                        "kind": "codex"
+                    }],
+                    "codex_tasks_complete": true
+                }),
+            ))
+            .unwrap();
+        assert_eq!(response["result"]["isError"], true, "{invalid_id}");
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("codex_tasks.id")
+        );
+    }
+}
+
+#[test]
 fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
     let repo = support::committed_repo();
     let task = json!({
@@ -379,7 +510,7 @@ fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
         .handle(&call(
             json!(2),
             DOCK_BROWSER_TOOL,
-            json!({"codex_tasks": [task.clone()]}),
+            json!({"codex_tasks": [task.clone()], "codex_tasks_complete": true}),
         ))
         .unwrap();
     let url = first["result"]["structuredContent"]["url"]
@@ -388,6 +519,7 @@ fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
     let supplied = browser_model(url);
     let supplied_revision = supplied["revision"].as_u64().unwrap();
     let supplied_sync = supplied["task_inventory_synced_at"].clone();
+    assert_eq!(supplied["task_observation"]["complete"], true);
     assert_eq!(
         supplied["branch_groups"][0]["lanes"][0]["chats"]
             .as_array()
@@ -414,23 +546,36 @@ fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
         .handle(&call(
             json!(4),
             DOCK_BROWSER_TOOL,
-            json!({"codex_tasks": [task]}),
+            json!({"codex_tasks": [task.clone()], "codex_tasks_complete": true}),
         ))
         .unwrap();
     let identical = browser_model(url);
     assert_eq!(identical["revision"], supplied_revision);
-    assert_eq!(identical["task_inventory_synced_at"], supplied_sync);
+    assert_ne!(identical["task_inventory_synced_at"], supplied_sync);
+    assert_eq!(identical["task_observation"]["complete"], true);
 
     runtime
         .handle(&call(
             json!(5),
             DOCK_BROWSER_TOOL,
-            json!({"codex_tasks": []}),
+            json!({"codex_tasks": [task], "codex_tasks_complete": false}),
+        ))
+        .unwrap();
+    let partial = browser_model(url);
+    assert!(partial["revision"].as_u64().unwrap() > supplied_revision);
+    assert_eq!(partial["task_observation"]["complete"], false);
+
+    runtime
+        .handle(&call(
+            json!(6),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": [], "codex_tasks_complete": true}),
         ))
         .unwrap();
     let cleared = browser_model(url);
     assert!(cleared["revision"].as_u64().unwrap() > supplied_revision);
     assert_ne!(cleared["task_inventory_synced_at"], supplied_sync);
+    assert_eq!(cleared["task_observation"]["complete"], true);
     assert!(
         cleared["branch_groups"]
             .as_array()
@@ -439,6 +584,80 @@ fn codex_task_inventory_distinguishes_omit_replace_and_clear() {
             .flat_map(|group| group["lanes"].as_array().unwrap())
             .all(|lane| lane["chats"].as_array().unwrap().is_empty())
     );
+}
+
+#[test]
+fn browser_initialization_preserves_copied_unknown_and_fresh_observation_times() {
+    let repo = support::committed_repo();
+    let task = json!({
+        "id": "01a00000-0000-7000-8000-000000000001",
+        "title": "Timestamp truth",
+        "status": "active",
+        "cwd": repo.path().to_string_lossy(),
+        "updatedAt": 1_788_426_685_u64,
+        "hostId": "local",
+        "kind": "codex"
+    });
+
+    let mut unknown_runtime = McpRuntime::open(repo.path()).unwrap();
+    unknown_runtime.handle(&initialize()).unwrap();
+    let unknown = unknown_runtime
+        .handle(&call(json!(2), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+    let unknown_model = browser_model(
+        unknown["result"]["structuredContent"]["url"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(
+        unknown_model["task_observation"]["observed_at"],
+        Value::Null
+    );
+    assert_eq!(unknown_model["task_observation"]["complete"], false);
+
+    let mut copied_runtime = McpRuntime::open(repo.path()).unwrap();
+    copied_runtime.handle(&initialize()).unwrap();
+    let observed = copied_runtime
+        .handle(&call(
+            json!(3),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks": [task.clone()], "codex_tasks_complete": false}),
+        ))
+        .unwrap();
+    let original_observed_at =
+        observed["result"]["structuredContent"]["task_observation"]["observed_at"].clone();
+    std::thread::sleep(Duration::from_millis(10));
+    let copied = copied_runtime
+        .handle(&call(json!(4), DOCK_BROWSER_TOOL, json!({})))
+        .unwrap();
+    let copied_url = copied["result"]["structuredContent"]["url"]
+        .as_str()
+        .unwrap();
+    let copied_model = browser_model(copied_url);
+    assert_eq!(
+        copied_model["task_observation"]["observed_at"],
+        original_observed_at
+    );
+    assert_ne!(
+        copied_model["workspace_facts"][0]["git_observed_at"], original_observed_at,
+        "preserving task freshness must not backdate a new Git observation"
+    );
+    assert_eq!(copied_model["task_observation"]["complete"], false);
+
+    std::thread::sleep(Duration::from_millis(10));
+    copied_runtime
+        .handle(&call(
+            json!(5),
+            DOCK_BROWSER_TOOL,
+            json!({"codex_tasks": [task], "codex_tasks_complete": true}),
+        ))
+        .unwrap();
+    let fresh_model = browser_model(copied_url);
+    assert_ne!(
+        fresh_model["task_observation"]["observed_at"],
+        original_observed_at
+    );
+    assert_eq!(fresh_model["task_observation"]["complete"], true);
 }
 
 #[test]
@@ -531,6 +750,24 @@ fn semantic_capture_starts_even_when_the_optional_dock_inventory_is_broken() {
         .handle(&call(json!(3), DOCK_DATA_TOOL, json!({})))
         .unwrap();
     assert_eq!(dock["result"]["isError"], true);
+}
+
+#[test]
+fn mcp_opens_an_unborn_repository_and_returns_an_empty_v4_topology() {
+    let repo = tempfile::tempdir().unwrap();
+    support::git(repo.path(), ["init", "-b", "main"]);
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+
+    let response = runtime
+        .handle(&call(json!(2), DOCK_DATA_TOOL, json!({})))
+        .unwrap();
+    let model = &response["result"]["structuredContent"];
+
+    assert_eq!(model["schema_version"], "devmap/dock/4");
+    assert_eq!(model["topology"]["commits"], json!([]));
+    assert_eq!(model["task_observation"]["complete"], false);
+    assert_eq!(model["task_observation"]["observed_at"], Value::Null);
 }
 
 #[test]

@@ -1,0 +1,199 @@
+{
+  "nowMs": 10000000,
+  "cases": [
+    {
+      "name": "dirty with a fresh active task stays in progress",
+      "facts": { "workingState": "dirty", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-active", "status": "working", "lastActivityMs": 9999000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 1 }
+    },
+    {
+      "name": "dirty with only long-idle linked tasks needs attention",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-idle", "status": "idle", "lastActivityMs": 8199999, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["uncommitted_idle"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with a recently idle linked task remains in progress before the threshold",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-recent-idle", "status": "idle", "lastActivityMs": 8200001, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with an idle task at the threshold needs attention",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-threshold-idle", "status": "idle", "lastActivityMs": 8200000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["uncommitted_idle"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with an idle task whose activity time is unknown stays unknown",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-unknown-idle", "status": "idle", "lastActivityMs": null, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with a future idle activity time stays unknown",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-future-idle", "status": "idle", "lastActivityMs": 10000001, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 0 }
+    },
+    {
+      "name": "historical rows do not turn a recently idle linked task into an alert",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [
+        { "id": "task-recent-idle", "status": "idle", "lastActivityMs": 8200001, "writeObservedAtMs": null },
+        { "id": "task-history", "status": "completed", "lastActivityMs": 7000000, "writeObservedAtMs": null }
+      ],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 0 }
+    },
+    {
+      "name": "historical rows do not suppress a long-idle linked-task alert",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [
+        { "id": "task-long-idle", "status": "idle", "lastActivityMs": 8200000, "writeObservedAtMs": null },
+        { "id": "task-history", "status": "completed", "lastActivityMs": 7000000, "writeObservedAtMs": null }
+      ],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["uncommitted_idle"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with historical rows only still has no current linked task",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-history", "status": "completed", "lastActivityMs": 7000000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["uncommitted_without_active_task"], "activeCount": 0 }
+    },
+    {
+      "name": "recent idle work does not suppress an independent unprotected HEAD alert",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "unprotected", "detached": true, "upstream": "unknown" },
+      "tasks": [{ "id": "task-recent-idle", "status": "idle", "lastActivityMs": 8200001, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["unprotected_head"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with no linked task needs attention even when commits are included",
+      "facts": { "workingState": "dirty", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["uncommitted_without_active_task"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with stale inventory keeps task activity unknown",
+      "facts": { "workingState": "dirty", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9879999 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 0 }
+    },
+    {
+      "name": "dirty with incomplete inventory keeps task activity unknown",
+      "facts": { "workingState": "dirty", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": false, "observedAtMs": 9999000 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 0 }
+    },
+    {
+      "name": "clean commits ahead with a fresh active task stay in progress",
+      "facts": { "workingState": "clean", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-ahead", "status": "active", "lastActivityMs": 9999000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 1 }
+    },
+    {
+      "name": "clean commits ahead without an active task need attention",
+      "facts": { "workingState": "clean", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["not_included"], "activeCount": 0 }
+    },
+    {
+      "name": "clean commits ahead with a cached active task and stale inventory stay unknown",
+      "facts": { "workingState": "clean", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-cached-stale", "status": "working", "lastActivityMs": 9999000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 9879999 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 1 }
+    },
+    {
+      "name": "clean commits ahead with a cached active task and incomplete inventory stay unknown",
+      "facts": { "workingState": "clean", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-cached-incomplete", "status": "active", "lastActivityMs": 9999000, "writeObservedAtMs": null }],
+      "observation": { "complete": false, "observedAtMs": 9999000 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 1 }
+    },
+    {
+      "name": "clean commits ahead with a cached active task and future inventory stay unknown",
+      "facts": { "workingState": "clean", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [{ "id": "task-cached-future", "status": "waiting", "lastActivityMs": 9999000, "writeObservedAtMs": null }],
+      "observation": { "complete": true, "observedAtMs": 10000001 },
+      "expected": { "level": "unknown", "reasons": ["task_activity_unknown"], "activeCount": 1 }
+    },
+    {
+      "name": "clean included commits with reliable Git state are normal",
+      "facts": { "workingState": "clean", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "published" },
+      "tasks": [],
+      "observation": { "complete": false, "observedAtMs": null },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 0 }
+    },
+    {
+      "name": "a protected detached HEAD is not automatically dangerous",
+      "facts": { "workingState": "clean", "integration": "terminal", "headRefCoverage": "protected", "detached": true, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 0 }
+    },
+    {
+      "name": "an unprotected detached HEAD needs attention",
+      "facts": { "workingState": "clean", "integration": "terminal", "headRefCoverage": "unprotected", "detached": true, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["unprotected_head"], "activeCount": 0 }
+    },
+    {
+      "name": "two active tasks show a shared workspace without claiming concurrent writes",
+      "facts": { "workingState": "clean", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [
+        { "id": "task-one", "status": "working", "lastActivityMs": 9999000, "writeObservedAtMs": null },
+        { "id": "task-two", "status": "waiting", "lastActivityMs": 9998000, "writeObservedAtMs": null }
+      ],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": ["shared_workspace"], "activeCount": 2 }
+    },
+    {
+      "name": "two active tasks with fresh write evidence warn about concurrent writing",
+      "facts": { "workingState": "dirty", "integration": "ahead", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [
+        { "id": "task-one", "status": "working", "lastActivityMs": 9999000, "writeObservedAtMs": 9999000 },
+        { "id": "task-two", "status": "working", "lastActivityMs": 9998000, "writeObservedAtMs": 9998000 }
+      ],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "attention", "reasons": ["shared_workspace", "concurrent_writes"], "activeCount": 2 }
+    },
+    {
+      "name": "failed Git status remains unknown",
+      "facts": { "workingState": "unknown", "integration": "unknown", "headRefCoverage": "unknown", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "unknown", "reasons": ["git_state_unknown"], "activeCount": 0 }
+    },
+    {
+      "name": "unknown publication is not called local-only",
+      "facts": { "workingState": "clean", "integration": "included", "headRefCoverage": "protected", "detached": false, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": true, "observedAtMs": 9999000 },
+      "expected": { "level": "normal", "reasons": [], "activeCount": 0 }
+    },
+    {
+      "name": "stale activity does not suppress an evidenced unprotected HEAD",
+      "facts": { "workingState": "dirty", "integration": "ahead", "headRefCoverage": "unprotected", "detached": true, "upstream": "unknown" },
+      "tasks": [],
+      "observation": { "complete": false, "observedAtMs": null },
+      "expected": { "level": "attention", "reasons": ["task_activity_unknown", "unprotected_head"], "activeCount": 0 }
+    }
+  ]
+}

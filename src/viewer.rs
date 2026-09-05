@@ -49,6 +49,10 @@ impl ViewerState {
     fn revision(&self) -> u64 {
         self.dock.snapshot().revision
     }
+
+    fn observation_revision(&self) -> u64 {
+        self.dock.snapshot().observation_revision
+    }
 }
 
 impl ViewerRuntime {
@@ -65,11 +69,22 @@ impl ViewerRuntime {
         tasks: Vec<ObservedTask>,
         now: OffsetDateTime,
     ) -> Result<u64, DevMapError> {
+        self.replace_observed_tasks_with_completeness(tasks, true, now)
+    }
+
+    pub fn replace_observed_tasks_with_completeness(
+        &self,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        now: OffsetDateTime,
+    ) -> Result<u64, DevMapError> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
-        state.dock.replace_observed_tasks(tasks, now)?;
+        state
+            .dock
+            .replace_observed_tasks_with_completeness(tasks, complete, now)?;
         state.last_refresh = Instant::now();
         Ok(state.revision())
     }
@@ -120,7 +135,7 @@ pub fn start_live_viewer(
     source: &Path,
     bind: SocketAddr,
 ) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
-    start_live_viewer_with_tasks(source, bind, Vec::new())
+    start_live_viewer_runtime(source, bind, None)
 }
 
 pub fn start_live_viewer_with_tasks(
@@ -128,12 +143,43 @@ pub fn start_live_viewer_with_tasks(
     bind: SocketAddr,
     observed_tasks: Vec<ObservedTask>,
 ) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
+    start_live_viewer_runtime(
+        source,
+        bind,
+        Some((observed_tasks, true, OffsetDateTime::now_utc())),
+    )
+}
+
+pub(crate) fn start_live_viewer_with_task_inventory(
+    source: &Path,
+    bind: SocketAddr,
+    observed_tasks: Vec<ObservedTask>,
+    inventory_complete: bool,
+    inventory_observed_at: OffsetDateTime,
+) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
+    start_live_viewer_runtime(
+        source,
+        bind,
+        Some((observed_tasks, inventory_complete, inventory_observed_at)),
+    )
+}
+
+fn start_live_viewer_runtime(
+    source: &Path,
+    bind: SocketAddr,
+    observed_inventory: Option<(Vec<ObservedTask>, bool, OffsetDateTime)>,
+) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
     if !bind.ip().is_loopback() {
         return Err(DevMapError::NonLoopbackViewerBind(bind));
     }
     let mut dock = DockService::open(source)?;
-    if !observed_tasks.is_empty() {
-        dock.replace_observed_tasks(observed_tasks, OffsetDateTime::now_utc())?;
+    if let Some((observed_tasks, inventory_complete, observed_at)) = observed_inventory {
+        dock.replace_observed_tasks_preserving_timestamp(
+            observed_tasks,
+            inventory_complete,
+            observed_at,
+            OffsetDateTime::now_utc(),
+        )?;
     }
     let server =
         Arc::new(Server::http(bind).map_err(|error| DevMapError::Viewer(error.to_string()))?);
@@ -294,11 +340,11 @@ fn respond(
                     );
                 }
             };
-            let revision = state.revision();
-            let body = if after.is_none_or(|value| revision > value) {
+            let observation_revision = state.observation_revision();
+            let body = if after.is_none_or(|value| observation_revision > value) {
                 let json = String::from_utf8(snapshot)
                     .map_err(|_| DevMapError::Viewer("Dock snapshot is not UTF-8".into()))?;
-                format!("retry: 500\nid: {revision}\nevent: dock\ndata: {json}\n\n")
+                format!("retry: 500\nid: {observation_revision}\nevent: dock\ndata: {json}\n\n")
             } else {
                 "retry: 500\n: no newer revision\n\n".to_owned()
             };

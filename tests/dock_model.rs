@@ -1,7 +1,8 @@
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::process::Command;
+use std::io::Write as _;
+use std::process::{Command, Stdio};
 
 use devmap::dock::{DockReducer, DockService, NoRoutes, ObservedTask};
 use devmap::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
@@ -18,6 +19,48 @@ fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask 
         status: PresenceStatus::Working,
         updated_at: "2026-09-03T10:00:00Z".into(),
     }
+}
+
+fn import_linear_history(repo: &std::path::Path, commit_count: usize) {
+    let base = support::git(repo, ["rev-parse", "HEAD"]);
+    let mut input = String::from("blob\nmark :1\ndata 2\nx\n");
+    for index in 0..commit_count {
+        let mark = index + 2;
+        let message = format!("imported history {index}");
+        input.push_str("commit refs/heads/main\n");
+        input.push_str(&format!("mark :{mark}\n"));
+        input.push_str("author DevMap Test <devmap-test@example.test> 1788460000 +0000\n");
+        input.push_str("committer DevMap Test <devmap-test@example.test> 1788460000 +0000\n");
+        input.push_str(&format!("data {}\n{message}\n", message.len()));
+        if index == 0 {
+            input.push_str(&format!("from {base}\n"));
+        } else {
+            input.push_str(&format!("from :{}\n", mark - 1));
+        }
+        input.push_str("M 100644 :1 imported-history.txt\n\n");
+    }
+    input.push_str("done\n");
+
+    let mut child = Command::new("git")
+        .args(["fast-import", "--quiet"])
+        .current_dir(repo)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "git fast-import failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -56,6 +99,95 @@ fn replacing_inventory_updates_a_renamed_task_title() {
         Some("2026-09-03T10:02:00Z")
     );
     assert_eq!(renamed.revision, first_revision + 1);
+}
+
+#[test]
+fn replacing_inventory_reassociates_a_moved_task_to_only_its_exact_workspace() {
+    let repo = support::committed_repo();
+    let destination = support::linked_worktree(repo.path(), "codex/task-destination");
+    let nested_path = destination.path().join("nested-near-match");
+    std::fs::create_dir(&nested_path).unwrap();
+    let first_sync = time::OffsetDateTime::parse(
+        "2026-09-03T10:01:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let second_sync = time::OffsetDateTime::parse(
+        "2026-09-03T10:02:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let mut service = DockService::open(repo.path()).unwrap();
+
+    let before = service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Move me")], first_sync)
+        .unwrap()
+        .clone();
+    let source = before
+        .lanes
+        .iter()
+        .find(|lane| lane.is_current)
+        .expect("source workspace lane");
+    let destination_lane = before
+        .lanes
+        .iter()
+        .find(|lane| lane.branch.as_deref() == Some("codex/task-destination"))
+        .expect("destination workspace lane");
+    let destination_worktree_id = destination_lane.worktree_id.clone();
+    let destination_workspace_path = destination_lane.workspace_path.clone();
+    assert!(source.chats.iter().any(|chat| {
+        chat.codex_thread_id.as_deref() == Some("01a00000-0000-7000-8000-000000000001")
+    }));
+
+    let moved_task = observed_task(destination.path(), "Move me");
+    let mut nested_near_match = observed_task(&nested_path, "Do not attach nested task");
+    nested_near_match.session_id = "01a00000-0000-7000-8000-000000000002".into();
+    let after = service
+        .replace_observed_tasks(vec![moved_task, nested_near_match], second_sync)
+        .unwrap();
+    let matching_lanes = after
+        .lanes
+        .iter()
+        .filter(|lane| {
+            lane.chats.iter().any(|chat| {
+                chat.codex_thread_id.as_deref() == Some("01a00000-0000-7000-8000-000000000001")
+            })
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        matching_lanes.len(),
+        1,
+        "a moved task must not be duplicated"
+    );
+    assert_eq!(
+        matching_lanes[0].worktree_id, destination_worktree_id,
+        "the verified task must move to the exact worktree identity"
+    );
+    assert_eq!(
+        matching_lanes[0].workspace_path, destination_workspace_path,
+        "the verified task must move to the exact canonical workspace path"
+    );
+    assert!(!matching_lanes[0].is_current);
+    let moved_chat = matching_lanes[0]
+        .chats
+        .iter()
+        .find(|chat| {
+            chat.codex_thread_id.as_deref() == Some("01a00000-0000-7000-8000-000000000001")
+        })
+        .expect("moved chat selected by verified task ID");
+    assert_eq!(
+        moved_chat.association_source, "codex_task_cwd",
+        "association evidence belongs to the verified moved chat"
+    );
+    assert!(
+        after.lanes.iter().all(|lane| lane.chats.iter().all(|chat| {
+            chat.codex_thread_id.as_deref() != Some("01a00000-0000-7000-8000-000000000002")
+        })),
+        "a nested cwd must not fuzzy-match its ancestor worktree"
+    );
+    assert_eq!(after.counts.tasks, 1);
+    assert_eq!(after.revision, before.revision + 1);
 }
 
 #[test]
@@ -145,6 +277,56 @@ fn reducer_keeps_distinct_fork_points_in_history_order() {
     assert_eq!(commits, [first_point, second_point]);
 
     drop((older, newer, dev));
+}
+
+#[test]
+fn verified_inventory_promotes_matching_presence_without_losing_capture_evidence() {
+    let mut fixture = support::dock_reducer_fixture();
+    let id = "01a00000-0000-7000-8000-000000000001";
+    fixture.presence.records[0].session_id = id.into();
+    let record = fixture.presence.records[0].clone();
+    let worktree = fixture
+        .worktrees
+        .iter()
+        .find(|row| row.worktree_id == record.worktree_id)
+        .unwrap();
+    let task = ObservedTask {
+        session_id: id.into(),
+        display_title: "Verified renamed task".into(),
+        host: "local".into(),
+        host_status: "idle".into(),
+        workspace_path: worktree.root.to_string_lossy().into_owned(),
+        status: PresenceStatus::Idle,
+        updated_at: "2026-09-02T11:59:00Z".into(),
+    };
+    let model = DockReducer::new(NoRoutes)
+        .reduce_with_tasks(
+            &fixture.workspace,
+            fixture.worktrees,
+            fixture.presence,
+            fixture.journals,
+            fixture.now,
+            &[task],
+        )
+        .unwrap();
+    let chat = model
+        .lanes
+        .iter()
+        .flat_map(|lane| &lane.chats)
+        .find(|chat| chat.session_id == id)
+        .unwrap();
+    assert_eq!(chat.codex_thread_id.as_deref(), Some(id));
+    assert_eq!(chat.association_source, "codex_task_cwd");
+    assert_eq!(chat.last_event_at, "2026-09-02T11:59:00Z");
+    assert_eq!(chat.status, PresenceStatus::Idle);
+    assert_eq!(chat.status_source, StatusSource::HostExplicit);
+    assert_eq!(chat.confidence, Confidence::Observed);
+    assert_eq!(chat.host, "local");
+    assert_eq!(chat.host_status.as_deref(), Some("idle"));
+    assert_eq!(chat.actor_id, record.actor_id);
+    assert_eq!(chat.capture_grade, record.capture_grade);
+    assert_eq!(chat.blocker_count, record.blocker_count);
+    assert_eq!(chat.gap_count, record.gap_count);
 }
 
 #[test]
@@ -476,6 +658,438 @@ fn dock_service_revision_changes_only_when_content_changes() {
 }
 
 #[test]
+fn unchanged_task_inventory_refreshes_observation_without_changing_structure() {
+    let repo = support::committed_repo();
+    let first_observation = time::OffsetDateTime::parse(
+        "2026-09-03T10:01:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let second_observation = time::OffsetDateTime::parse(
+        "2026-09-03T10:02:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let first = service
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Same title")],
+            first_observation,
+        )
+        .unwrap()
+        .clone();
+    let second = service
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Same title")],
+            second_observation,
+        )
+        .unwrap()
+        .clone();
+
+    assert_eq!(second.revision, first.revision);
+    assert!(second.observation_revision > first.observation_revision);
+    assert_eq!(
+        second.content_hash().unwrap(),
+        first.content_hash().unwrap()
+    );
+    assert_eq!(
+        second.task_observation.observed_at.as_deref(),
+        Some("2026-09-03T10:02:00Z")
+    );
+    assert!(second.task_observation.complete);
+    assert!(
+        second
+            .workspace_facts
+            .iter()
+            .all(|facts| { facts.task_observed_at.as_deref() == Some("2026-09-03T10:02:00Z") })
+    );
+}
+
+#[test]
+fn workspace_facts_keep_included_and_dirty_as_independent_truths() {
+    let repo = support::committed_repo();
+    let feature = support::linked_worktree(repo.path(), "codex/included-dirty");
+    std::fs::write(feature.path().join("feature.txt"), "feature\n").unwrap();
+    support::git(feature.path(), ["add", "feature.txt"]);
+    support::git(feature.path(), ["commit", "-m", "included feature"]);
+    support::git(repo.path(), ["merge", "--ff-only", "codex/included-dirty"]);
+    std::fs::write(feature.path().join("dirty.txt"), "dirty\n").unwrap();
+
+    let service = DockService::open(repo.path()).unwrap();
+    let facts = service
+        .snapshot()
+        .workspace_facts
+        .iter()
+        .find(|facts| {
+            facts.worktree_id
+                == service
+                    .snapshot()
+                    .lanes
+                    .iter()
+                    .find(|lane| lane.branch.as_deref() == Some("codex/included-dirty"))
+                    .unwrap()
+                    .worktree_id
+        })
+        .unwrap();
+
+    assert_eq!(facts.integration, "included");
+    assert_eq!(facts.working_state, "dirty");
+    assert_eq!(facts.merge_commit_oid, None);
+}
+
+#[test]
+fn detached_head_is_protected_when_a_stable_ref_reaches_it() {
+    let repo = support::committed_repo();
+    let protected_oid = support::git(repo.path(), ["rev-parse", "HEAD"]);
+    std::fs::write(repo.path().join("later.txt"), "later\n").unwrap();
+    support::git(repo.path(), ["add", "later.txt"]);
+    support::git(repo.path(), ["commit", "-m", "later main commit"]);
+    let detached = tempfile::tempdir().unwrap();
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "--detach",
+            detached.path().to_str().unwrap(),
+            protected_oid.as_str(),
+        ],
+    );
+
+    let service = DockService::open(repo.path()).unwrap();
+    let lane = service
+        .snapshot()
+        .lanes
+        .iter()
+        .find(|lane| lane.head == protected_oid)
+        .unwrap();
+    let facts = service
+        .snapshot()
+        .workspace_facts
+        .iter()
+        .find(|facts| facts.worktree_id == lane.worktree_id)
+        .unwrap();
+
+    assert!(facts.detached);
+    assert_eq!(facts.head_ref_coverage, "protected");
+}
+
+#[test]
+fn failed_git_status_produces_unknown_working_state() {
+    let mut fixture = support::dock_reducer_fixture();
+    fixture.worktrees[0].root = fixture.workspace.root.join("missing-worktree");
+    let worktree_id = fixture.worktrees[0].worktree_id.clone();
+
+    let model = DockReducer::new(NoRoutes)
+        .reduce(
+            &fixture.workspace,
+            fixture.worktrees,
+            fixture.presence,
+            fixture.journals,
+            fixture.now,
+        )
+        .unwrap();
+    let facts = model
+        .workspace_facts
+        .iter()
+        .find(|facts| facts.worktree_id == worktree_id)
+        .unwrap();
+
+    assert_eq!(facts.working_state, "unknown");
+}
+
+#[test]
+fn dock_v4_has_exact_envelope_and_unique_counts() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    service
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Count once")],
+            time::OffsetDateTime::parse(
+                "2026-09-03T10:01:00Z",
+                &time::format_description::well_known::Rfc3339,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let value = serde_json::to_value(service.snapshot()).unwrap();
+    let keys = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(service.snapshot().schema_version, "devmap/dock/4");
+    assert_eq!(
+        keys,
+        BTreeSet::from([
+            "active",
+            "branch_groups",
+            "counts",
+            "current",
+            "current_worktree_id",
+            "development_target",
+            "generated_at",
+            "integration_branches",
+            "lanes",
+            "observation_revision",
+            "repository_id",
+            "revision",
+            "schema_version",
+            "stale_or_uninstrumented",
+            "task_inventory_synced_at",
+            "task_observation",
+            "topology",
+            "truncated",
+            "warnings",
+            "workspace_facts",
+        ])
+    );
+    assert_eq!(
+        value["counts"],
+        serde_json::json!({"workspaces": 1, "tasks": 1})
+    );
+}
+
+#[test]
+fn bounded_output_marks_a_partially_retained_task_roster() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let tasks = (0..100)
+        .map(|index| ObservedTask {
+            session_id: format!("01a00000-0000-7000-8000-{index:012}"),
+            display_title: format!("task-{index}-{}", "x".repeat(16 * 1024)),
+            host: "local".into(),
+            host_status: "active".into(),
+            workspace_path: repo.path().to_string_lossy().into_owned(),
+            status: PresenceStatus::Working,
+            updated_at: "2026-09-03T10:00:00Z".into(),
+        })
+        .collect();
+
+    let model = service
+        .replace_observed_tasks(
+            tasks,
+            time::OffsetDateTime::parse(
+                "2026-09-03T10:01:00Z",
+                &time::format_description::well_known::Rfc3339,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let bytes = devmap::canonical::canonical_json(model).unwrap();
+
+    assert!(bytes.len() <= devmap::dock::MAX_DOCK_MODEL_BYTES);
+    assert!(model.truncated);
+    assert!(!model.task_observation.complete);
+    assert_eq!(model.counts.tasks, 100);
+}
+
+#[test]
+fn budget_preserves_all_256_real_workspaces_and_late_dirty_unprotected_facts() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let base = tempfile::tempdir().unwrap();
+    let head = support::git(repo.path(), ["rev-parse", "HEAD"]);
+    let tree = support::git(repo.path(), ["rev-parse", "HEAD^{tree}"]);
+    let unique = support::git(
+        repo.path(),
+        [
+            "commit-tree",
+            tree.as_str(),
+            "-p",
+            head.as_str(),
+            "-m",
+            "unprotected checkout work",
+        ],
+    );
+    for index in 1..256 {
+        let path = base
+            .path()
+            .join(format!("workspace-{index:03}-{}", "long-name-".repeat(8)));
+        let checkout = if index == 255 { &unique } else { &head };
+        support::git(
+            repo.path(),
+            [
+                "worktree",
+                "add",
+                "--detach",
+                path.to_str().unwrap(),
+                checkout,
+            ],
+        );
+        if index == 255 {
+            std::fs::write(path.join("unfinished.txt"), "dirty work\n").unwrap();
+        }
+    }
+    let observed_at = time::OffsetDateTime::now_utc();
+    let tasks = (0..100)
+        .map(|index| {
+            let mut task = observed_task(
+                repo.path(),
+                &format!("Task {index} {}", "x".repeat(16 * 1024 - 40)),
+            );
+            task.session_id = format!("01a00000-0000-7000-8000-{index:012}");
+            task
+        })
+        .collect();
+    let model = service
+        .replace_observed_tasks_with_completeness(tasks, true, observed_at)
+        .unwrap();
+    assert_eq!(model.counts.workspaces, 256);
+    assert_eq!(
+        model.lanes.len(),
+        256,
+        "every canonical workspace identity must survive"
+    );
+    assert_eq!(
+        model.workspace_facts.len(),
+        256,
+        "every workspace retains factual risk and observation times"
+    );
+    let late = model
+        .lanes
+        .iter()
+        .find(|lane| lane.workspace_path.contains("workspace-255-"))
+        .unwrap();
+    let facts = model
+        .workspace_facts
+        .iter()
+        .find(|facts| facts.worktree_id == late.worktree_id)
+        .unwrap();
+    assert_eq!(late.head, unique);
+    assert_eq!(facts.head_oid, unique);
+    assert_eq!(facts.working_state, "dirty");
+    assert_eq!(facts.head_ref_coverage, "unprotected");
+    assert!(facts.detached);
+    assert_eq!(late.relationship.changed_file_count, 1);
+    assert!(facts.git_observed_at.is_some());
+    assert_eq!(facts.task_observed_at, model.task_observation.observed_at);
+    assert!(model.task_observation.observed_at.is_some());
+    assert!(!model.task_observation.complete);
+    assert_eq!(model.counts.tasks, 100);
+    assert!(
+        model
+            .lanes
+            .iter()
+            .map(|lane| lane.chats.len())
+            .sum::<usize>()
+            < 100
+    );
+    assert!(model.truncated);
+    assert!(
+        devmap::canonical::canonical_json(model).unwrap().len()
+            <= devmap::dock::MAX_DOCK_MODEL_BYTES
+    );
+}
+
+#[test]
+fn topology_and_compatibility_share_the_dock_byte_budget_with_boundaries() {
+    let repo = support::committed_repo();
+    for index in 0..96 {
+        std::fs::write(repo.path().join("history.txt"), format!("{index}\n")).unwrap();
+        support::git(repo.path(), ["add", "history.txt"]);
+        let subject = format!("history-{index}-{}", "x".repeat(8 * 1024));
+        support::git(repo.path(), ["commit", "-m", subject.as_str()]);
+    }
+
+    let service = DockService::open(repo.path()).unwrap();
+    let model = service.snapshot();
+    let bytes = devmap::canonical::canonical_json(model).unwrap();
+
+    assert!(bytes.len() <= devmap::dock::MAX_DOCK_MODEL_BYTES);
+    assert!(model.truncated);
+    assert!(
+        model.topology.complete
+            || model
+                .topology
+                .boundaries
+                .iter()
+                .any(|boundary| boundary.reason == "history_limit")
+    );
+}
+
+#[test]
+fn unused_topology_budget_retains_a_detached_head_when_history_fits() {
+    let repo = support::committed_repo();
+    let detached_head = support::git(repo.path(), ["rev-parse", "HEAD"]);
+    import_linear_history(repo.path(), 1_800);
+    let detached = tempfile::tempdir().unwrap();
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "--detach",
+            detached.path().to_str().unwrap(),
+            detached_head.as_str(),
+        ],
+    );
+
+    let service = DockService::open(repo.path()).unwrap();
+    let model = service.snapshot();
+
+    assert!(
+        model
+            .topology
+            .commits
+            .iter()
+            .any(|commit| commit.oid == detached_head)
+    );
+    assert!(
+        devmap::canonical::canonical_json(model).unwrap().len()
+            <= devmap::dock::MAX_DOCK_MODEL_BYTES
+    );
+}
+
+#[test]
+fn dock_opens_an_unborn_repository_without_inventing_a_commit() {
+    let repo = tempfile::tempdir().unwrap();
+    support::git(repo.path(), ["init", "-b", "main"]);
+
+    let service = DockService::open(repo.path()).unwrap();
+    let model = service.snapshot();
+
+    assert_eq!(model.schema_version, "devmap/dock/4");
+    assert!(model.topology.commits.is_empty());
+    assert!(
+        model
+            .workspace_facts
+            .iter()
+            .all(|facts| facts.head_oid.is_empty()
+                || facts.head_oid.bytes().all(|byte| byte == b'0'))
+    );
+}
+
+#[test]
+fn topology_cache_invalidates_on_ref_changes_without_caching_dirty_facts() {
+    let repo = support::committed_repo();
+    let mut service = DockService::open(repo.path()).unwrap();
+    let first_revision = service.snapshot().revision;
+    support::git(repo.path(), ["tag", "cache-invalidation"]);
+    std::fs::write(repo.path().join("dirty-after-cache.txt"), "dirty\n").unwrap();
+
+    service.refresh(time::OffsetDateTime::now_utc()).unwrap();
+    let model = service.snapshot();
+    let current = model
+        .workspace_facts
+        .iter()
+        .find(|facts| facts.worktree_id == model.current_worktree_id)
+        .unwrap();
+
+    assert!(model.revision > first_revision);
+    assert!(
+        model
+            .topology
+            .refs
+            .iter()
+            .any(|reference| reference.ref_name == "refs/tags/cache-invalidation")
+    );
+    assert_eq!(current.working_state, "dirty");
+}
+
+#[test]
 fn agents_json_is_canonical_bounded_and_does_not_change_source_git_state() {
     let repo = support::committed_repo();
     let before = support::source_snapshot(repo.path());
@@ -495,7 +1109,7 @@ fn agents_json_is_canonical_bounded_and_does_not_change_source_git_state() {
     );
     assert!(output.stdout.len() < 1024 * 1024);
     let model: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(model["schema_version"], "devmap/dock/3");
+    assert_eq!(model["schema_version"], "devmap/dock/4");
     assert_eq!(
         model["repository_id"],
         repository_id(

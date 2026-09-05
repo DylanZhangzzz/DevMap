@@ -262,3 +262,26 @@ fn dirty_count_treats_a_rename_as_one_changed_file() {
     assert!(row.dirty);
     assert_eq!(row.changed_file_count, 1);
 }
+
+#[test]
+fn failed_status_is_retained_as_unknown_instead_of_clean() {
+    let repo = support::committed_repo();
+    let workspace = SourceGitInspector::open(repo.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let mut worktrees = WorktreeScanner::scan(&workspace).unwrap();
+    worktrees[0].root = repo.path().join("missing-worktree");
+    let worktree_id = worktrees[0].worktree_id.clone();
+
+    let report = GitRelationshipResolver::resolve(&workspace, &worktrees).unwrap();
+    let relationship = &report.by_worktree_id[&worktree_id];
+
+    assert!(!relationship.status_observed);
+    assert!(!relationship.dirty);
+    assert_eq!(relationship.changed_file_count, 0);
+    assert!(report.warnings.iter().any(|warning| {
+        warning.code == "git_relationship_unavailable"
+            && warning.worktree_id.as_deref() == Some(worktree_id.as_str())
+    }));
+}

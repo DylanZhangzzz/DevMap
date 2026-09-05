@@ -1,0 +1,145 @@
+{
+  "verified_at": "2026-09-05T08:32:26.977Z",
+  "scope": "local development candidate; not installed plugin; not a published release",
+  "build": {
+    "worktree": "C:\\Users\\user\\Documents\\ChatGPT\\DevMap-phase-1a-worktree",
+    "head": "5741c330c457331065d76dc884ff5b0ea8a2c2f0",
+    "branch": "codex/rail-view-design-alignment",
+    "dirty": true,
+    "input_manifest_sha256": "84ed8bbbdd835edaf1c2394b90b29fbb0adffb4865c6628e11e719dd0f541e83",
+    "input_files": [
+      {
+        "path": "Cargo.lock",
+        "sha256": "42e1dd4b8f7eb5e989ae1124b24fad6246c9d786c9302f097c7f998d6b30e24a"
+      },
+      {
+        "path": "Cargo.toml",
+        "sha256": "6ffb8a843a3cfc5f22162613bcdcd388c23df2bb4fa51dc343c8d32a36e48612"
+      },
+      {
+        "path": "assets/dock.html",
+        "sha256": "fd530e5b63528e34b5e8f1d4b05010e87ad5e40b2944627bc2bd08cc053cb387"
+      },
+      {
+        "path": "assets/metro-core.js",
+        "sha256": "f289214d22153a213a49f1b9055d1ec9643d427674c8a660051824616272b600"
+      },
+      {
+        "path": "src/adapter.rs",
+        "sha256": "fcf53ae0a74937ca7b4e581d56ecded40a9c78f2970bc9e86be740a9082b78a3"
+      },
+      {
+        "path": "src/canonical.rs",
+        "sha256": "335445c79f7c0d490adc51134ad259888508f68e59f13e1e34d06f738289fcfd"
+      },
+      {
+        "path": "src/capture.rs",
+        "sha256": "3867e7c2c2c06eb1a64fea632ea5a3ee000bb1971fcf005653cb8cd9c94a04fb"
+      },
+      {
+        "path": "src/cli.rs",
+        "sha256": "1b390381a665a15feebfadd5092e12d8e0d9ad8cd14dcfeacd73f8b60466188f"
+      },
+      {
+        "path": "src/commands.rs",
+        "sha256": "c888fa866fb6cc0d080bd86e726e482bc35db4c95824bc153eacfab79b68c197"
+      },
+      {
+        "path": "src/context.rs",
+        "sha256": "37c2f875cdd070f612654bda799ab162cb41326f8d985871e22b994ba5b95f07"
+      },
+      {
+        "path": "src/dock.rs",
+        "sha256": "b00e566a9e39a233779973580cdcf651e524e26f5aa2e3aa8dc1c511d1f90a83"
+      },
+      {
+        "path": "src/dock_asset.rs",
+        "sha256": "3e370c7d514c7d66a0d8afe539cf757fbe6e0a26eef9a43555d166f82ff0dcc6"
+      },
+      {
+        "path": "src/domain.rs",
+        "sha256": "f4a534ed0adcee2e4355ba73be93b99092daeec83e336c25f2bff072d19ef80b"
+      },
+      {
+        "path": "src/error.rs",
+        "sha256": "cb184ad8874229019c3a0bdfc8d1bbc984468f7d4bcfb951b2e344b38ebf71ef"
+      },
+      {
+        "path": "src/events.rs",
+        "sha256": "2b18fa0166c3c247a7a0aa0e97072e19c354fb8518054c4628833e37964d1f43"
+      },
+      {
+        "path": "src/fs_security.rs",
+        "sha256": "819a06233ffe3aa651b4a8bfc5337db2f9080ab4c8b256d42785e5e563fd4c06"
+      },
+      {
+        "path": "src/git.rs",
+        "sha256": "e0b821a69c94a3f2be4fde9fb736eb0877ac03fb6a5873712d86d19be59e2c7e"
+      },
+      {
+        "path": "src/git_relationship.rs",
+        "sha256": "3349501a7d35969594e2584a055b9ea97e4fdb80a1cbb1306d56171cb5dde04d"
+      },
+      {
+        "path": "src/git_topology.rs",
+        "sha256": "d5e1d41ad5e2cf5621f2eeef34ecf38439faefa8ed1f8ebaa1762cf3b1bb2508"
+      },
+      {
+        "path": "src/hook.rs",
+        "sha256": "9a0449949a92a329388a78faf24bc64721ee67decb7f1255355481afdad554e7"
+      },
+      {
+        "path": "src/journal.rs",
+        "sha256": "ed21c873c92acae9686e575a608abecc18b2b24c4f1c8a59c5fd7ae8b49ff796"
+      },
+      {
+        "path": "src/lib.rs",
+        "sha256": "d00f6d9515ebbf220697c883224eab8e8566a170f0b99b2fe805a66a70545460"
+      },
+      {
+        "path": "src/main.rs",
+        "sha256": "e2b7afb9919b280ee8deea16874dc9cd1d5a663b89911a2b693937576f0da9d9"
+      },
+      {
+        "path": "src/mcp.rs",
+        "sha256": "81126732e043b7fa0b3c21bd7d8d93b78005b9657c0480d27e01a620abf45036"
+      },
+      {
+        "path": "src/presence.rs",
+        "sha256": "19d80bf2074395302aa69149a0d231f228fea77eaecbc16a9463b23ff32b17ab"
+      },
+      {
+        "path": "src/viewer.rs",
+        "sha256": "aba425c778e9b2dcc811198952e1c1d0d3358fda65380723fb93d682f581dca6"
+      },
+      {
+        "path": "src/worktrees.rs",
+        "sha256": "ab834f97750d99fab80b2d12d108fc78621c5873ecf5a0b1d2bb510ffda320ec"
+      }
+    ]
+  },
+  "runtime": {
+    "observed_repository": "C:\\Users\\user\\Documents\\ChatGPT\\AI auto-git context",
+    "synthetic_tasks": false,
+    "pid": 40516,
+    "executable": "C:\\Users\\user\\Documents\\ChatGPT\\DevMap-phase-1a-worktree\\.superpowers\\sdd\\2026-09-04-devmap-metro-topology\\runtime-zoom-bb2bff823b73\\devmap.exe",
+    "command_line": "C:\\Users\\user\\Documents\\ChatGPT\\DevMap-phase-1a-worktree\\.superpowers\\sdd\\2026-09-04-devmap-metro-topology\\runtime-zoom-bb2bff823b73\\devmap.exe mcp --source \"C:\\Users\\user\\Documents\\ChatGPT\\AI auto-git context\"",
+    "executable_sha256": "bb2bff823b738955e61e9759b539585ceb57e048598a752505b35fa7f8aec6f2"
+  },
+  "asset": {
+    "schema": "devmap/dock/4",
+    "assembled_sha256": "d6fa370e2d14ed969ec84edd6f369f37b33a3d2300fe79216e9c2a8d50117106",
+    "served_sha256": "d6fa370e2d14ed969ec84edd6f369f37b33a3d2300fe79216e9c2a8d50117106",
+    "bytes": 131041,
+    "limit": 131072
+  },
+  "model": {
+    "counts": {
+      "tasks": 13,
+      "workspaces": 7
+    },
+    "bytes": 66626,
+    "limit": 786432,
+    "task_inventory_complete": false
+  }
+}

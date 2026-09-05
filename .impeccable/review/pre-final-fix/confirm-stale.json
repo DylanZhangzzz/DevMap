@@ -1,0 +1,14 @@
+{
+  "attention": "1 workspace needs attention",
+  "commits": 12,
+  "current": "wt-db2a27f7d85c68923b0ac1129aa12adff26e992e3ee1aace26b745112a9c3a85",
+  "feedback": "",
+  "git": "GIT OFFLINE · last observation 0s ago",
+  "rejected": "",
+  "rows": [
+    "Last observed ACTIVE",
+    "Last observed ACTIVE"
+  ],
+  "tasks": "Tasks · observed 3m ago · stale",
+  "workspaces": 6
+}
