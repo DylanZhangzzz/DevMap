@@ -20,7 +20,9 @@ Open Actions > Package and release > Run workflow, push a main/codex branch, or 
 
 ## Enable npm publication once
 
-Choose an npm package name that you control. The proposed unscoped name is `devmap-cli`; verify availability immediately before first publication. Set repository variable `DEVMAP_NPM_PACKAGE` to the final exact name. If it differs from `devmap-cli`, rebuild so the tarball contains that name. GitHub usernames do not prove npm ownership. A different npm name does not change the GitHub download URL.
+The initial package `devmap-cli@0.1.0` was published to npm under `dylan_zhang` on 2026-09-06. The steps below configure automatic publication of future versions; the first public package alone does not enable OIDC publishing.
+
+Set repository variable `DEVMAP_NPM_PACKAGE=devmap-cli`. If using a different package name in a fork, establish ownership and rebuild the tarball with that name. GitHub usernames do not prove npm ownership. A different npm name does not change the GitHub download URL.
 
 For an initial package, publish that complete tarball from your authenticated npm account (`npm login`, then `npm publish PATH_TO_TARBALL --access public`). If using a prerelease, add `--tag next`. Do not publish the single-platform local smoke package.
 

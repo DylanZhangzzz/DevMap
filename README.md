@@ -59,15 +59,15 @@ Git refresh does not refresh task observations. Missing, stale or partial invent
 Install **Node.js 22+ (with npm)** and **Git**, then run this inside the repository you want to inspect. No Rust, compilation or npm account is needed:
 
 ```sh
-npx --yes https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz view --live --source .
+npx --yes devmap-cli@0.1.0 view --live --source .
 ```
 
-Open the private local URL printed by the command and keep the process running. The package includes Windows x64, macOS Intel/Apple Silicon and Linux glibc 2.35+ x64/ARM64 binaries. It downloads from the public GitHub Release; a short npm registry command is not yet advertised because registry publication is pending.
+Open the private local URL printed by the command and keep the process running. The package includes Windows x64, macOS Intel/Apple Silicon and Linux glibc 2.35+ x64/ARM64 binaries. The package is available from npm. A pinned GitHub Release download remains available in the installation guide.
 
 For terminal output, replace `view --live --source .` with `agents --source . --json`. To install a persistent `devmap` command for the existing plugin:
 
 ```sh
-npm install --global https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz
+npm install --global devmap-cli@0.1.0
 ```
 
 For a direct MCP connection, replace the repository path below. On Windows, use a path such as `C:/Projects/my-repo`:
@@ -77,7 +77,7 @@ For a direct MCP connection, replace the repository path below. On Windows, use 
   "mcpServers": {
     "devmap": {
       "command": "npx",
-      "args": ["--yes", "https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz", "mcp", "--source", "/absolute/path/to/repository"]
+      "args": ["--yes", "devmap-cli@0.1.0", "mcp", "--source", "/absolute/path/to/repository"]
     }
   }
 }
