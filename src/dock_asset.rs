@@ -21,7 +21,7 @@ pub fn dock_html() -> &'static str {
         );
         // The template has no preformatted text or multiline string literals.
         // Strip source indentation for transport, keeping readable source and the
-        // 176 KiB resource budget including the workspace chooser and inspector.
+        // 184 KiB resource budget including reversible commit-history summaries.
         // Keep newlines for JavaScript comments.
         TEMPLATE
             .lines()

@@ -39,10 +39,10 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     );
     assert!(!html.contains("localStorage"));
     assert!(!html.contains("sessionStorage"));
-    // Includes the searchable chooser and persistent inspector controls. The
-    // previous 160 KiB baseline had 14 bytes free; retain a bounded 176 KiB
+    // Includes the chooser, inspector and reversible commit-history summaries.
+    // Retain a bounded 184 KiB
     // regression budget without changing the 512 KiB MCP resource limit.
-    assert!(html.len() < 176 * 1024);
+    assert!(html.len() < 184 * 1024);
 }
 
 #[test]

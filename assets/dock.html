@@ -241,6 +241,10 @@
     .route-station::before{content:"";display:block;width:4px;height:4px;margin:auto;border-radius:50%;background:var(--rail-color);}
     .route-station.key::before{width:12px;height:12px;background:var(--surface);border:3px solid var(--rail-color);}
     .route-station.transfer::before{outline:2px solid var(--rail-color);outline-offset:2px;}
+    .history-range{position:absolute;display:grid;gap:6px;padding:8px;text-align:left;border:1px solid var(--line-soft);background:var(--surface);font-size:.8125rem;line-height:1.125rem;}
+    .history-range>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .history-action{color:var(--accent);}
+    .history-fold-marker{position:absolute;transform:translate(-50%,-50%);width:44px;height:44px;padding:0;border:0;background:transparent;font-size:28px;line-height:40px;text-align:center;}
     .route-station[style*="branch-yellow"]::before{box-shadow:0 0 0 1px var(--keyline),inset 0 0 0 1px var(--keyline);}
     .junction-label{position:absolute;left:14px;bottom:18px;font-size:12px;line-height:1.3;white-space:nowrap;color:var(--muted);background:var(--bg-canvas);}
     .map-direction,.line-name{position:absolute;font-size:.75rem;color:var(--muted);white-space:nowrap;}
@@ -346,7 +350,7 @@
       let overviewListOpen = false;
       let refreshingDetails = false;
       let journeyWorkspaceId = null, journeyFocused = false;
-      const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set();
+      const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set(), expandedHistory = new Set();
       const expandedSubagents = new Set();
       const byId = (id) => document.getElementById(id);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
@@ -644,11 +648,13 @@
           const group = svg("g"); group.dataset.edgeId = edge.id;
           group.dataset.fromOid = edge.from_oid; group.dataset.toOid = edge.to_oid;
           const identity = laneIdentity(lanes.get(edge.lane_id));
-          if (edge.gaps.length) {
+          const range = layout.historyRanges?.find(r => r.id === edge.historyRange);
+          if (edge.gaps.length || range) {
             const maskId = maskPrefix + index;
             const mask = svg("mask", { id: maskId, maskUnits: "userSpaceOnUse", x: 0, y: 0, width: layout.width, height: layout.height });
             mask.append(svg("rect", { width: layout.width, height: layout.height, fill: "white" }));
             for (const gap of edge.gaps) mask.append(svg("path", { d: routePath(gap.points), stroke: "black", "stroke-width": 12, "stroke-linecap": "butt" }));
+            if (range) mask.append(svg("rect", { x: range.marker.x - 20, y: range.marker.y - 20, width: 40, height: 40, fill: "black" }));
             defs.append(mask); group.setAttribute("mask", "url(#" + maskId + ")");
           }
           if (identity.token === "branch-yellow") group.append(svg("path", { d: routePath(edge.points), class: "rail-keyline" }));
@@ -863,7 +869,30 @@
         if (!layout || !objectId) return null;
         if (objectId.startsWith("workspace:")) return layout.attachments.find(a => a.id === objectId) || null;
         if (objectId.startsWith("commit:")) return layout.nodes.find(n => "commit:" + n.id === objectId) || null;
-        return layout.refs.find(r => r.id === objectId) || null;
+        return layout.refs.find(r => r.id === objectId) || layout.historyRanges?.find(r => r.id === objectId) || null;
+      }
+      function historyControls(range, layout, value) {
+        const toggle = () => {
+          const previous = selectedObjectId;
+          selectedObjectId = range.id;
+          if (range.expanded) expandedHistory.delete(range.id); else expandedHistory.add(range.id);
+          renderSnapshot(lastSnapshot);
+          selectedObjectId = previous;
+          [...byId("relationship-map").querySelectorAll(".history-range")].find(n => n.dataset.objectId === range.id)?.focus({preventScroll:true});
+        };
+        const control = button("history-range", "", toggle);
+        control.dataset.objectId = range.id; control.setAttribute("aria-expanded", String(range.expanded));
+        for (const oid of [range.from_oid, range.to_oid]) {
+          if (oid === range.to_oid) control.append(element("span", "history-action", "⋯ " + range.commit_ids.length + " commits · " + (range.expanded ? "Collapse" : "Expand")));
+          const commit = value.topology.commits.find(c => c.oid === oid);
+          const line = element("span", "", oid.slice(0,8) + " · " + (commit?.subject || "History boundary"));
+          line.title = oid + " · " + (commit?.subject || "History boundary"); control.append(line);
+        }
+        control.setAttribute("aria-label", control.textContent); position(control, range); control.style.width = range.width + "px";
+        if (range.expanded) return [control];
+        const marker = button("history-fold-marker", "Expand " + range.commit_ids.length + " commits", toggle);
+        marker.dataset.objectId = range.id + ":marker"; marker.textContent = layout.orientation === "vertical" ? "⋮" : "⋯";
+        position(marker,range.marker); return [control, marker];
       }
       function fitScale() {
         const layout = byId("relationship-map").metroLayout, viewport = byId("topology-viewport");
@@ -950,7 +979,7 @@
         return nodes;
       }
       function routeStation(node,layout,value) {
-        const key=node.transfer||node.kind==="boundary"||layout.attachments.some(a=>a.head_oid===node.id)||layout.refs.some(r=>r.oid===node.id&&/^refs\/heads\/(main|master)$/.test(r.ref_name));
+        const key=node.transfer||node.kind==="boundary"||layout.attachments.some(a=>a.head_oid===node.id)||layout.refs.some(r=>r.oid===node.id&&/^refs\/heads\/(main|master)$/.test(r.ref_name))||layout.historyRanges?.some(r=>r.from_oid===node.id||r.to_oid===node.id);
         const identity=laneIdentity(layout.lanes.find(l=>l.id===node.lane_id));
         const refs=value.topology.refs.filter(r=>r.oid===node.id).map(r=>r.display_name).join(", ");
         const label=(node.transfer?node.transfer+" station · ":"")+(value.topology.commits.find(c=>c.oid===node.id)?.subject||"History boundary")+" · "+node.id+(refs?" · "+refs:"");
@@ -1103,22 +1132,26 @@
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
         const previousSummary=surface.querySelector(".workspace-summary"),summaryScroll=previousSummary?.dataset.objectId==="summary:"+inlineWorkspaceId?previousSummary.scrollTop:0;
         const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
+        const focusedHistory=surface.metroLayout?.historyRanges?.find(r=>focusedId===r.id||focusedId===r.id+":marker");
         const savedViewport={...viewportPosition}, records=workspaceRecords(value);
         const oldRect=selectedRect(surface.metroLayout,selectedObjectId);
         const offset=oldRect?{x:16+oldRect.x*mapScale-savedViewport.left,y:16+oldRect.y*mapScale-savedViewport.top}:null;
-        if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=value.current_worktree_id;journeyFocused=false;}
+        if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=value.current_worktree_id;journeyFocused=false;expandedHistory.clear();}
         const dimensions=records.map(({lane,facts})=>({worktree_id:lane.worktree_id,head_oid:facts?.head_oid??lane.head,width:196,height:52}));
         let layout=null;
         if(value.schema_version==="devmap/dock/4") {
           const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
           if(lastSnapshot?.repository_id!==value.repository_id||!records.some(r=>r.lane.worktree_id===inlineWorkspaceId))inlineWorkspaceId=null;
-          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale,expandedWorktreeId:inlineWorkspaceId};
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
+          options.expandedHistoryCommits=(surface.metroLayout?.historyRanges||[]).filter(r=>expandedHistory.has(r.id)).flatMap(r=>r.commit_ids);
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
           if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[]),textScale};
+          expandedHistory.clear();for(const range of layout.historyRanges)if(range.expanded)expandedHistory.add(range.id);
           const fragment=document.createDocumentFragment();fragment.append(connectionLayer(layout));
           for(const node of layout.nodes)fragment.append(routeStation(node,layout,value));
           fragment.append(...renderPlatforms(records,value,layout));
+          for (const range of layout.historyRanges) fragment.append(...historyControls(range,layout,value));
           const direction=element("span","map-direction",layout.orientation==="vertical"?"Earlier history ↓ Descendants":"Earlier history → Descendants");
           position(direction,{x:32,y:0});fragment.append(direction);
           const refGroups=new Map();
@@ -1186,12 +1219,17 @@
             locateWorkspace(selectedWorkspaceId, value);
           } else fitMap();
         }
-        else if (offset && newRect && (selectedObjectId?.startsWith("commit:")||((inlineWorkspaceId||preserveInlineAnchor)&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
+        else if (offset && newRect && (selectedObjectId?.startsWith("history-range:")||selectedObjectId?.startsWith("commit:")||((inlineWorkspaceId||preserveInlineAnchor)&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
         else setViewportPosition({ ...savedViewport, behavior: "instant" });
         const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
         if (focusedId) {
           const control = [...surface.querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusedId && n.tagName === focusedTag);
           control?.focus({ preventScroll: true });
+          if(!control&&focusedHistory) {
+            const replacement=layout?.historyRanges?.find(r=>r.from_oid===focusedHistory.from_oid||r.commit_ids.some(id=>focusedHistory.commit_ids.includes(id)));
+            const target=[...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===(replacement?.id||"commit:"+focusedHistory.from_oid));
+            (target||viewport).focus({preventScroll:true});
+          }
           if(!control&&focusedId.startsWith("summary"))(summary||viewport).focus({preventScroll:true});
           if (!control && focusedId.startsWith("subagents:")) {
             const parentId = focusedId.slice("subagents:".length);
@@ -1225,6 +1263,8 @@
         summary.append(list);
       }
       function locateObject(objectId) {
+        const range = byId("relationship-map").metroLayout?.historyRanges?.find(r => !r.expanded && r.commit_ids.some(id => "commit:" + id === objectId));
+        if (range) { expandedHistory.add(range.id); renderSnapshot(lastSnapshot); }
         setMapScale(1);
         const surface = byId("relationship-map"), viewport = byId("topology-viewport"), rect = selectedRect(surface.metroLayout, objectId);
         if (objectId.startsWith("workspace:")) {
@@ -1272,7 +1312,7 @@
         list.replaceChildren();
         for (const edge of exits) {
           const row = element("div", "edge-route");
-          for (const [direction, oid, navigation] of [["Parent", edge.from_oid, edge.navigation.from], ["Child", edge.to_oid, edge.navigation.to]]) {
+          for (const [direction, oid, navigation] of [[edge.historyRange ? "Range start" : "Parent", edge.from_oid, edge.navigation.from], [edge.historyRange ? "Range end" : "Child", edge.to_oid, edge.navigation.to]]) {
             const refs = layout.refs.filter(ref => ref.oid === oid).map(ref => ref.display_name);
             const boundary = navigation.action === "explain_boundary";
             const identity = (refs.length ? refs.join(", ") + " · " : "") + oid.slice(0, 8);
@@ -1435,7 +1475,8 @@
           ["Authored", commit?.authored_at || "Unavailable"],
           ["Coverage", boundaries.map(boundary => BOUNDARIES[boundary.reason]).join("; ") || (commit ? "Commit retained" : "Unavailable")]
         ], oid);
-        const edges = byId("relationship-map").metroLayout?.edges || [];
+        const layout = byId("relationship-map").metroLayout;
+        const edges = layout?.sourceEdges || layout?.edges || [];
         const destinations = new Map();
         for (const edge of edges) {
           if (edge.from_oid === oid) destinations.set(edge.to_oid, { ...edge.navigation.to, direction: "Child" });

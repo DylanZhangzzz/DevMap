@@ -36,6 +36,42 @@ const oid = (character) => character.repeat(40);
 const TOPOLOGY = require('./fixtures/metro/topology.json');
 const BOUNDARIES = require('./fixtures/metro/boundaries.json');
 
+test('history folding preserves endpoints and restores the exact hidden chain', () => {
+  const core=require(CORE_PATH),commits=Array.from({length:12},(_,i)=>({oid:(i+1).toString(16).padStart(2,'0').repeat(20),parents:i?[i.toString(16).padStart(2,'0').repeat(20)]:[],subject:'Commit '+i,authored_at:null}));
+  const graph={commits,edges:commits.slice(1).map(c=>({id:c.parents[0]+':'+c.oid,from_oid:c.parents[0],to_oid:c.oid})),refs:[],boundaries:[],complete:true};
+  const original=JSON.stringify(graph);
+  for(const vertical of [true,false]) {
+    const options={width:390,vertical,foldHistory:true};
+    const folded=core.layoutRouteMap(graph,[],options);
+    assert.equal(folded.nodes.length,2);assert.equal(folded.historyRanges.length,1);
+    const range=folded.historyRanges[0];assert.equal(range.commit_ids.length,10);
+    assert.equal(range.from_oid,commits[0].oid);assert.equal(range.to_oid,commits[11].oid);
+    assert.equal(folded.edges[0].kind,'history-summary');
+    const expanded=core.layoutRouteMap(graph,[],{...options,expandedHistory:[range.id]});
+    assert.equal(expanded.nodes.length,12);assert.deepEqual(expanded.edges.map(e=>e.id).sort(),graph.edges.map(e=>e.id).sort());
+    assert.ok((vertical?folded.height:folded.width)<(vertical?expanded.height:expanded.width));
+    const protectedView=core.layoutRouteMap(graph,[],{...options,historyKeepOids:[commits[5].oid]});
+    assert.ok(protectedView.nodes.some(n=>n.id===commits[5].oid));
+    const reveal=core.layoutRouteMap(graph,[],{...options,revealCommit:commits[4].oid});
+    assert.ok(reveal.nodes.some(n=>n.id===commits[4].oid));
+    for(const kind of ['branch','tag','head','boundary']) {
+      const retained=structuredClone(graph),anchor=commits[5].oid;
+      if(kind==='branch'||kind==='tag')retained.refs=[{ref_name:kind==='tag'?'refs/tags/v1':'refs/heads/topic',display_name:'anchor',oid:anchor,kind}];
+      if(kind==='boundary')retained.boundaries=[{id:'limit',oid:anchor,reason:'history_limit'}];
+      const view=core.layoutRouteMap(retained,kind==='head'?[{worktree_id:'worktree',head_oid:anchor}]:[],options);
+      assert.ok(view.nodes.some(n=>n.id===anchor),kind+' remains visible');
+      assert.ok(view.historyRanges.every(r=>!r.commit_ids.includes(anchor)));
+    }
+    const topology=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,options);
+    const originalTopology=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{...options,foldHistory:false});
+    for(const n of originalTopology.nodes.filter(n=>n.transfer))assert.ok(topology.nodes.some(p=>p.id===n.id),'forks and merges remain visible');
+    assert.deepEqual(topology.sourceEdges.map(e=>e.id).sort(),TOPOLOGY.graph.edges.map(e=>e.id).sort());
+    const short={...graph,commits:commits.slice(0,5),edges:graph.edges.slice(0,4)};
+    assert.equal(core.layoutRouteMap(short,[],options).historyRanges.length,0,'short chains are not made taller by a summary');
+  }
+  assert.equal(JSON.stringify(graph),original);
+});
+
 test('route tracks retain readable spacing and simple turns at narrow widths', () => {
   const core=require(CORE_PATH);
   for(const vertical of [true,false])for(const width of [342,700]) {

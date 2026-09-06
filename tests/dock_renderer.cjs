@@ -92,9 +92,48 @@ function snapshot() {
 }
 
 // Reusable synthetic snapshot builder for the coordinated browser acceptance batch.
-module.exports = { snapshot, chat };
+function historySnapshot() {
+  const value=snapshot(),lane=value.lanes[0];
+  const commits=Array.from({length:12},(_,i)=>({oid:(i+1).toString(16).padStart(2,'0').repeat(20),parents:i?[i.toString(16).padStart(2,'0').repeat(20)]:[],subject:'History commit '+(i+1),authored_at:null}));
+  value.topology={commits,edges:commits.slice(1).map(c=>({id:c.parents[0]+':'+c.oid,from_oid:c.parents[0],to_oid:c.oid})),refs:[{...value.topology.refs.find(r=>r.ref_name==='refs/heads/main'),oid:commits.at(-1).oid}],boundaries:[],complete:true};
+  lane.head=commits.at(-1).oid;lane.chats=[];value.lanes=[lane];value.branch_groups[0].lanes=value.lanes;
+  value.workspace_facts=[{...value.workspace_facts[0],head_oid:lane.head}];value.counts={workspaces:1,tasks:0};
+  return value;
+}
+module.exports = { snapshot, chat, historySnapshot };
 
 if (require.main === module) {
+test('history summary expands and collapses while preserving refresh state and real parent navigation', () => {
+  const ui=harness(),value=historySnapshot();assert.ok(ui.acceptSnapshot(value));
+  const map=ui.ids.get('relationship-map'),before=JSON.stringify(value.topology);
+  const control=map.querySelector('.history-range');assert.ok(control,'long history is folded by default');
+  assert.ok(control.textContent.includes('10 commits'));assert.ok(control.textContent.includes('01010101'));assert.ok(control.textContent.includes('0c0c0c0c'));
+  assert.equal(map.querySelectorAll('.route-station').length,2);
+  control.listeners.click();assert.equal(map.querySelectorAll('.route-station').length,12);
+  const viewport=ui.explorationState().viewportPosition;
+  assert.ok(ui.acceptSnapshot({...value,observation_revision:10}));
+  assert.equal(map.querySelector('.history-range').getAttribute('aria-expanded'),'true');
+  assert.deepEqual(ui.explorationState().viewportPosition,viewport);
+  map.querySelector('.history-range').listeners.click();assert.equal(map.querySelectorAll('.route-station').length,2);
+  map.querySelectorAll('.route-station').find(n=>n.dataset.commitOid===value.lanes[0].head).listeners.click();
+  const parent=ui.ids.get('selection-details').querySelector('.edge-navigation');
+  assert.equal(parent.dataset.endpointOid,value.topology.commits[10].oid,'parent is the actual adjacent commit, not the folded range start');
+  parent.listeners.click();
+  assert.ok(map.querySelectorAll('.route-station').some(n=>n.dataset.commitOid===value.topology.commits[10].oid),'locating a hidden commit reveals its range');
+  assert.equal(JSON.stringify(value.topology),before);
+});
+test('expanded history survives a new HEAD and keeps keyboard focus', () => {
+  const ui=harness(),value=historySnapshot();ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map');map.querySelector('.history-range').listeners.click();
+  const next=structuredClone(value),parent=next.lanes[0].head,oid='0d'.repeat(20);
+  next.topology.commits.push({oid,parents:[parent],subject:'New commit',authored_at:null});
+  next.topology.edges.push({id:parent+':'+oid,from_oid:parent,to_oid:oid});
+  next.lanes[0].head=oid;next.workspace_facts[0].head_oid=oid;next.topology.refs[0].oid=oid;next.observation_revision++;
+  assert.ok(ui.acceptSnapshot(next));assert.equal(map.querySelectorAll('.route-station').length,13);
+  assert.equal(ui.document.activeElement,map.querySelector('.history-range'));
+  map.querySelector('.history-range').listeners.click();assert.equal(map.querySelectorAll('.route-station').length,2);
+});
+
 test('inline refresh preserves scroll but switching resets it and missing task focus returns to summary', () => {
   const ui=harness(), value=snapshot();ui.acceptSnapshot(value);
   const map=ui.ids.get('relationship-map');

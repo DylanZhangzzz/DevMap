@@ -810,7 +810,27 @@
   // Commit geometry consumes identity only. An inline summary reserves space
   // in the label column; it can move labels/stems but never historical rails.
   function layoutRouteMap(graph, attachments, options = {}) {
-    const base = layoutTopology(graph, attachments.map(a => ({...a,width:64,height:32})), options);
+    let base = layoutTopology(graph, attachments.map(a => ({...a,width:64,height:32})), options);
+    const sourceEdges=base.edges, historyRanges=[];
+    if(options.foldHistory) {
+      const incoming=new Map(base.nodes.map(n=>[n.id,[]])),outgoing=new Map(base.nodes.map(n=>[n.id,[]]));
+      for(const e of base.edges){incoming.get(e.to_oid).push(e);outgoing.get(e.from_oid).push(e);}
+      const keep=new Set([...base.attachments.map(a=>a.head_oid),...base.refs.map(r=>r.oid),...(options.historyKeepOids||[])]);
+      const byId=new Map(base.nodes.map(n=>[n.id,n]));
+      for(const n of base.nodes)if(n.kind==='boundary'||n.boundary_ids.length||incoming.get(n.id).length!==1||outgoing.get(n.id).length!==1||[...incoming.get(n.id),...outgoing.get(n.id)].some(e=>byId.get(e.from_oid).lane_id!==byId.get(e.to_oid).lane_id))keep.add(n.id);
+      const hidden=new Set(),omitted=new Set(),replacements=[];
+      const expandedCommits=new Set(options.expandedHistoryCommits||[]);
+      for(const start of base.nodes.filter(n=>keep.has(n.id)))for(const first of outgoing.get(start.id)) {
+        const members=[],chain=[first];let end=first.to_oid;
+        while(!keep.has(end)){members.push(end);const next=outgoing.get(end)[0];chain.push(next);end=next.to_oid;}
+        if(members.length<4)continue;
+        const id='history-range:'+start.id+':'+end;
+        const expanded=(options.expandedHistory||[]).includes(id)||members.some(oid=>expandedCommits.has(oid))||members.includes(options.revealCommit);
+        historyRanges.push({id,from_oid:start.id,to_oid:end,commit_ids:members,edge_ids:chain.map(e=>e.id),expanded});
+        if(!expanded){members.forEach(id=>hidden.add(id));chain.forEach(e=>omitted.add(e.id));replacements.push({...first,id,kind:'history-summary',to_oid:end,historyRange:id,navigation:{from:first.navigation.from,to:chain.at(-1).navigation.to}});}
+      }
+      base={...base,nodes:base.nodes.filter(n=>!hidden.has(n.id)),edges:[...base.edges.filter(e=>!omitted.has(e.id)),...replacements]};
+    }
     const vertical = options.vertical !== false;
     const textScale=Number.isFinite(options.textScale)?Math.max(1,Math.min(4,options.textScale)):1;
     const platformHeight=76*textScale,gap=16*textScale;
@@ -820,7 +840,7 @@
     const point = (time,track) => vertical?{x:32+track*pitch,y:time}:{x:time,y:32+track*pitch};
     const heads=new Set(base.attachments.map(a=>a.head_oid)),times=new Map();let cursor=32,previous=null;
     for(const node of [...base.nodes].sort((a,b)=>a.rank-b.rank||a.id.localeCompare(b.id))) {
-      if(previous)cursor+=(heads.has(previous.id)||heads.has(node.id)?96:48)*textScale;
+      if(previous)cursor+=(historyRanges.some(r=>r.from_oid===previous.id)?(heads.has(previous.id)?240:192):heads.has(previous.id)||heads.has(node.id)?96:48)*textScale;
       times.set(node.id,cursor);previous=node;
     }
     const laneTracks=new Map(base.lanes.map((lane,i)=>[lane.id,i]));
@@ -873,9 +893,17 @@
       for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [{x:node.x,y:node.y},{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
     }
     const refs=base.refs.map(r=>({...r,...nodes.find(n=>n.id===r.oid),id:r.id,oid:r.oid,width:24,height:24,stem:null}));
+    for(const range of historyRanges) {
+      const from=nodeMap.get(range.from_oid),x=vertical?breadth+32:from.x+64*textScale;
+      let y=vertical?from.y+32*textScale:breadth+40;
+      const height=88*textScale;
+      for(const p of placed)if(x<p.x+p.width+8&&x+labelWidth+8>p.x&&y<p.y+p.height+gap&&y+height+gap>p.y)y=p.y+p.height+gap;
+      Object.assign(range,{x,y,width:labelWidth,height,marker:vertical?{x:from.x,y:from.y+96*textScale}:{x:from.x+96*textScale,y:from.y}});
+      placed.push({x,y,width:labelWidth,height});
+    }
     const width=Math.max(vertical?options.width||400:length+24,vertical?breadth+24:0,...placed.map(r=>r.x+r.width+8));
     const height=Math.max(vertical ? length+64 : breadth+64,...placed.map(r=>r.y+r.height+24));
-    return {...base,nodes,edges,crossings,refs,attachments:output,boundaries:[],obstacles:placed,width,height,orientation:vertical?'vertical':'horizontal'};
+    return {...base,nodes,edges,crossings,refs,attachments:output,boundaries:[],obstacles:placed,width,height,historyRanges,sourceEdges,orientation:vertical?'vertical':'horizontal'};
   }
 
   // Sweep segment bounds, then intersect actual segments (including diagonals).
