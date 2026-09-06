@@ -30,10 +30,10 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
     let servers = mcp["mcpServers"].as_object().unwrap();
     assert_eq!(servers.len(), 1);
     let server = &servers["devmap"];
-    assert_eq!(server["command"], "devmap");
-    assert_eq!(server["args"], json!(["mcp"]));
+    assert_eq!(server["command"], "npx");
+    assert_eq!(server["args"], json!(["--yes", "devmap-cli@0.1.0", "mcp"]));
     assert_eq!(server["enabled"], true);
-    assert_eq!(server["startup_timeout_sec"], 10);
+    assert_eq!(server["startup_timeout_sec"], 60);
     assert_eq!(server["tool_timeout_sec"], 10);
     assert_eq!(server["default_tools_approval_mode"], "writes");
     assert_eq!(server["tools"].as_object().unwrap().len(), 2);
@@ -45,27 +45,23 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
 }
 
 #[test]
-fn configured_command_launches_dock_over_stdio_without_browser_server() {
+fn native_mcp_command_serves_plugin_tools_over_stdio() {
     let repo = support::committed_repo();
     let mcp = read_json(format!("{PLUGIN_ROOT}/.mcp.json"));
     let server = &mcp["mcpServers"]["devmap"];
     let binary = Path::new(env!("CARGO_BIN_EXE_devmap"));
-    let binary_dir = binary.parent().unwrap();
-    let mut paths = vec![binary_dir.to_path_buf()];
-    paths.extend(std::env::split_paths(
-        &std::env::var_os("PATH").unwrap_or_default(),
-    ));
-    let path = std::env::join_paths(paths).unwrap();
-    let mut child = Command::new(server["command"].as_str().unwrap())
+    // Keep this native protocol test offline. packaging/smoke.cjs verifies
+    // the npm launcher; the manifest test above verifies its pinned arguments.
+    let mut child = Command::new(binary)
         .args(
             server["args"]
                 .as_array()
                 .unwrap()
                 .iter()
+                .skip(2)
                 .map(|arg| arg.as_str().unwrap()),
         )
         .current_dir(repo.path())
-        .env("PATH", path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -123,6 +119,10 @@ fn bundled_skill_has_a_narrow_honest_trigger() {
     assert!(skill.contains("devmap_read_map"));
     assert!(skill.contains("devmap_set_route_plan"));
     assert!(skill.contains("surface: browser"));
+    assert!(skill.contains("use the right-side Browser by default"));
+    assert!(skill.contains("placement: right"));
+    assert!(skill.contains("explicitly requests an embedded"));
+    assert!(!skill.contains("without specifying its placement. The result is a read-only MCP App"));
     assert!(skill.contains("list_threads"));
     assert!(skill.contains("codex_tasks"));
     assert!(skill.contains("`active`, `idle`, `waiting`, `completed`, or `notLoaded`"));
