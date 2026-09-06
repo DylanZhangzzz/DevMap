@@ -13,7 +13,7 @@
 
 DevMap is a local Git worktree map for people working with AI Agents. It brings actual commit history, worktree state, associated tasks and recorded delivery plans into one view. Open a workspace summary to understand the work, then open full details when you need the complete task list or Git facts.
 
-This README describes the current `main` implementation. The Rust package is **0.1.0** and remains experimental. The repository also includes a separate context and evidence capture foundation; you can use the map without setting that up.
+This README describes the current `main` implementation. The Rust package is **0.1.1** and remains experimental. The repository also includes a separate context and evidence capture foundation; you can use the map without setting that up.
 
 ## What you can do today
 
@@ -61,7 +61,7 @@ For Codex, give your Agent the [installation guide](docs/agent-install.md): **â€
 Install **Node.js 22+ (with npm)** and **Git**, then run this inside the repository you want to inspect. No Rust, compilation or npm account is needed:
 
 ```sh
-npx --yes devmap-cli@0.1.0 view --live --source .
+npx --yes devmap-cli@0.1.1 view --live --source .
 ```
 
 Open the private local URL printed by the command and keep the process running. The package includes Windows x64, macOS Intel/Apple Silicon and Linux glibc 2.35+ x64/ARM64 binaries. The package is available from npm. A pinned GitHub Release download remains available in the installation guide.
@@ -69,7 +69,7 @@ Open the private local URL printed by the command and keep the process running. 
 For terminal output, replace `view --live --source .` with `agents --source . --json`. To install a persistent `devmap` command for the existing plugin:
 
 ```sh
-npm install --global devmap-cli@0.1.0
+npm install --global devmap-cli@0.1.1
 ```
 
 For a direct MCP connection, replace the repository path below. On Windows, use a path such as `C:/Projects/my-repo`:
@@ -79,13 +79,13 @@ For a direct MCP connection, replace the repository path below. On Windows, use 
   "mcpServers": {
     "devmap": {
       "command": "npx",
-      "args": ["--yes", "devmap-cli@0.1.0", "mcp", "--source", "/absolute/path/to/repository"]
+      "args": ["--yes", "devmap-cli@0.1.1", "mcp", "--source", "/absolute/path/to/repository"]
     }
   }
 }
 ```
 
-The map can show Git without a Skill. Agent observations and task navigation require host integration. See [installation details and native downloads](docs/installation.md), [release v0.1.0](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0), and [automated release setup](docs/releasing.md).
+The map can show Git without a Skill. Agent observations and task navigation require host integration. See [installation details and native downloads](docs/installation.md), [release v0.1.1](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.1), and [automated release setup](docs/releasing.md).
 
 ### Build from source
 
@@ -117,7 +117,7 @@ devmap agents --source . --json
 The [public plugin](plugins/devmap/.codex-plugin/plugin.json) bundles the Skill and MCP configuration. It starts the pinned npm package through npx, so no global executable installation is required. Agents should follow the [complete installation and verification guide](docs/agent-install.md).
 
 ```sh
-npx --yes devmap-cli@0.1.0 --version
+npx --yes devmap-cli@0.1.1 --version
 codex plugin marketplace add DylanZhangzzz/DevMap --ref main
 codex plugin add devmap@devmap-marketplace
 ```

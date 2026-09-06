@@ -17,7 +17,7 @@ These steps configure the current user's Codex installation. npm alone installs 
 3. Cache and verify the published executable:
 
    ```sh
-   npx --yes devmap-cli@0.1.0 --version
+   npx --yes devmap-cli@0.1.1 --version
    ```
 
 4. Register the public repository marketplace and install the plugin:
@@ -28,12 +28,12 @@ These steps configure the current user's Codex installation. npm alone installs 
    codex plugin list --json
    ```
 
-   If this marketplace is already registered, refresh it with `codex plugin marketplace upgrade devmap-marketplace` before installing. The plugin includes `live-worktree-dock` and starts `npx --yes devmap-cli@0.1.0 mcp`. Do not add a second standalone MCP entry. Node/npm must also be on the desktop host's PATH; restart the host after installing Node if necessary.
+   If this marketplace is already registered, refresh it with `codex plugin marketplace upgrade devmap-marketplace` before installing. The plugin includes `live-worktree-dock` and starts `npx --yes devmap-cli@0.1.1 mcp`. Do not add a second standalone MCP entry. Node/npm must also be on the desktop host's PATH; restart the host after installing Node if necessary.
 
 5. Confirm the plugin is installed and enabled with no reported load errors. Confirm its installed manifest includes `skills` and `mcpServers`, and that the referenced files exist. `codex mcp list` alone is not proof that plugin-provided tools loaded. In the user's intended Git repository, run:
 
    ```sh
-   npx --yes devmap-cli@0.1.0 agents --source . --json
+   npx --yes devmap-cli@0.1.1 agents --source . --json
    ```
 
 6. Report installation separately from runtime readiness. Start a new Codex task in the intended repository to load the new Skill/tools; restart the app if they are still absent. In that task ask **“Open DevMap in the right sidebar” / “在右侧栏打开 DevMap”**. Follow the bundled Skill, check that `devmap_open_map` is callable, and verify the map opens. Complete task inventory/navigation depends on the host exposing its task tools. Do not invent Agent observations or claim a map rendered just because installation succeeded.

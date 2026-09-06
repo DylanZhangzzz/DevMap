@@ -31,7 +31,7 @@ fn plugin_manifest_and_stdio_policy_are_minimal_and_portable() {
     assert_eq!(servers.len(), 1);
     let server = &servers["devmap"];
     assert_eq!(server["command"], "npx");
-    assert_eq!(server["args"], json!(["--yes", "devmap-cli@0.1.0", "mcp"]));
+    assert_eq!(server["args"], json!(["--yes", "devmap-cli@0.1.1", "mcp"]));
     assert_eq!(server["enabled"], true);
     assert_eq!(server["startup_timeout_sec"], 60);
     assert_eq!(server["tool_timeout_sec"], 10);

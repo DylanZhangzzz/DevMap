@@ -11,7 +11,7 @@
 
 DevMap 是面向人和 AI Agent 的本地 Git Worktree 地图。它把真实提交历史、工作区状态、关联任务和已记录的交付计划放到同一个视图中。先打开工作区摘要了解进展，需要完整任务列表或 Git 事实时，再打开详细信息。
 
-本文描述当前 `main` 的实际实现。Rust 包版本为 **0.1.0**，仍处于实验阶段。仓库也包含独立的上下文与证据记录基础；使用地图不需要先配置这套记录系统。
+本文描述当前 `main` 的实际实现。Rust 包版本为 **0.1.1**，仍处于实验阶段。仓库也包含独立的上下文与证据记录基础；使用地图不需要先配置这套记录系统。
 
 ## 当前可以做什么
 
@@ -59,7 +59,7 @@ Git 刷新不会刷新任务观察时间。缺失、过期或不完整的清单�
 先安装 **Node.js 22+（包含 npm）** 和 **Git**，然后在想查看的仓库目录运行下面这一条命令。**不需要 Rust、不需要编译，也不需要 npm 账号：**
 
 ```sh
-npx --yes devmap-cli@0.1.0 view --live --source .
+npx --yes devmap-cli@0.1.1 view --live --source .
 ```
 
 打开命令打印的本地私密 URL，并保持进程运行。包内包含 Windows x64、macOS Intel/Apple Silicon、Linux glibc 2.35+ x64/ARM64 程序。这条命令从 npm 安装已发布的固定版本。安装说明也保留 GitHub Release 下载方式。
@@ -67,7 +67,7 @@ npx --yes devmap-cli@0.1.0 view --live --source .
 只想查看终端输出时，把最后的 `view --live --source .` 换成 `agents --source . --json`。若要为现有插件安装持久的 `devmap` 命令：
 
 ```sh
-npm install --global devmap-cli@0.1.0
+npm install --global devmap-cli@0.1.1
 ```
 
 直接连接 MCP 的配置如下，将仓库路径替换为自己的实际路径；Windows 可使用 `C:/Projects/my-repo`：
@@ -77,13 +77,13 @@ npm install --global devmap-cli@0.1.0
   "mcpServers": {
     "devmap": {
       "command": "npx",
-      "args": ["--yes", "devmap-cli@0.1.0", "mcp", "--source", "/absolute/path/to/repository"]
+      "args": ["--yes", "devmap-cli@0.1.1", "mcp", "--source", "/absolute/path/to/repository"]
     }
   }
 }
 ```
 
-查看 Git 地图不需要 Skill；完整 Agent 任务观察与跳转仍需要宿主接入。更多说明见[安装与原生程序下载](docs/installation.md)、[v0.1.0 发布页](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0)和[自动发布说明](docs/releasing.md)。
+查看 Git 地图不需要 Skill；完整 Agent 任务观察与跳转仍需要宿主接入。更多说明见[安装与原生程序下载](docs/installation.md)、[v0.1.1 发布页](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.1)和[自动发布说明](docs/releasing.md)。
 
 ### 从源码构建
 
@@ -115,7 +115,7 @@ devmap agents --source . --json
 [公共插件](plugins/devmap/.codex-plugin/plugin.json)包含 Skill 和 MCP 配置，通过 npx 启动固定版本的 npm 包，无需全局安装可执行程序。请让 Agent 按[完整安装和验证指南](docs/agent-install.md)执行。
 
 ```sh
-npx --yes devmap-cli@0.1.0 --version
+npx --yes devmap-cli@0.1.1 --version
 codex plugin marketplace add DylanZhangzzz/DevMap --ref main
 codex plugin add devmap@devmap-marketplace
 ```

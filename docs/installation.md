@@ -4,7 +4,7 @@ DevMap can run from a prebuilt npm tarball or a native archive. Building from so
 
 ## Release availability
 
-Use the prebuilt package from [release v0.1.0](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0). Its stable filename is `devmap-0.1.0.tgz`, independent of the eventual npm account or scope. GitHub installation does not require npm registry publication or an npm account. The registry package is `devmap-cli`; the examples pin version 0.1.0.
+Use the prebuilt package from [release v0.1.1](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.1). Its stable filename is `devmap-0.1.1.tgz`, independent of the eventual npm account or scope. GitHub installation does not require npm registry publication or an npm account. The registry package is `devmap-cli`; the examples pin version 0.1.1.
 
 ## Agent installation for Codex
 
@@ -17,13 +17,13 @@ Requirements: Git on PATH, Node.js 22+ with npm. Rust is not needed.
 Run this from the Git repository to inspect:
 
 ```sh
-npx --yes devmap-cli@0.1.0 view --live --source .
+npx --yes devmap-cli@0.1.1 view --live --source .
 ```
 
 Open the private loopback URL it prints. Keep the terminal running. To read Git facts:
 
 ```sh
-npx --yes devmap-cli@0.1.0 agents --source . --json
+npx --yes devmap-cli@0.1.1 agents --source . --json
 ```
 
 The npm package contains all five native executables. The launcher selects the current OS/CPU. There are no npm lifecycle/install scripts, no runtime executable downloads and no Rust compilation. This first release favors one atomic package over multiple platform packages; npm downloads all included platforms.
@@ -33,18 +33,18 @@ The npm package contains all five native executables. The launcher selects the c
 The same fixed-version package can be installed directly from GitHub without using the npm registry:
 
 ```sh
-npx --yes https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz view --live --source .
+npx --yes https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.1/devmap-0.1.1.tgz view --live --source .
 ```
 
 ### Install a downloaded package
 
-You can also download `devmap-0.1.0.tgz` from GitHub and use its absolute local path, especially when your repository and download directory differ:
+You can also download `devmap-0.1.1.tgz` from GitHub and use its absolute local path, especially when your repository and download directory differ:
 
 ```sh
-npm exec --yes --package="/absolute/path/to/devmap-0.1.0.tgz" -- devmap view --live --source .
+npm exec --yes --package="/absolute/path/to/devmap-0.1.1.tgz" -- devmap view --live --source .
 ```
 
-On Windows a quoted path such as `C:/Downloads/devmap-0.1.0.tgz` works. Do not substitute a native `.tar.gz` archive here.
+On Windows a quoted path such as `C:/Downloads/devmap-0.1.1.tgz` works. Do not substitute a native `.tar.gz` archive here.
 
 ### MCP configuration
 
@@ -57,15 +57,15 @@ Run the Quick start command with `--version` instead of `view --live --source .`
   "mcpServers": {
     "devmap": {
       "command": "npx",
-      "args": ["--yes", "devmap-cli@0.1.0", "mcp", "--source", "/absolute/path/to/repository"]
+      "args": ["--yes", "devmap-cli@0.1.1", "mcp", "--source", "/absolute/path/to/repository"]
     }
   }
 }
 ```
 
-Use your host's supported npx command resolution on Windows. A host that cannot launch `npx.cmd` can use `node` as the command and the absolute path to npm's `npm-cli.js` followed by `exec --yes --package=devmap-cli@0.1.0 -- devmap mcp --source ...` as individual arguments. The launcher itself never invokes a shell.
+Use your host's supported npx command resolution on Windows. A host that cannot launch `npx.cmd` can use `node` as the command and the absolute path to npm's `npm-cli.js` followed by `exec --yes --package=devmap-cli@0.1.1 -- devmap mcp --source ...` as individual arguments. The launcher itself never invokes a shell.
 
-An MCP entry runs the tools; it does not install a Skill. For Codex use the [plugin installation guide](agent-install.md), which installs both. The public plugin starts `npx --yes devmap-cli@0.1.0 mcp` and does not require a globally installed `devmap` command.
+An MCP entry runs the tools; it does not install a Skill. For Codex use the [plugin installation guide](agent-install.md), which installs both. The public plugin starts `npx --yes devmap-cli@0.1.1 mcp` and does not require a globally installed `devmap` command.
 
 A standalone map shows Git worktrees. Complete Agent task observations and task navigation require host integration; npx alone does not provide that data.
 
