@@ -1,0 +1,32 @@
+# English README hero
+
+Created with the built-in image_gen tool. This is a product illustration based on the current renderer, not a literal screenshot. The README separately links unedited browser captures using the committed development-overview fixture.
+
+## Initial prompt
+
+Use case: ads-marketing / product explainer.
+Create one polished English GitHub README hero image for DevMap, landscape 3:2, high resolution. Input image 1 is a structural reference: real current DevMap UI rendered with demonstration data. Input image 2 supports the worktree task detail. These are references, not screenshots that must remain pixel-identical. Produce an editorial product illustration faithful to the actual capabilities, not a claim of pixel-perfect UI.
+Goal: in five seconds a developer understands DevMap connects real Git history, parallel worktrees with AI tasks, and planned delivery to a branch.
+Composition: bright warm ivory canvas, exceptionally crisp dark navy typography, generous but purposeful margins. Upper left small wordmark "DevMap", then large headline exactly "Your repo. Your agents. One map." on two balanced lines. A restrained subtitle exactly "Git history, worktree tasks, and planned delivery."
+Main central visual: a refined front-facing application panel with thin border and subtle shadow, no perspective distortion, no laptop or device frame. Reinterpret the reference at larger legible scale, retaining the metro-map language: charcoal main rail with circular commit stations, a magenta feature/auth branch and a blue feature/ui branch. Show a legitimate fork off main. Keep solid Git history and a clearly separate blue dashed future route, ending at a hollow circle labeled "Planned → main"; the dashed destination must NOT look like a completed merge. Include a small broken three-dot segment on the main rail labeled "27 commits" to illustrate collapsed history. Label main "main". No tangled crossings or decorative spaghetti.
+A selected pale blue worktree panel connected to its actual branch node is labeled "feature/auth"; text "2 tasks · 3 uncommitted"; two readable task rows "Develop authentication" and "Review authentication", statuses "Developing" and "Waiting". Add a smaller secondary branch label "feature/ui". Do not add merge/approve/run controls or claim automatic execution. A modest app panel header reads "Repository topology", with small simple controls "Workspaces" and "Full map"; most emphasis remains on the diagram and task panel, not toolbar.
+Below the application visual, three concise explanatory captions, evenly spaced, each with a tiny matching line symbol: "Real Git history" / "Tasks in each worktree" / "Planned delivery". No paragraphs, fake statistics, testimonials, unrelated icons, robots, gradients, neon glow, 3D objects, or decorative stickers. Use the actual UI's restrained charcoal, royal blue and magenta accent vocabulary. High typographic craft and clean alignment. All visible text in English, preserve exact spelling. This is a marketing illustration based on current functionality.
+
+## Connectivity correction
+
+Edit this existing DevMap README hero, preserving its typography, headline, colors, layout, task card and all other content exactly. Correct ONLY the topology line connectivity:
+1. The magenta feature/auth and blue feature/ui branches currently float disconnected below the main station labeled e1706b3. Extend both colored branch departure lines so they visibly originate exactly at that same main-rail commit circle (around x350,y444 in the 1536x1024 image). Each must be a continuous solid path from that circle down to its own existing colored branch rail. No disconnected gap. The main rail remains straight.
+2. The dashed future route currently looks like an extension of main. Remove the solid charcoal stretch to the right of the last actual main commit circle at x930,y444. Keep the main label. Instead connect the existing magenta branch HEAD circle at about x835,y546 to the planned destination using a blue dashed route: go right from the branch HEAD at y546 to about x1098, turn upward at x1098 to the existing blue hollow milestone at y444, then continue right along the existing blue dashed route to "Planned → main". Keep all future circles hollow. The future route must visibly originate at the feature/auth HEAD and remain distinct from solid main; never depict a completed future merge.
+Keep all text unchanged, with no new labels. The result remains a polished English illustrative product overview, not a literal screenshot.
+
+## Final topology correction
+
+Correct the topology region of this image. Two colored branch lines still FLOAT BELOW their parent, and future intent is incorrectly attached to the main rail. These are factual errors. Redraw the small rail diagram, preserving the headline, whole card, footer, fonts and overall art direction.
+Use these exact connectivity constraints in the 1536x1024 canvas:
+- Move the text "e1706b3" from BELOW its main circle to ABOVE that circle (roughly y410), to make room for actual branch connections.
+- Both solid colored rails MUST TOUCH the main circle centered at (350,444). Start the magenta line at (350,444), draw continuously diagonally down-right to (410,556), then horizontally through the existing magenta circles to (834,556).
+- Start the blue line at the SAME main circle (350,444), draw continuously diagonally down-right to (410,653), then horizontally through the blue circles to (670,653). No blank gaps anywhere between the parent circle and colored tracks. No text placed over these connecting lines.
+- Main solid charcoal rail ENDS at the existing real commit circle (930,444). ERASE all solid charcoal line to its right, including the segment from (947,444) to (1100,444). Position the word "main" near the (930,444) endpoint.
+- ERASE the blue hollow circle at (1098,444) and the blue dashed segment from x1098 to x1256.
+- The ONLY future path is this continuous blue dashed polyline: from magenta head (834,556) horizontally to (1256,556), vertically upward to (1256,444), then horizontally right to the final hollow destination (1414,444). Keep "Planned → main". This future path never touches the solid main line.
+Keep the three-dot collapse and "27 commits", selected feature/auth task card, footer explanatory captions and everything else. Do not preserve incorrect disconnected rail artwork. Precision matters more than matching those incorrect pixels.

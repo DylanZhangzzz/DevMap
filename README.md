@@ -1,6 +1,8 @@
 # DevMap
 
-**See where work is happening, how commits connect, and where each worktree is intended to go.**
+![DevMap — Your repo. Your agents. One map. Solid Git history connects parallel worktrees and their tasks; a dashed route shows planned delivery to main.](docs/assets/devmap-readme-hero-en.png)
+
+*Illustrated overview of current capabilities. See the actual interface with demo data: [repository map](docs/assets/devmap-ui-reference.jpg) · [workspace tasks](docs/assets/devmap-ui-detail-reference.jpg).*
 
 [简体中文](README.zh-CN.md) · [Quick start](#quick-start) · [Map interactions](#using-the-map) · [Agent interfaces](#agent-interfaces) · [Development](#development)
 
