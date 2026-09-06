@@ -1,6 +1,242 @@
 mod support;
 
 #[test]
+fn workspace_identity_never_uses_directory_name_as_branch_or_invents_creation() {
+    let repo = support::committed_repo();
+    let parent = tempfile::tempdir().unwrap();
+    let path = parent.path().join("devmap-main");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "codex/identity",
+            path.to_str().unwrap(),
+        ],
+    );
+    let mut service = devmap::dock::DockService::open(&path).unwrap();
+    let model =
+        serde_json::to_value(service.refresh(time::OffsetDateTime::now_utc()).unwrap()).unwrap();
+    let facts = model["workspace_facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["worktree_id"] == model["current_worktree_id"])
+        .unwrap();
+    assert_eq!(facts["facts_schema_version"], "devmap/workspace-facts/1");
+    assert_eq!(facts["identity"]["branch_ref"], "refs/heads/codex/identity");
+    assert_eq!(facts["identity"]["is_current_workspace"], true);
+    assert!(
+        facts["identity"]["workspace_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("devmap-main")
+    );
+    assert_eq!(facts["origin"]["recorded_creation"]["kind"], "unknown");
+    assert_eq!(
+        facts["origin"]["recorded_creation"]["oid"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        facts["origin"]["common_ancestor"]["kind"],
+        "common_ancestor"
+    );
+    assert_eq!(facts["integration"], "included");
+    assert_eq!(facts["working_state"], "clean");
+    assert_eq!(facts["passengers"]["state"], "unknown");
+}
+
+#[test]
+fn task_binding_observations_survive_restart_without_inventing_event_times() {
+    let repo = support::committed_repo();
+    let destination = support::linked_worktree(repo.path(), "codex/migration");
+    let now = time::OffsetDateTime::now_utc();
+    let mut service = devmap::dock::DockService::open(repo.path()).unwrap();
+    service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Move")], now)
+        .unwrap();
+    let moved = serde_json::to_value(
+        service
+            .replace_observed_tasks(
+                vec![observed_task(destination.path(), "Move")],
+                now + time::Duration::seconds(1),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    let facts = moved["workspace_facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["identity"]["branch_ref"] == "refs/heads/codex/migration")
+        .unwrap();
+    let bindings = facts["bindings"]
+        .as_array()
+        .expect("durable observation history");
+    let migration = bindings
+        .iter()
+        .find(|b| b["kind"] == "task_migration_observed")
+        .expect("observed migration");
+    assert_ne!(migration["from_worktree_id"], migration["worktree_id"]);
+    assert_eq!(migration["source"], "host_task_inventory");
+    assert_eq!(migration["event_at"], serde_json::Value::Null);
+    assert!(migration["observed_at"].is_string());
+    let mut reopened = devmap::dock::DockService::open(repo.path()).unwrap();
+    let snapshot =
+        serde_json::to_value(reopened.refresh(now + time::Duration::seconds(2)).unwrap()).unwrap();
+    let persisted = snapshot["workspace_facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["worktree_id"] == facts["worktree_id"])
+        .unwrap();
+    assert_eq!(persisted["bindings"], facts["bindings"]);
+    assert_eq!(persisted["origin"]["recorded_creation"]["kind"], "unknown");
+}
+
+#[test]
+fn unchanged_task_observation_watermark_survives_restart_and_rejects_delayed_migration() {
+    let repo = support::committed_repo();
+    let destination = support::linked_worktree(repo.path(), "codex/delayed-location");
+    let now = time::OffsetDateTime::now_utc();
+    let mut service = DockService::open(repo.path()).unwrap();
+    service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Owner")], now)
+        .unwrap();
+    service
+        .replace_observed_tasks(
+            vec![observed_task(repo.path(), "Owner")],
+            now + time::Duration::seconds(10),
+        )
+        .unwrap();
+    let journal = repo.path().join(".git/devmap/task-bindings.jsonl");
+    let before = std::fs::read(&journal).unwrap();
+    assert_eq!(
+        String::from_utf8(before.clone()).unwrap().lines().count(),
+        1
+    );
+    drop(service);
+    let mut reopened = DockService::open(repo.path()).unwrap();
+    reopened
+        .replace_observed_tasks(
+            vec![observed_task(destination.path(), "Delayed")],
+            now + time::Duration::seconds(5),
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&journal).unwrap(),
+        before,
+        "t5 must not override the unchanged observation at t10"
+    );
+    reopened
+        .replace_observed_tasks(
+            vec![observed_task(destination.path(), "Actual move")],
+            now + time::Duration::seconds(11),
+        )
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(journal).unwrap().lines().count(), 2);
+}
+
+#[test]
+fn pending_watermark_update_prevents_stale_history_after_restart() {
+    let repo = support::committed_repo();
+    let destination = support::linked_worktree(repo.path(), "codex/pending-location");
+    let now = time::OffsetDateTime::now_utc();
+    let mut service = DockService::open(repo.path()).unwrap();
+    service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Owner")], now)
+        .unwrap();
+    let journal = repo.path().join(".git/devmap/task-bindings.jsonl");
+    let before = std::fs::read(&journal).unwrap();
+    std::fs::write(
+        repo.path()
+            .join(".git/devmap/task-binding-watermarks.pending"),
+        "interrupted newer observation",
+    )
+    .unwrap();
+    drop(service);
+    let mut reopened = DockService::open(repo.path()).unwrap();
+    let model = reopened
+        .replace_observed_tasks(
+            vec![observed_task(destination.path(), "Delayed")],
+            now + time::Duration::seconds(5),
+        )
+        .unwrap();
+    assert!(
+        model
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "task_binding_history_unavailable")
+    );
+    assert!(
+        model
+            .workspace_facts
+            .iter()
+            .all(|facts| !facts.bindings_complete)
+    );
+    assert_eq!(std::fs::read(&journal).unwrap(), before);
+}
+
+#[test]
+fn stale_viewer_inventory_cannot_reverse_a_newer_recorded_task_migration() {
+    let repo = support::committed_repo();
+    let destination = support::linked_worktree(repo.path(), "codex/new-location");
+    let now = time::OffsetDateTime::now_utc();
+    let mut stale = DockService::open(repo.path()).unwrap();
+    stale
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Move")], now)
+        .unwrap();
+    let mut fresh = DockService::open(repo.path()).unwrap();
+    fresh
+        .replace_observed_tasks(
+            vec![observed_task(destination.path(), "Move")],
+            now + time::Duration::seconds(1),
+        )
+        .unwrap();
+    let journal = repo.path().join(".git/devmap/task-bindings.jsonl");
+    let before = std::fs::read(&journal).unwrap();
+    stale.refresh(now + time::Duration::seconds(2)).unwrap();
+    fresh
+        .replace_observed_tasks(
+            vec![observed_task(destination.path(), "Renamed")],
+            now + time::Duration::seconds(3),
+        )
+        .unwrap();
+    assert_eq!(std::fs::read(&journal).unwrap(), before);
+    assert_eq!(String::from_utf8(before).unwrap().lines().count(), 2);
+}
+
+#[test]
+fn incomplete_binding_journal_degrades_history_without_hiding_current_git_facts() {
+    let repo = support::committed_repo();
+    let now = time::OffsetDateTime::now_utc();
+    let mut service = DockService::open(repo.path()).unwrap();
+    service
+        .replace_observed_tasks(vec![observed_task(repo.path(), "Owner")], now)
+        .unwrap();
+    let journal = repo.path().join(".git/devmap/task-bindings.jsonl");
+    let mut bytes = std::fs::read(&journal).unwrap();
+    bytes.pop();
+    std::fs::write(&journal, &bytes).unwrap();
+    let model = service.refresh(now + time::Duration::seconds(1)).unwrap();
+    assert!(
+        model
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "task_binding_history_unavailable")
+    );
+    assert!(
+        model
+            .workspace_facts
+            .iter()
+            .all(|facts| !facts.bindings_complete && facts.bindings.is_empty())
+    );
+    assert_eq!(model.workspace_facts[0].working_state, "clean");
+    assert_eq!(std::fs::read(journal).unwrap(), bytes);
+}
+
+#[test]
 fn empty_worktree_inventory_returns_error_without_panicking() {
     let fixture = support::dock_reducer_fixture();
     let result = devmap::dock::DockReducer::new(devmap::dock::NoRoutes).reduce(
@@ -27,6 +263,7 @@ use devmap::worktrees::repository_id;
 
 fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask {
     ObservedTask {
+        working_directory: None,
         subagents: None,
         lifecycle: devmap::dock::TaskLifecycle::Present,
         session_id: "01a00000-0000-7000-8000-000000000001".into(),
@@ -37,6 +274,82 @@ fn observed_task(workspace_path: &std::path::Path, title: &str) -> ObservedTask 
         status: PresenceStatus::Working,
         updated_at: "2026-09-03T10:00:00Z".into(),
     }
+}
+
+#[test]
+fn host_refresh_does_not_freshen_an_old_working_directory_report() {
+    let repo = support::committed_repo();
+    let holder = tempfile::tempdir().unwrap();
+    let worktree = holder.path().join("execution");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "codex/execution",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let mut service = DockService::open(repo.path()).unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let at = now
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    let mut task = observed_task(repo.path(), "Agent at execution worktree");
+    task.working_directory = Some(devmap::dock::WorkingDirectoryObservation {
+        path: worktree.to_string_lossy().into_owned(),
+        observed_at: at.clone(),
+        source: "agent_report".into(),
+    });
+    let fresh = service
+        .replace_observed_tasks(vec![task.clone()], now)
+        .unwrap();
+    assert_eq!(
+        fresh
+            .workspace_facts
+            .iter()
+            .find(|f| f.passengers.observed_count == 1)
+            .unwrap()
+            .passengers
+            .state,
+        "occupied"
+    );
+    let later = now + time::Duration::minutes(3);
+    let stale = service
+        .replace_observed_tasks(vec![task.clone()], later)
+        .unwrap();
+    assert_eq!(
+        stale.task_observation.observed_at.as_deref(),
+        Some(at.as_str())
+    );
+    assert_eq!(
+        stale.task_inventory_synced_at,
+        Some(
+            later
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap()
+        )
+    );
+    assert!(
+        stale
+            .workspace_facts
+            .iter()
+            .all(|f| f.passengers.state == "unknown" && !f.passengers.cleanup_review),
+        "stale placement cannot establish either occupancy or absence at the registered directory"
+    );
+    let retained = service.refresh(later + time::Duration::minutes(1)).unwrap();
+    let chats: Vec<_> = retained.lanes.iter().flat_map(|lane| &lane.chats).collect();
+    assert_eq!(chats.len(), 1);
+    assert_eq!(chats[0].working_directory.as_ref().unwrap().observed_at, at);
+    task.lifecycle = devmap::dock::TaskLifecycle::Archived;
+    let archived = service.replace_observed_tasks(vec![task], later).unwrap();
+    assert!(
+        archived
+            .workspace_facts
+            .iter()
+            .all(|f| f.passengers.observed_count == 0)
+    );
 }
 
 #[test]
@@ -328,6 +641,7 @@ fn verified_inventory_promotes_matching_presence_without_losing_capture_evidence
         .find(|row| row.worktree_id == record.worktree_id)
         .unwrap();
     let task = ObservedTask {
+        working_directory: None,
         subagents: Some(vec![devmap::dock::DockSubagent {
             id: "review".into(),
             display_name: "Review".into(),
@@ -904,6 +1218,7 @@ fn bounded_output_marks_a_partially_retained_task_roster() {
     let mut service = DockService::open(repo.path()).unwrap();
     let tasks = (0..100)
         .map(|index| ObservedTask {
+            working_directory: None,
             subagents: None,
             lifecycle: devmap::dock::TaskLifecycle::Present,
             session_id: format!("01a00000-0000-7000-8000-{index:012}"),

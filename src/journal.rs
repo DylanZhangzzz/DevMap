@@ -23,6 +23,299 @@ const MAX_RECORD_BYTES: usize = MAX_EVENT_BYTES + 16 * 1024;
 const INDEX_VERSION: u8 = 1;
 const BLOOM_WORDS: usize = 4096;
 
+const MAX_BINDING_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_BINDING_RECORDS: usize = 2048;
+
+/// A host-reported association change between observations. This is not proof
+/// of when a task moved, who moved it, or where an agent actually executed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskBindingObservation {
+    pub schema_version: String,
+    pub repository_id: String,
+    pub kind: String,
+    pub host: String,
+    pub task_id: String,
+    pub worktree_id: String,
+    pub from_worktree_id: Option<String>,
+    pub source: String,
+    pub observed_at: String,
+    pub previous_observed_at: Option<String>,
+    pub event_at: Option<String>,
+}
+
+type BindingWatermarkMap = BTreeMap<(String, String), String>;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BindingWatermarks {
+    schema_version: String,
+    repository_id: String,
+    observations: Vec<(String, String, String)>,
+}
+
+fn read_binding_watermarks(
+    journal_path: &Path,
+    repository: &str,
+    records: &[TaskBindingObservation],
+) -> Result<BindingWatermarkMap, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let path = journal_path.with_file_name("task-binding-watermarks.json");
+    let temporary = path.with_extension("pending");
+    // A pending update may contain a newer observation than the published file.
+    // Do not discard it and accept delayed observations after an interruption.
+    if checked_metadata(&temporary)?.is_some() {
+        return Err(corruption(
+            "pending task binding watermark; reconciliation required",
+        ));
+    }
+    let mut watermarks = BindingWatermarkMap::new();
+    if checked_metadata(&path)?.is_some() {
+        let file = checked_file(&path, false, false)?;
+        let mut bytes = Vec::new();
+        file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_BINDING_BYTES {
+            return Err(corruption("task binding watermark limit reached"));
+        }
+        let saved: BindingWatermarks = serde_json::from_slice(&bytes)
+            .map_err(|_| corruption("invalid task binding watermarks"))?;
+        if saved.schema_version != "devmap/task-binding-watermarks/1"
+            || saved.repository_id != repository
+            || saved.observations.len() > MAX_BINDING_RECORDS
+        {
+            return Err(corruption("inconsistent task binding watermarks"));
+        }
+        for (host, task_id, observed_at) in saved.observations {
+            if [&host, &task_id]
+                .iter()
+                .any(|s| s.is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+                || OffsetDateTime::parse(&observed_at, &Rfc3339).is_err()
+                || watermarks.insert((host, task_id), observed_at).is_some()
+            {
+                return Err(corruption("invalid task binding watermark observation"));
+            }
+        }
+    }
+    // Old journals predate watermarks; their recorded event times are a lower
+    // bound, never evidence that no newer unchanged observation occurred.
+    for record in records {
+        let watermark = watermarks
+            .entry((record.host.clone(), record.task_id.clone()))
+            .or_insert_with(|| record.observed_at.clone());
+        if OffsetDateTime::parse(watermark, &Rfc3339).unwrap()
+            < OffsetDateTime::parse(&record.observed_at, &Rfc3339).unwrap()
+        {
+            *watermark = record.observed_at.clone();
+        }
+    }
+    Ok(watermarks)
+}
+
+fn write_binding_watermarks(
+    journal_path: &Path,
+    repository: &str,
+    watermarks: &BindingWatermarkMap,
+) -> Result<(), DevMapError> {
+    let path = journal_path.with_file_name("task-binding-watermarks.json");
+    let temporary = path.with_extension("pending");
+    let bytes = serde_json::to_vec(&BindingWatermarks {
+        schema_version: "devmap/task-binding-watermarks/1".into(),
+        repository_id: repository.into(),
+        observations: watermarks
+            .iter()
+            .map(|((host, task), at)| (host.clone(), task.clone(), at.clone()))
+            .collect(),
+    })?;
+    if bytes.len() as u64 > MAX_BINDING_BYTES || watermarks.len() > MAX_BINDING_RECORDS {
+        return Err(corruption("task binding watermark limit reached"));
+    }
+    // All watermark reads/writes are protected by the stable journal file lock.
+    let mut file = checked_new_file(&temporary)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    drop(file);
+    checked_metadata(&path)?;
+    // Replace in one rename; never delete the old durable watermark first.
+    fs::rename(&temporary, &path)?;
+    sync_directory(path.parent().expect("binding metadata directory"))
+}
+
+fn binding_path(workspace: &SourceWorkspace, create: bool) -> Result<Option<PathBuf>, DevMapError> {
+    let root = crate::fs_security::checked_canonical_directory(&workspace.git_common_dir)?;
+    let directory = if create {
+        ensure_directory_chain(&root, &["devmap"])?
+    } else {
+        let path = root.join("devmap");
+        let Some(metadata) = checked_metadata(&path)? else {
+            return Ok(None);
+        };
+        if !metadata.is_dir() {
+            return Err(corruption("invalid binding directory"));
+        }
+        path
+    };
+    let path = directory.join("task-bindings.jsonl");
+    if !create && checked_metadata(&path)?.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(path))
+}
+
+fn read_binding_records(
+    file: &mut File,
+    repository: &str,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    file.seek(SeekFrom::Start(0))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BINDING_BYTES || (!bytes.is_empty() && bytes.last() != Some(&b'\n'))
+    {
+        return Err(corruption("oversized or incomplete task binding journal"));
+    }
+    let mut records = Vec::new();
+    let mut latest = BTreeMap::<(String, String), TaskBindingObservation>::new();
+    for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+        let record: TaskBindingObservation =
+            serde_json::from_slice(line).map_err(|_| corruption("invalid task binding journal"))?;
+        let key = (record.host.clone(), record.task_id.clone());
+        let previous = latest.get(&key);
+        if record.schema_version != "devmap/task-binding/1"
+            || record.repository_id != repository
+            || record.source != "host_task_inventory"
+            || record.event_at.is_some()
+            || OffsetDateTime::parse(&record.observed_at, &Rfc3339).is_err()
+            || [&record.host, &record.task_id, &record.worktree_id]
+                .iter()
+                .any(|s| s.is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+            || record.from_worktree_id.as_ref() != previous.map(|p| &p.worktree_id)
+            || record.previous_observed_at.as_ref() != previous.map(|p| &p.observed_at)
+            || record.kind
+                != if previous.is_some() {
+                    "task_migration_observed"
+                } else {
+                    "task_association_observed"
+                }
+            || previous.is_some_and(|p| {
+                p.worktree_id == record.worktree_id
+                    || OffsetDateTime::parse(&p.observed_at, &Rfc3339).unwrap()
+                        >= OffsetDateTime::parse(&record.observed_at, &Rfc3339).unwrap()
+            })
+        {
+            return Err(corruption("inconsistent task binding journal"));
+        }
+        latest.insert(key, record.clone());
+        records.push(record);
+        if records.len() > MAX_BINDING_RECORDS {
+            return Err(corruption("task binding record limit reached"));
+        }
+    }
+    Ok(records)
+}
+
+pub(crate) fn read_task_bindings(
+    workspace: &SourceWorkspace,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    let Some(path) = binding_path(workspace, false)? else {
+        return Ok(Vec::new());
+    };
+    let mut file = checked_file(&path, false, false)?;
+    FileExt::lock_shared(&file)?;
+    let repository = crate::worktrees::repository_id(workspace);
+    let records = read_binding_records(&mut file, &repository)?;
+    read_binding_watermarks(&path, &repository, &records)?;
+    Ok(records)
+}
+
+pub(crate) fn observe_task_bindings(
+    workspace: &SourceWorkspace,
+    associations: &[(String, String, String)],
+    observed_at: &str,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    if associations.is_empty() {
+        return read_task_bindings(workspace);
+    }
+    let timestamp = OffsetDateTime::parse(observed_at, &Rfc3339)
+        .map_err(|_| corruption("invalid binding observation time"))?;
+    if associations.len() > MAX_BINDING_RECORDS
+        || associations.iter().any(|(host, task, workspace)| {
+            [host, task, workspace]
+                .iter()
+                .any(|s| s.is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+        })
+    {
+        return Err(corruption("invalid task binding observation"));
+    }
+    let path = binding_path(workspace, true)?.expect("created binding directory");
+    let mut file = checked_file(&path, true, true)?;
+    FileExt::lock_exclusive(&file)?;
+    let repository = crate::worktrees::repository_id(workspace);
+    let mut records = read_binding_records(&mut file, &repository)?;
+    let mut watermarks = read_binding_watermarks(&path, &repository, &records)?;
+    let mut watermark_changed = false;
+    let mut additions = Vec::new();
+    for (host, task_id, worktree_id) in associations {
+        let previous = records
+            .iter()
+            .rev()
+            .find(|r| &r.host == host && &r.task_id == task_id);
+        let key = (host.clone(), task_id.clone());
+        if watermarks
+            .get(&key)
+            .is_some_and(|at| OffsetDateTime::parse(at, &Rfc3339).unwrap() >= timestamp)
+        {
+            continue;
+        }
+        watermarks.insert(key, observed_at.into());
+        watermark_changed = true;
+        if previous.is_some_and(|p| &p.worktree_id == worktree_id) {
+            continue;
+        }
+        let record = TaskBindingObservation {
+            schema_version: "devmap/task-binding/1".into(),
+            repository_id: repository.clone(),
+            kind: if previous.is_some() {
+                "task_migration_observed"
+            } else {
+                "task_association_observed"
+            }
+            .into(),
+            host: host.clone(),
+            task_id: task_id.clone(),
+            worktree_id: worktree_id.clone(),
+            from_worktree_id: previous.map(|p| p.worktree_id.clone()),
+            source: "host_task_inventory".into(),
+            observed_at: observed_at.into(),
+            previous_observed_at: previous.map(|p| p.observed_at.clone()),
+            event_at: None,
+        };
+        additions.extend_from_slice(&serde_json::to_vec(&record)?);
+        additions.push(b'\n');
+        records.push(record);
+    }
+    if records.len() > MAX_BINDING_RECORDS
+        || file
+            .metadata()?
+            .len()
+            .saturating_add(additions.len() as u64)
+            > MAX_BINDING_BYTES
+    {
+        return Err(corruption("task binding journal limit reached"));
+    }
+    // Persist freshness before accepting new history; a failed history append
+    // may lose an event, but must never permit an older observation to replace it.
+    if watermark_changed {
+        write_binding_watermarks(&path, &repository, &watermarks)?;
+    }
+    if !additions.is_empty() {
+        file.seek(SeekFrom::End(0))?;
+        file.write_all(&additions)?;
+        file.sync_all()?;
+    }
+    Ok(records)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalRecord {

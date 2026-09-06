@@ -185,7 +185,7 @@ fn dock_asset_rejects_html_injection_and_keeps_embedded_validation_bounds() {
 fn dock_asset_keeps_accessible_scrolling_and_transport_age_state() {
     let html = dock_html();
     assert!(html.contains("tabindex=\"0\" aria-label=\"Scrollable repository topology\""));
-    assert!(html.contains("Locate current workspace"));
+    assert!(html.contains("Locate map source workspace"));
     assert!(html.contains("prefers-reduced-motion"));
     assert!(html.contains(":focus-visible"));
     assert!(html.contains("visibilitychange"));

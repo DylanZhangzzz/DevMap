@@ -95,6 +95,24 @@ function snapshot() {
 module.exports = { snapshot, chat };
 
 if (require.main === module) {
+test('reported working directory shows the passenger with provenance and a verified task link', () => {
+  const ui = harness({mode:'browser'}), value = snapshot(), parent = value.lanes[0].chats.shift(), lane = value.lanes[1];
+  parent.association_source = 'agent_reported_working_directory';
+  parent.registered_workspace_path = value.lanes[0].workspace_path;
+  parent.working_directory = {path:lane.workspace_path, observed_at:stamp, source:'agent_report'};
+  lane.chats.push(parent);
+  assert.equal(ui.acceptSnapshot(value), true);
+  ui.inspectWorkspace(lane.worktree_id);
+  const task = ui.ids.get('selection-details').querySelector('.task-node');
+  assert.ok(task.textContent.includes(parent.display_title));
+  assert.ok(task.textContent.includes('Agent reported working here'));
+  assert.ok(task.textContent.includes('Chat registered at ' + parent.registered_workspace_path));
+  assert.equal(task.href, 'codex://threads/' + parent.codex_thread_id);
+  const invalid = structuredClone(value);
+  invalid.lanes[1].chats[0].working_directory.observed_at = 'not a timestamp';
+  assert.equal(ui.acceptSnapshot(invalid), false);
+});
+
 test('route map starts with compact platforms and opens passenger details outside its geometry', () => {
   const ui=harness(), value=snapshot(); assert.ok(ui.acceptSnapshot(value));
   const map=ui.ids.get('relationship-map');
@@ -108,6 +126,19 @@ test('route map starts with compact platforms and opens passenger details outsid
   assert.equal(JSON.stringify(map.metroLayout),before);
   assert.equal(map.querySelectorAll('.task-node').length,0);
   assert.equal(details.querySelectorAll('.task-node').length,4);
+});
+
+test('opening a platform locates it after the inspector reduces the map viewport', () => {
+  const ui=harness(), value=snapshot(); ui.acceptSnapshot(value);
+  const viewport=ui.ids.get('topology-viewport'), details=ui.ids.get('selection-details');
+  Object.defineProperty(viewport,'clientHeight',{get:()=>details.hidden?600:240});
+  viewport.scrollTop=0;
+  const surface=ui.ids.get('relationship-map');
+  const platform=surface.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
+  platform.listeners.click();
+  const a=surface.metroLayout.attachments.find(a=>a.worktree_id===value.current_worktree_id);
+  assert.equal(details.hidden,false);
+  assert.ok(16+a.y+a.height<=viewport.scrollTop+viewport.clientHeight,'selected platform stays visible above the opened inspector');
 });
 
 test('compatibility snapshots still expand their in-place roster', () => {
@@ -338,7 +369,7 @@ test('platforms show passengers and shared ancestry without invented creation hi
   const surface = ui.ids.get('selection-details');
   assert.ok(surface.textContent.includes('4 passengers'));
   assert.ok(surface.textContent.includes('Common ancestor'));
-  assert.ok(surface.textContent.includes('Creation point not recorded'));
+  assert.ok(surface.textContent.includes('Creation not recorded'));
   assert.ok(surface.querySelectorAll('.workspace-details').every(n => !n.open));
   assert.equal(ui.ids.get('relationship-map').querySelectorAll('[class="future-connection"]').length, 1);
   assert.ok(ui.ids.get('relationship-map').textContent.includes('Planned arrival'));
@@ -693,7 +724,7 @@ test('v4 renders actual graph, compact platforms, exact names, and keeps invalid
   assert.equal(surface.querySelectorAll('.task-node').length,0);assert.equal(details.querySelectorAll('.task-node').length,2);
   const layout = surface.metroLayout;
   const card = surface.querySelectorAll('[data-worktree-id]')[0];
-  assert.equal(layout.attachments.find(a => a.worktree_id === card.dataset.worktreeId).height, 52);
+  assert.equal(layout.attachments.find(a => a.worktree_id === card.dataset.worktreeId).height, 76);
   const children = [...surface.children];
   const invalid = structuredClone(value); invalid.revision++; invalid.topology.edges[0].to_oid = 'f'.repeat(40);
   assert.equal(ui.acceptSnapshot(invalid), false);
@@ -986,10 +1017,116 @@ test('attention stays compact while each risky workspace and exact reasons remai
 test('compact workspace heading retains the full path, branch and stable identity on its accessible action', () => {
   const ui = harness(), value = snapshot(); ui.acceptSnapshot(value);
   const heading = ui.ids.get('relationship-map').querySelector('.route-platform');
-  assert.equal(heading.querySelector('strong').textContent, 'main-folder');
+  assert.equal(heading.querySelector('strong').textContent, 'main');
   assert.ok(heading.getAttribute('aria-label').includes('C:/checkouts/main-folder'));
   assert.ok(heading.getAttribute('aria-label').includes(value.current_worktree_id));
   assert.ok(heading.getAttribute('aria-label').includes('main'));
+});
+
+test('platform identity uses the real branch and keeps the directory separately visible', () => {
+  const ui=harness(), value=snapshot();
+  value.lanes[0].workspace_path='C:/checkouts/devmap-main';
+  value.lanes[0].branch='codex/devmap-default-sidebar';
+  ui.acceptSnapshot(value);
+  const platform=ui.ids.get('relationship-map').querySelector('.route-platform');
+  assert.equal(platform.querySelector('strong').textContent,'codex/devmap-default-sidebar');
+  assert.match(platform.querySelector('.platform-directory').textContent,/devmap-main/);
+  assert.equal(platform.querySelector('.platform-current').textContent,'Map source');
+});
+
+test('map source and selected workspace never claim to be the agent execution directory', () => {
+  const ui=harness(),value=snapshot();
+  value.lanes[0].branch='old-design';
+  assert.ok(ui.acceptSnapshot(value));
+  const map=ui.ids.get('relationship-map');
+  assert.equal(map.querySelector('.platform-current').textContent,'Map source');
+  assert.doesNotMatch(map.textContent,/This task workspace/);
+  ui.inspectWorkspace(value.lanes[2].worktree_id);
+  assert.equal(map.querySelector('.platform-current').parentNode.dataset.worktreeId,value.lanes[0].worktree_id);
+  assert.equal(ui.explorationState().selectedWorkspaceId,value.lanes[2].worktree_id);
+});
+
+test('main tip badge belongs to the actual ref target, not the oldest main lane node', () => {
+  const ui=harness(), value=snapshot(); ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map'), ref=value.topology.refs.find(r=>r.ref_name==='refs/heads/main');
+  const badge=map.querySelectorAll('.line-name').find(n=>n.dataset.refName===ref.ref_name);
+  assert.ok(badge); assert.equal(badge.dataset.refOid,ref.oid);
+  const node=map.metroLayout.nodes.find(n=>n.id===ref.oid);
+  assert.ok(parseFloat(badge.style.top)+20 < node.y-38, "main tip label stays above the map-source label");
+  assert.match(badge.textContent,/main.*tip/);
+});
+
+test('multiple branch references sharing a commit use one anchored badge', () => {
+  const ui=harness(),value=snapshot(),main=value.topology.refs.find(r=>r.ref_name==='refs/heads/main');
+  value.topology.refs.push({...main,ref_name:'refs/heads/release',display_name:'release'});
+  ui.acceptSnapshot(value);
+  const badges=ui.ids.get('relationship-map').querySelectorAll('.line-name').filter(n=>n.dataset.refOid===main.oid);
+  assert.equal(badges.length,1);assert.match(badges[0].textContent,/main.*\+1/);assert.match(badges[0].title,/release/);
+});
+
+test('platforms expose unfinished work and qualify incomplete passenger counts', () => {
+  const ui=harness(), value=snapshot(); value.task_observation.complete=false;
+  const lane=value.lanes[0], facts=value.workspace_facts[0];
+  lane.relationship.dirty=true; lane.relationship.changed_file_count=3;
+  facts.working_state='dirty'; facts.upstream='local_only'; facts.integration='included';
+  ui.acceptSnapshot(value);
+  const platform=ui.ids.get('relationship-map').querySelector('.route-platform');
+  assert.match(platform.querySelector('.platform-state').textContent,/3 uncommitted.*Unpushed/);
+  assert.match(platform.querySelector('.platform-meta').textContent,/4 seen.*list incomplete/);
+  assert.doesNotMatch(platform.querySelector('.platform-meta').textContent,/observed.*unknown/);
+  const empty=ui.ids.get('relationship-map').querySelectorAll('.route-platform').find(p=>p.dataset.worktreeId===value.lanes[2].worktree_id);
+  assert.match(empty.querySelector('.platform-meta').textContent,/Task count unconfirmed/);
+  assert.notEqual(empty.dataset.retained,'true');
+});
+
+test('only reliably empty clean included workspaces are shown as retained', () => {
+  const ui=harness(), value=snapshot(); ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map');
+  assert.equal(map.querySelectorAll('.route-platform').find(p=>p.dataset.worktreeId===value.lanes[2].worktree_id).dataset.retained,'true');
+  assert.notEqual(map.querySelector('.route-platform').dataset.retained,'true');
+  value.task_observation.complete=false; value.observation_revision++;
+  ui.acceptSnapshot(value);
+  assert.ok(map.querySelectorAll('.route-platform').every(p=>p.dataset.retained!=='true'));
+});
+
+test('journey distinguishes plan start and common ancestor from recorded creation', () => {
+  const ui=harness(), value=journeySnapshot(), oid=value.lanes[0].head;
+  value.workspace_facts[0].origin={recorded_creation:{kind:'unknown',oid:null},plan_starts:[{kind:'plan_start',oid,route_id:value.route_plans[0].route_id,source:'user plan',event_at:stamp}],common_ancestor:{kind:'common_ancestor',oid,source:'git',event_at:null}};
+  ui.acceptSnapshot(value);
+  const panel=ui.ids.get('journey-context');
+  ui.inspectWorkspace();
+  assert.match(ui.ids.get('selection-details').textContent,/Creation not recorded/);
+  assert.match(ui.ids.get('selection-details').textContent,/Plan start/);
+  assert.match(panel.textContent,/Common ancestor/);
+  value.workspace_facts[0].origin.recorded_creation={kind:'recorded_creation',oid,source:'confirmed creation event',event_at:stamp};
+  value.observation_revision++;
+  ui.acceptSnapshot(value);
+  assert.match(panel.textContent,/Created at/);
+  assert.doesNotMatch(panel.textContent,/Creation not recorded/);
+});
+
+test('malformed origin and unbounded binding details cannot replace the last valid map', () => {
+  const ui=harness(),value=snapshot();assert.ok(ui.acceptSnapshot(value));
+  const map=ui.ids.get('relationship-map'),before=map.textContent;
+  const invalid=structuredClone(value);invalid.observation_revision++;
+  invalid.workspace_facts[0].origin={recorded_creation:{kind:'recorded_creation',oid:'not-a-commit'},plan_starts:[],common_ancestor:{kind:'unknown',oid:null}};
+  assert.equal(ui.acceptSnapshot(invalid),false);assert.equal(map.textContent,before);
+  delete invalid.workspace_facts[0].origin;invalid.workspace_facts[0].bindings=Array(33).fill({kind:'task_migration_observed',task_id:'task',observed_at:stamp});
+  assert.equal(ui.acceptSnapshot(invalid),false);assert.equal(map.textContent,before);
+});
+
+test('fixed development scenario preserves parallel routes, shared HEADs, retained and uncertain workspaces', () => {
+  const value=JSON.parse(fs.readFileSync(path.join(root,'tests/fixtures/metro/development-overview.json'),'utf8'));
+  const ui=harness({nowMs:Date.parse(value.generated_at)});assert.ok(ui.acceptSnapshot(value));
+  const map=ui.ids.get('relationship-map'),platforms=map.querySelectorAll('.route-platform');
+  assert.equal(map.metroLayout.nodes.length,value.topology.commits.length);
+  assert.equal(map.metroLayout.edges.length,value.topology.edges.length);
+  assert.equal(platforms.reduce((n,p)=>n+Number(p.dataset.workspaceCount),0),7);
+  assert.ok(platforms.some(p=>p.dataset.retained==='true'));
+  const current=platforms.find(p=>p.querySelector('.platform-current'));
+  assert.match(current.textContent,/feature\/auth.*3 uncommitted.*Unpushed.*main.*planned/);
+  const uiRoute=platforms.find(p=>p.querySelector('strong').textContent==='feature/ui');
+  assert.match(uiRoute.textContent,/Task count unconfirmed/);
 });
 
 test('locating either workspace sharing a HEAD brings its own identity beside the single station', () => {
@@ -1156,7 +1293,7 @@ test('hundreds of active, idle and historical tasks stay reachable in the inspec
     assert.equal(ui.ids.get('metric-tasks').textContent, '400');
     assert.equal(ui.ids.get('metric-open').textContent, '1');
     const measured = map.metroLayout.attachments.find(a => a.worktree_id === lane.worktree_id);
-    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,52);
+    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,76);
     assert.ok(measured.height <= 16384);
     card.scrollTop = 18000;
     const lastTask = card.querySelectorAll('.task-node').at(-1); lastTask.focus();

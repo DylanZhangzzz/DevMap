@@ -76,6 +76,10 @@ pub struct DockSubagent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DockChat {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<WorkingDirectoryObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registered_workspace_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subagents: Option<Vec<DockSubagent>>,
     pub lifecycle: TaskLifecycle,
     pub session_id: String,
@@ -98,6 +102,7 @@ pub struct DockChat {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedTask {
+    pub working_directory: Option<WorkingDirectoryObservation>,
     pub subagents: Option<Vec<DockSubagent>>,
     pub lifecycle: TaskLifecycle,
     pub session_id: String,
@@ -107,6 +112,29 @@ pub struct ObservedTask {
     pub workspace_path: String,
     pub status: PresenceStatus,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkingDirectoryObservation {
+    pub path: String,
+    pub observed_at: String,
+    pub source: String,
+}
+
+impl ObservedTask {
+    fn association_path(&self) -> &str {
+        self.working_directory
+            .as_ref()
+            .map_or(&self.workspace_path, |report| &report.path)
+    }
+
+    fn association_source(&self) -> &'static str {
+        if self.working_directory.is_some() {
+            "agent_reported_working_directory"
+        } else {
+            "codex_task_cwd"
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -136,7 +164,50 @@ pub struct WriterEvidence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkspaceIdentity {
+    pub branch_ref: Option<String>,
+    pub workspace_path: String,
+    pub is_current_workspace: bool,
+    pub current_context_source: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OriginEvidence {
+    pub kind: &'static str,
+    pub oid: Option<String>,
+    pub source: Option<String>,
+    /// Event time, never the time an existing workspace was first enumerated.
+    pub event_at: Option<String>,
+    pub route_id: Option<String>,
+}
+
+impl OriginEvidence {
+    fn unknown() -> Self {
+        Self {
+            kind: "unknown",
+            oid: None,
+            source: None,
+            event_at: None,
+            route_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkspaceOrigin {
+    pub recorded_creation: OriginEvidence,
+    pub plan_starts: Vec<OriginEvidence>,
+    pub common_ancestor: OriginEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceFacts {
+    pub facts_schema_version: &'static str,
+    pub identity: WorkspaceIdentity,
+    pub origin: WorkspaceOrigin,
+    pub bindings: Vec<crate::journal::TaskBindingObservation>,
+    /// Completeness of retained journal observations, not of past task history.
+    pub bindings_complete: bool,
     pub passengers: PassengerSummary,
     pub worktree_id: String,
     pub head_oid: String,
@@ -365,11 +436,17 @@ impl<R: RouteProvider> DockReducer<R> {
                 let mut chats = entries
                     .iter()
                     .filter(|entry| entry.worktree_id == worktree.worktree_id)
+                    .filter(|entry| {
+                        !observed_tasks.iter().any(|task| {
+                            entry.session_id.as_deref() == Some(&task.session_id)
+                                && !same_workspace_path(task.association_path(), &worktree.root)
+                        })
+                    })
                     .filter_map(chat_from_entry)
                     .collect::<Vec<_>>();
                 for task in observed_tasks
                     .iter()
-                    .filter(|task| same_workspace_path(&task.workspace_path, &worktree.root))
+                    .filter(|task| same_workspace_path(task.association_path(), &worktree.root))
                 {
                     if let Some(chat) = chats
                         .iter_mut()
@@ -378,7 +455,9 @@ impl<R: RouteProvider> DockReducer<R> {
                         chat.display_title = task.display_title.clone();
                         chat.host_status = Some(task.host_status.clone());
                         chat.codex_thread_id = Some(task.session_id.clone());
-                        chat.association_source = "codex_task_cwd";
+                        chat.association_source = task.association_source();
+                        chat.working_directory = task.working_directory.clone();
+                        chat.registered_workspace_path = Some(task.workspace_path.clone());
                         chat.host = task.host.clone();
                         chat.status = task.status;
                         chat.status_source = StatusSource::HostExplicit;
@@ -674,6 +753,27 @@ impl DockService {
         observed_at: OffsetDateTime,
         now: OffsetDateTime,
     ) -> Result<&DockReadModel, DevMapError> {
+        if tasks.iter().any(|task| task.working_directory.is_some()) {
+            let worktrees = WorktreeScanner::scan(&self.workspace)?;
+            for report in tasks
+                .iter()
+                .filter_map(|task| task.working_directory.as_ref())
+            {
+                let stamp = OffsetDateTime::parse(&report.observed_at, &Rfc3339).map_err(|_| {
+                    DevMapError::InvalidDomain("codex_tasks.workingDirectory.observedAt")
+                })?;
+                if report.source != "agent_report"
+                    || stamp > observed_at + time::Duration::seconds(30)
+                    || !Path::new(&report.path).is_absolute()
+                    || !Path::new(&report.path).is_dir()
+                    || !worktrees
+                        .iter()
+                        .any(|wt| same_workspace_path(&report.path, &wt.root))
+                {
+                    return Err(DevMapError::InvalidDomain("codex_tasks.workingDirectory"));
+                }
+            }
+        }
         tasks.sort_by(|left, right| {
             left.session_id
                 .cmp(&right.session_id)
@@ -691,6 +791,8 @@ impl DockService {
         self.observed_tasks = tasks;
         self.task_inventory_synced_at = Some(observed_at.format(&Rfc3339)?);
         self.task_inventory_complete = complete;
+        // Inventory reports establish task associations, never worktree creation.
+        // Persistence errors must not prevent the map from showing current facts.
         self.refresh(now)
     }
 
@@ -729,7 +831,20 @@ impl DockService {
         let journals = summarize_existing_sessions(&self.workspace, &sessions);
         let task_observation = TaskObservation {
             scope: "unarchived_chats",
-            observed_at: self.task_inventory_synced_at.clone(),
+            // The combined placement snapshot is only as fresh as its oldest
+            // location report. A new host inventory cannot freshen execution evidence.
+            // Keep the actual host inventory timestamp separately below.
+            observed_at: self
+                .task_inventory_synced_at
+                .as_ref()
+                .into_iter()
+                .chain(
+                    self.observed_tasks
+                        .iter()
+                        .filter_map(|task| task.working_directory.as_ref().map(|r| &r.observed_at)),
+                )
+                .min_by_key(|stamp| event_instant_from_text(stamp))
+                .cloned(),
             complete: self.task_inventory_complete,
         };
         let mut next = self.reducer.reduce_with_inputs(
@@ -745,13 +860,93 @@ impl DockService {
         )?;
         next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
         match crate::route_plan::RoutePlanStore::open(&self.workspace)
-            .and_then(|store| store.list())
+            .and_then(|store| store.list_with_starts())
         {
-            Ok(plans) => next.route_plans = plans,
+            Ok((plans, starts)) => {
+                for plan in &plans {
+                    if let Some(facts) = next
+                        .workspace_facts
+                        .iter_mut()
+                        .find(|f| f.worktree_id == plan.worktree_id)
+                    {
+                        let (event_at, source) = &starts[&plan.route_id];
+                        facts.origin.plan_starts.push(OriginEvidence {
+                            kind: "plan_start",
+                            oid: Some(plan.start_commit.clone()),
+                            source: Some(source.clone()),
+                            event_at: Some(event_at.clone()),
+                            route_id: Some(plan.route_id.clone()),
+                        });
+                    }
+                }
+                next.route_plans = plans;
+            }
             Err(_) => next.warnings.push(DockWarning {
                 code: "route_plans_unavailable".into(),
                 subject_id: None,
             }),
+        }
+        let binding_result = if let Some(observed_at) = &self.task_inventory_synced_at {
+            let associations = self
+                .observed_tasks
+                .iter()
+                .filter(|task| task.lifecycle == TaskLifecycle::Present)
+                .filter_map(|task| {
+                    next.lanes
+                        .iter()
+                        .find(|lane| {
+                            same_workspace_path(
+                                &task.workspace_path,
+                                Path::new(&lane.workspace_path),
+                            )
+                        })
+                        .map(|lane| {
+                            (
+                                task.host.clone(),
+                                task.session_id.clone(),
+                                lane.worktree_id.clone(),
+                            )
+                        })
+                })
+                .collect::<Vec<_>>();
+            crate::journal::observe_task_bindings(&self.workspace, &associations, observed_at)
+        } else {
+            crate::journal::read_task_bindings(&self.workspace)
+        };
+        match binding_result {
+            Ok(bindings) => {
+                for facts in &mut next.workspace_facts {
+                    let matches = bindings
+                        .iter()
+                        .filter(|binding| {
+                            binding.worktree_id == facts.worktree_id
+                                || binding.from_worktree_id.as_deref() == Some(&facts.worktree_id)
+                        })
+                        .collect::<Vec<_>>();
+                    facts.bindings_complete = matches.len() <= 32;
+                    facts.bindings = matches.into_iter().rev().take(32).rev().cloned().collect();
+                }
+                if next
+                    .workspace_facts
+                    .iter()
+                    .any(|facts| !facts.bindings_complete)
+                {
+                    next.truncated = true;
+                    next.warnings.push(DockWarning {
+                        code: "task_binding_history_truncated".into(),
+                        subject_id: None,
+                    });
+                }
+            }
+            Err(_) => {
+                for facts in &mut next.workspace_facts {
+                    facts.bindings_complete = false;
+                }
+                next.warnings.push(DockWarning {
+                    code: "task_binding_history_unavailable".into(),
+                    subject_id: None,
+                });
+            }
         }
         let mut target_cache = BTreeMap::new();
         for plan in &next.route_plans {
@@ -959,6 +1154,8 @@ fn compare_entries(left: &DockEntry, right: &DockEntry) -> std::cmp::Ordering {
 fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
     let actor_id = entry.actor_id.clone()?;
     Some(DockChat {
+        working_directory: None,
+        registered_workspace_path: None,
         subagents: None,
         lifecycle: TaskLifecycle::Unknown,
         session_id: entry.session_id.clone()?,
@@ -982,6 +1179,8 @@ fn chat_from_entry(entry: &DockEntry) -> Option<DockChat> {
 
 fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
     DockChat {
+        working_directory: task.working_directory.clone(),
+        registered_workspace_path: Some(task.workspace_path.clone()),
         subagents: task.subagents.clone(),
         lifecycle: task.lifecycle,
         session_id: task.session_id.clone(),
@@ -999,7 +1198,7 @@ fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
         blocker_count: 0,
         gap_count: 0,
         capture_incomplete: true,
-        association_source: "codex_task_cwd",
+        association_source: task.association_source(),
     }
 }
 
@@ -1056,6 +1255,32 @@ fn workspace_facts(
                 reference.kind == "remote" && ref_reaches_head(topology, &reference.oid, &lane.head)
             });
             WorkspaceFacts {
+                facts_schema_version: "devmap/workspace-facts/1",
+                identity: WorkspaceIdentity {
+                    branch_ref: lane
+                        .branch
+                        .as_ref()
+                        .map(|branch| format!("refs/heads/{branch}")),
+                    workspace_path: lane.workspace_path.clone(),
+                    is_current_workspace: lane.is_current,
+                    current_context_source: "source_workspace",
+                },
+                origin: WorkspaceOrigin {
+                    recorded_creation: OriginEvidence::unknown(),
+                    plan_starts: Vec::new(),
+                    common_ancestor: relationship.fork_point.as_ref().map_or_else(
+                        OriginEvidence::unknown,
+                        |fork| OriginEvidence {
+                            kind: "common_ancestor",
+                            oid: Some(fork.commit.clone()),
+                            source: Some("git_merge_base".into()),
+                            event_at: None,
+                            route_id: None,
+                        },
+                    ),
+                },
+                bindings: Vec::new(),
+                bindings_complete: true,
                 passengers: passenger_summary(lane, observation, git_observed_at, integration),
                 worktree_id: lane.worktree_id.clone(),
                 head_oid: lane.head.clone(),
@@ -1297,6 +1522,25 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     // Leave room for the service's final revision and observation envelope.
     const ENVELOPE_RESERVE: usize = 2048;
     let ceiling = MAX_DOCK_MODEL_BYTES - ENVELOPE_RESERVE;
+    if canonical_json(&model)?.len() > ceiling
+        && model
+            .workspace_facts
+            .iter()
+            .any(|facts| !facts.bindings.is_empty())
+    {
+        // Historical detail is expendable; exact current workspace coverage is not.
+        for facts in &mut model.workspace_facts {
+            if !facts.bindings.is_empty() {
+                facts.bindings.clear();
+                facts.bindings_complete = false;
+            }
+        }
+        model.truncated = true;
+        model.warnings.push(DockWarning {
+            code: "task_binding_history_truncated".into(),
+            subject_id: None,
+        });
+    }
     while !model.route_plans.is_empty() && canonical_json(&model)?.len() > ceiling {
         model.route_plans.pop();
         model.truncated = true;
@@ -1597,6 +1841,40 @@ mod budget_tests {
             warnings: vec![],
             truncated: false,
         }
+    }
+
+    #[test]
+    fn binding_details_yield_budget_before_workspace_coverage() {
+        let mut model = coverage_model(0);
+        for facts in &mut model.workspace_facts {
+            facts.bindings = (0..32)
+                .map(|index| crate::journal::TaskBindingObservation {
+                    schema_version: "devmap/task-binding/1".into(),
+                    repository_id: model.repository_id.clone(),
+                    kind: "task_association_observed".into(),
+                    host: "local".into(),
+                    task_id: format!("task-{index}"),
+                    worktree_id: facts.worktree_id.clone(),
+                    from_worktree_id: None,
+                    source: "host_task_inventory".into(),
+                    observed_at: model.generated_at.clone(),
+                    previous_observed_at: None,
+                    event_at: None,
+                })
+                .collect();
+        }
+        let bounded =
+            bound_model(model).expect("optional history must not hide current workspaces");
+        assert_eq!(bounded.workspace_facts.len(), 256);
+        assert_eq!(bounded.lanes.len(), 256);
+        assert!(
+            bounded
+                .workspace_facts
+                .iter()
+                .any(|facts| !facts.bindings_complete)
+        );
+        assert!(bounded.truncated);
+        assert!(canonical_json(&bounded).unwrap().len() <= MAX_DOCK_MODEL_BYTES);
     }
 
     #[test]

@@ -1,5 +1,28 @@
 mod support;
 
+#[test]
+fn plan_origin_keeps_the_original_plan_time_after_updates() {
+    let (repo, store, mut input) = setup();
+    let first = store.set(input.clone()).unwrap();
+    input.route_id = Some(first.route_id.clone());
+    input.request_id = "update-origin".into();
+    input.expected_revision = 1;
+    input.source = "Later instruction".into();
+    store.set(input).unwrap();
+    let mut service = devmap::dock::DockService::open(repo.path()).unwrap();
+    let model =
+        serde_json::to_value(service.refresh(time::OffsetDateTime::now_utc()).unwrap()).unwrap();
+    let origin = &model["workspace_facts"][0]["origin"];
+    assert_eq!(origin["recorded_creation"]["kind"], "unknown");
+    assert_eq!(origin["plan_starts"][0]["kind"], "plan_start");
+    assert_eq!(origin["plan_starts"][0]["oid"], first.start_commit);
+    assert_eq!(origin["plan_starts"][0]["event_at"], first.updated_at);
+    assert_eq!(
+        origin["plan_starts"][0]["source"],
+        "User requested login improvements"
+    );
+}
+
 use devmap::git::SourceGitInspector;
 use devmap::route_plan::{PlanInput, RoutePlanStore};
 use devmap::worktrees::WorktreeScanner;

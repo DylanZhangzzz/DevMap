@@ -1,0 +1,775 @@
+{
+  "schema_version": "devmap/dock/4",
+  "repository_id": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "revision": 4,
+  "observation_revision": 9,
+  "generated_at": "2026-09-05T22:23:41.680Z",
+  "current_worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000002",
+  "development_target": null,
+  "integration_branches": [],
+  "branch_groups": [
+    {
+      "target_branch": "main",
+      "terminal": false,
+      "fork_point": null,
+      "lanes": [
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000001",
+          "workspace_path": "C:/checkouts/main-folder",
+          "is_current": false,
+          "branch": "main",
+          "head": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": false,
+            "changed_file_count": 0,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": []
+        },
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000002",
+          "workspace_path": "C:/checkouts/auth-folder",
+          "is_current": true,
+          "branch": "feature/auth",
+          "head": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": true,
+            "changed_file_count": 3,
+            "status_observed": true,
+            "fork_point": {
+              "commit": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+              "target_branch": "main",
+              "tags": [],
+              "subject": "m1",
+              "authored_at": null,
+              "distance_to_target": 3
+            }
+          },
+          "chats": [
+            {
+              "lifecycle": "present",
+              "session_id": "session-fixture-auth",
+              "codex_thread_id": "01990000-0000-7000-8000-fc4186a70000",
+              "display_title": "Develop authentication",
+              "actor_id": "codex",
+              "host": "local",
+              "host_status": "active",
+              "route_id": "thread:01990000-0000-7000-8000-fc4186a70000",
+              "status": "working",
+              "status_source": "host_explicit",
+              "confidence": "observed",
+              "capture_grade": "A",
+              "last_event_at": "2026-09-05T22:23:41.680Z",
+              "blocker_count": 0,
+              "gap_count": 0,
+              "capture_incomplete": false,
+              "association_source": "codex_task_cwd"
+            },
+            {
+              "lifecycle": "present",
+              "session_id": "session-fixture-review",
+              "codex_thread_id": "01990000-0000-7000-8000-d65ce2990000",
+              "display_title": "Review authentication",
+              "actor_id": "codex",
+              "host": "local",
+              "host_status": "idle",
+              "route_id": "thread:01990000-0000-7000-8000-d65ce2990000",
+              "status": "idle",
+              "status_source": "host_explicit",
+              "confidence": "observed",
+              "capture_grade": "A",
+              "last_event_at": "2026-09-05T22:23:41.680Z",
+              "blocker_count": 0,
+              "gap_count": 0,
+              "capture_incomplete": false,
+              "association_source": "codex_task_cwd"
+            }
+          ]
+        },
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000003",
+          "workspace_path": "C:/checkouts/ui-folder",
+          "is_current": false,
+          "branch": "feature/ui",
+          "head": "93943c32718d8d0252ede27d3e49a097f5154636",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": false,
+            "changed_file_count": 0,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": [
+            {
+              "lifecycle": "unknown",
+              "session_id": "session-fixture-ui",
+              "codex_thread_id": "01990000-0000-7000-8000-a0dacdd30000",
+              "display_title": "UI task whereabouts unconfirmed",
+              "actor_id": "codex",
+              "host": "local",
+              "host_status": "unknown",
+              "route_id": "thread:01990000-0000-7000-8000-a0dacdd30000",
+              "status": "unknown",
+              "status_source": "host_explicit",
+              "confidence": "observed",
+              "capture_grade": "A",
+              "last_event_at": "2026-09-05T22:23:41.680Z",
+              "blocker_count": 0,
+              "gap_count": 0,
+              "capture_incomplete": false,
+              "association_source": "codex_task_cwd"
+            }
+          ]
+        },
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000004",
+          "workspace_path": "C:/checkouts/api-folder",
+          "is_current": false,
+          "branch": "feature/api",
+          "head": "5c161bab2a52b3b80c007ae8f42024c031552669",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": true,
+            "changed_file_count": 2,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": []
+        },
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000005",
+          "workspace_path": "C:/checkouts/detached-folder",
+          "is_current": false,
+          "branch": null,
+          "head": "eaf053534115a7c5f225d0e7d0d4c8e4ee3399e4",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": false,
+            "changed_file_count": 0,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": []
+        },
+        {
+          "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000006",
+          "workspace_path": "C:/checkouts/auth-copy",
+          "is_current": false,
+          "branch": null,
+          "head": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": false,
+            "changed_file_count": 0,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": []
+        },
+        {
+          "worktree_id": "wt-9999999999999999999999999999999999999999999999999999999999999999",
+          "workspace_path": "C:/checkouts/retained-workspace",
+          "is_current": false,
+          "branch": null,
+          "head": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+          "relationship": {
+            "base_target": "main",
+            "merge_target": "main",
+            "merged": true,
+            "ahead": 0,
+            "behind": 0,
+            "dirty": false,
+            "changed_file_count": 0,
+            "status_observed": true,
+            "fork_point": null
+          },
+          "chats": []
+        }
+      ]
+    }
+  ],
+  "lanes": [
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000001",
+      "workspace_path": "C:/checkouts/main-folder",
+      "is_current": false,
+      "branch": "main",
+      "head": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": false,
+        "changed_file_count": 0,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000002",
+      "workspace_path": "C:/checkouts/auth-folder",
+      "is_current": true,
+      "branch": "feature/auth",
+      "head": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": true,
+        "changed_file_count": 3,
+        "status_observed": true,
+        "fork_point": {
+          "commit": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+          "target_branch": "main",
+          "tags": [],
+          "subject": "m1",
+          "authored_at": null,
+          "distance_to_target": 3
+        }
+      },
+      "chats": [
+        {
+          "lifecycle": "present",
+          "session_id": "session-fixture-auth",
+          "codex_thread_id": "01990000-0000-7000-8000-fc4186a70000",
+          "display_title": "Develop authentication",
+          "actor_id": "codex",
+          "host": "local",
+          "host_status": "active",
+          "route_id": "thread:01990000-0000-7000-8000-fc4186a70000",
+          "status": "working",
+          "status_source": "host_explicit",
+          "confidence": "observed",
+          "capture_grade": "A",
+          "last_event_at": "2026-09-05T22:23:41.680Z",
+          "blocker_count": 0,
+          "gap_count": 0,
+          "capture_incomplete": false,
+          "association_source": "codex_task_cwd"
+        },
+        {
+          "lifecycle": "present",
+          "session_id": "session-fixture-review",
+          "codex_thread_id": "01990000-0000-7000-8000-d65ce2990000",
+          "display_title": "Review authentication",
+          "actor_id": "codex",
+          "host": "local",
+          "host_status": "idle",
+          "route_id": "thread:01990000-0000-7000-8000-d65ce2990000",
+          "status": "idle",
+          "status_source": "host_explicit",
+          "confidence": "observed",
+          "capture_grade": "A",
+          "last_event_at": "2026-09-05T22:23:41.680Z",
+          "blocker_count": 0,
+          "gap_count": 0,
+          "capture_incomplete": false,
+          "association_source": "codex_task_cwd"
+        }
+      ]
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000003",
+      "workspace_path": "C:/checkouts/ui-folder",
+      "is_current": false,
+      "branch": "feature/ui",
+      "head": "93943c32718d8d0252ede27d3e49a097f5154636",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": false,
+        "changed_file_count": 0,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": [
+        {
+          "lifecycle": "unknown",
+          "session_id": "session-fixture-ui",
+          "codex_thread_id": "01990000-0000-7000-8000-a0dacdd30000",
+          "display_title": "UI task whereabouts unconfirmed",
+          "actor_id": "codex",
+          "host": "local",
+          "host_status": "unknown",
+          "route_id": "thread:01990000-0000-7000-8000-a0dacdd30000",
+          "status": "unknown",
+          "status_source": "host_explicit",
+          "confidence": "observed",
+          "capture_grade": "A",
+          "last_event_at": "2026-09-05T22:23:41.680Z",
+          "blocker_count": 0,
+          "gap_count": 0,
+          "capture_incomplete": false,
+          "association_source": "codex_task_cwd"
+        }
+      ]
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000004",
+      "workspace_path": "C:/checkouts/api-folder",
+      "is_current": false,
+      "branch": "feature/api",
+      "head": "5c161bab2a52b3b80c007ae8f42024c031552669",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": true,
+        "changed_file_count": 2,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000005",
+      "workspace_path": "C:/checkouts/detached-folder",
+      "is_current": false,
+      "branch": null,
+      "head": "eaf053534115a7c5f225d0e7d0d4c8e4ee3399e4",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": false,
+        "changed_file_count": 0,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000006",
+      "workspace_path": "C:/checkouts/auth-copy",
+      "is_current": false,
+      "branch": null,
+      "head": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": false,
+        "changed_file_count": 0,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": []
+    },
+    {
+      "worktree_id": "wt-9999999999999999999999999999999999999999999999999999999999999999",
+      "workspace_path": "C:/checkouts/retained-workspace",
+      "is_current": false,
+      "branch": null,
+      "head": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+      "relationship": {
+        "base_target": "main",
+        "merge_target": "main",
+        "merged": true,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": false,
+        "changed_file_count": 0,
+        "status_observed": true,
+        "fork_point": null
+      },
+      "chats": []
+    }
+  ],
+  "current": [],
+  "active": [],
+  "stale_or_uninstrumented": [],
+  "topology": {
+    "commits": [
+      {
+        "oid": "db03c350bd264bf604ece7446f81719cd1fa43d9",
+        "parents": [],
+        "authored_at": null,
+        "subject": "i"
+      },
+      {
+        "oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+        "parents": [
+          "db03c350bd264bf604ece7446f81719cd1fa43d9"
+        ],
+        "authored_at": null,
+        "subject": "m1"
+      },
+      {
+        "oid": "ee117011b520990e6f1cd16d0c6c312c1723227d",
+        "parents": [
+          "91dd78b2047a1792ab21f8df45248c31dd6b07e2"
+        ],
+        "authored_at": null,
+        "subject": "m2"
+      },
+      {
+        "oid": "ce27a4b44b33ef89f00d9bb31b2d4c0f9e81d7ba",
+        "parents": [
+          "ee117011b520990e6f1cd16d0c6c312c1723227d",
+          "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c"
+        ],
+        "authored_at": null,
+        "subject": "mm"
+      },
+      {
+        "oid": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+        "parents": [
+          "ce27a4b44b33ef89f00d9bb31b2d4c0f9e81d7ba"
+        ],
+        "authored_at": null,
+        "subject": "r"
+      },
+      {
+        "oid": "134d84b886bfa3608e14a604c9fe192cae87eec5",
+        "parents": [
+          "91dd78b2047a1792ab21f8df45248c31dd6b07e2"
+        ],
+        "authored_at": null,
+        "subject": "a1"
+      },
+      {
+        "oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+        "parents": [
+          "134d84b886bfa3608e14a604c9fe192cae87eec5"
+        ],
+        "authored_at": null,
+        "subject": "a2"
+      },
+      {
+        "oid": "18cc7f1af6205d5ffebb87b97e4fa1aa9596d9a1",
+        "parents": [
+          "134d84b886bfa3608e14a604c9fe192cae87eec5"
+        ],
+        "authored_at": null,
+        "subject": "u1"
+      },
+      {
+        "oid": "93943c32718d8d0252ede27d3e49a097f5154636",
+        "parents": [
+          "18cc7f1af6205d5ffebb87b97e4fa1aa9596d9a1"
+        ],
+        "authored_at": null,
+        "subject": "u2"
+      },
+      {
+        "oid": "5c161bab2a52b3b80c007ae8f42024c031552669",
+        "parents": [
+          "ee117011b520990e6f1cd16d0c6c312c1723227d"
+        ],
+        "authored_at": null,
+        "subject": "p1"
+      },
+      {
+        "oid": "d2f5061b1242546cd0bc06e613899065cf06103a",
+        "parents": [
+          "91dd78b2047a1792ab21f8df45248c31dd6b07e2"
+        ],
+        "authored_at": null,
+        "subject": "e1"
+      },
+      {
+        "oid": "eaf053534115a7c5f225d0e7d0d4c8e4ee3399e4",
+        "parents": [
+          "ee117011b520990e6f1cd16d0c6c312c1723227d"
+        ],
+        "authored_at": null,
+        "subject": "d1"
+      }
+    ],
+    "refs": [
+      {
+        "ref_name": "refs/heads/main",
+        "display_name": "main",
+        "oid": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+        "kind": "branch"
+      },
+      {
+        "ref_name": "refs/heads/feature/auth",
+        "display_name": "feature/auth",
+        "oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+        "kind": "branch"
+      },
+      {
+        "ref_name": "refs/heads/feature/ui",
+        "display_name": "feature/ui",
+        "oid": "93943c32718d8d0252ede27d3e49a097f5154636",
+        "kind": "branch"
+      },
+      {
+        "ref_name": "refs/heads/feature/api",
+        "display_name": "feature/api",
+        "oid": "5c161bab2a52b3b80c007ae8f42024c031552669",
+        "kind": "branch"
+      },
+      {
+        "ref_name": "refs/heads/feature/experiment",
+        "display_name": "feature/experiment",
+        "oid": "d2f5061b1242546cd0bc06e613899065cf06103a",
+        "kind": "branch"
+      },
+      {
+        "ref_name": "refs/tags/v1.0",
+        "display_name": "v1.0",
+        "oid": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+        "kind": "tag"
+      }
+    ],
+    "edges": [
+      {
+        "id": "0000000000000000000000000000000000000001:0000000000000000000000000000000000000002",
+        "from_oid": "db03c350bd264bf604ece7446f81719cd1fa43d9",
+        "to_oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2"
+      },
+      {
+        "id": "0000000000000000000000000000000000000002:0000000000000000000000000000000000000003",
+        "from_oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+        "to_oid": "ee117011b520990e6f1cd16d0c6c312c1723227d"
+      },
+      {
+        "id": "0000000000000000000000000000000000000003:0000000000000000000000000000000000000004",
+        "from_oid": "ee117011b520990e6f1cd16d0c6c312c1723227d",
+        "to_oid": "ce27a4b44b33ef89f00d9bb31b2d4c0f9e81d7ba"
+      },
+      {
+        "id": "0000000000000000000000000000000000000007:0000000000000000000000000000000000000004",
+        "from_oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+        "to_oid": "ce27a4b44b33ef89f00d9bb31b2d4c0f9e81d7ba"
+      },
+      {
+        "id": "0000000000000000000000000000000000000004:0000000000000000000000000000000000000005",
+        "from_oid": "ce27a4b44b33ef89f00d9bb31b2d4c0f9e81d7ba",
+        "to_oid": "6f1042b2a4c175eae20f95fe579fef2c98c4170d"
+      },
+      {
+        "id": "0000000000000000000000000000000000000002:0000000000000000000000000000000000000006",
+        "from_oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+        "to_oid": "134d84b886bfa3608e14a604c9fe192cae87eec5"
+      },
+      {
+        "id": "0000000000000000000000000000000000000006:0000000000000000000000000000000000000007",
+        "from_oid": "134d84b886bfa3608e14a604c9fe192cae87eec5",
+        "to_oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c"
+      },
+      {
+        "id": "0000000000000000000000000000000000000006:0000000000000000000000000000000000000008",
+        "from_oid": "134d84b886bfa3608e14a604c9fe192cae87eec5",
+        "to_oid": "18cc7f1af6205d5ffebb87b97e4fa1aa9596d9a1"
+      },
+      {
+        "id": "0000000000000000000000000000000000000008:0000000000000000000000000000000000000009",
+        "from_oid": "18cc7f1af6205d5ffebb87b97e4fa1aa9596d9a1",
+        "to_oid": "93943c32718d8d0252ede27d3e49a097f5154636"
+      },
+      {
+        "id": "0000000000000000000000000000000000000003:000000000000000000000000000000000000000a",
+        "from_oid": "ee117011b520990e6f1cd16d0c6c312c1723227d",
+        "to_oid": "5c161bab2a52b3b80c007ae8f42024c031552669"
+      },
+      {
+        "id": "0000000000000000000000000000000000000002:000000000000000000000000000000000000000b",
+        "from_oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+        "to_oid": "d2f5061b1242546cd0bc06e613899065cf06103a"
+      },
+      {
+        "id": "0000000000000000000000000000000000000003:000000000000000000000000000000000000000c",
+        "from_oid": "ee117011b520990e6f1cd16d0c6c312c1723227d",
+        "to_oid": "eaf053534115a7c5f225d0e7d0d4c8e4ee3399e4"
+      }
+    ],
+    "boundaries": [],
+    "complete": true
+  },
+  "workspace_facts": [
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000001",
+      "head_oid": "6f1042b2a4c175eae20f95fe579fef2c98c4170d",
+      "detached": false,
+      "head_ref_coverage": "protected",
+      "integration": "terminal",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "clean",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000002",
+      "head_oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+      "detached": false,
+      "head_ref_coverage": "protected",
+      "integration": "included",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "dirty",
+      "upstream": "local_only",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": [],
+      "origin": {
+        "recorded_creation": {
+          "kind": "unknown",
+          "oid": null,
+          "source": null,
+          "event_at": null
+        },
+        "plan_starts": [
+          {
+            "kind": "plan_start",
+            "oid": "134d84b886bfa3608e14a604c9fe192cae87eec5",
+            "source": "Synthetic acceptance scenario",
+            "event_at": "2026-09-05T22:23:41.680Z",
+            "route_id": "route-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "common_ancestor": {
+          "kind": "common_ancestor",
+          "oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+          "source": "git_merge_base",
+          "event_at": null
+        }
+      }
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000003",
+      "head_oid": "93943c32718d8d0252ede27d3e49a097f5154636",
+      "detached": false,
+      "head_ref_coverage": "protected",
+      "integration": "ahead",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "clean",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000004",
+      "head_oid": "5c161bab2a52b3b80c007ae8f42024c031552669",
+      "detached": false,
+      "head_ref_coverage": "protected",
+      "integration": "ahead",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "dirty",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000005",
+      "head_oid": "eaf053534115a7c5f225d0e7d0d4c8e4ee3399e4",
+      "detached": true,
+      "head_ref_coverage": "protected",
+      "integration": "ahead",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "clean",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    },
+    {
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000006",
+      "head_oid": "e1700b3cbb5fb74e7686a415c2ff71789a48cf4c",
+      "detached": true,
+      "head_ref_coverage": "protected",
+      "integration": "included",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "clean",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    },
+    {
+      "worktree_id": "wt-9999999999999999999999999999999999999999999999999999999999999999",
+      "head_oid": "91dd78b2047a1792ab21f8df45248c31dd6b07e2",
+      "detached": true,
+      "head_ref_coverage": "protected",
+      "integration": "included",
+      "target_ref": "refs/heads/main",
+      "merge_commit_oid": null,
+      "working_state": "clean",
+      "upstream": "unknown",
+      "task_observed_at": "2026-09-05T22:23:41.680Z",
+      "git_observed_at": "2026-09-05T22:23:41.680Z",
+      "writer_evidence": []
+    }
+  ],
+  "task_observation": {
+    "scope": "unarchived_chats",
+    "observed_at": "2026-09-05T22:23:41.680Z",
+    "complete": true
+  },
+  "counts": {
+    "workspaces": 7,
+    "tasks": 3
+  },
+  "task_inventory_synced_at": "2026-09-05T22:23:41.680Z",
+  "warnings": [],
+  "truncated": false,
+  "route_plans": [
+    {
+      "route_id": "route-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "repository_id": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "revision": 1,
+      "worktree_id": "wt-0000000000000000000000000000000000000000000000000000000000000002",
+      "start_commit": "134d84b886bfa3608e14a604c9fe192cae87eec5",
+      "goal": "Complete authentication",
+      "target_ref": "refs/heads/main",
+      "milestones": [
+        "Verify login"
+      ],
+      "source": "Synthetic acceptance scenario",
+      "abandoned": false,
+      "updated_at": "2026-09-05T22:23:41.680Z"
+    }
+  ]
+}

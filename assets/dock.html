@@ -6,243 +6,215 @@
   <title>DevMap · Rail View — Repository topology</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #fffdf8; --bg-canvas: #fffdf8; --surface: #ffffff; --surface-raised: #f2f5f8;
-      --line: #778394; --line-soft: #dce1e6; --text: #17212f; --muted: #4f5b6c;
-      --main-rail: #202124; --branch-red: #e32017; --branch-blue: #003688; --branch-green: #00782a;
-      --branch-yellow: #ffd300; --branch-cyan: #0098d4; --branch-magenta: #9b0056;
-      --accent: #005bbb; --accent-soft: #e9f1fb; --success: #176b38; --warning: #8a4b00;
-      --danger: #b42318; --unknown: #4f5b6c; --focus: #005bbb; --keyline: #4f5b6c;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-width: 0; min-height: 100%; background: var(--bg); color: var(--text); }
-    html { container-type: inline-size; container-name: dock; }
-    body { font: .875rem/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
-    button, input { font: inherit; color: inherit; }
-    button { min-height: 44px; padding: 8px 10px; border: 1px solid transparent; background: transparent; text-align: left; cursor: pointer; touch-action: manipulation; }
-    button:hover { background: var(--surface-raised); }
-    button:active { background: var(--accent-soft); }
-    button:disabled { cursor: wait; color: var(--muted); }
-    button:focus-visible, a:focus-visible, input:focus-visible, .worktree-cluster:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-    [aria-current="true"] { outline: 2px solid var(--focus); outline-offset: 2px; }
-    [hidden] { display: none !important; }
-    ::selection { background: var(--accent-soft); color: var(--text); }
-    .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; padding: 8px 12px; transform: translateY(-160%); background: var(--text); color: var(--surface); }
-    .skip-link:focus { transform: translateY(0); }
-    .shell { width: min(1440px, 100%); height: 100dvh; margin: 0 auto; padding: 8px 16px; display: flex; flex-direction: column; }
-    #dock-main, .map-frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .masthead { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0; }
-    .masthead-actions { display: flex; align-items: center; gap: 8px; }
-    .connection, .task-inventory, .subhead, .meta { margin: 0; color: var(--muted); font-size: .75rem; }
-    .connection { color: var(--success); } .connection.offline { color: var(--warning); }
-    .refresh, .control { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
-    .map-frame { min-width: 0; }
-    h1 { margin: 8px 0 0; font-size: 1rem; line-height: 1.25; font-weight: 700; letter-spacing: -.02em; }
-    .attention-list { display: flex; flex-wrap: wrap; gap: 4px 8px; max-height: 22vh; overflow: auto; }
-    .attention-summary summary, .edge-wayfinding summary, .observation-details summary { cursor: pointer; min-height: 32px; padding: 4px 0; }
-    .attention-summary { flex: none; margin: 0; }
-    .observation-details { font-size: .75rem; color: var(--muted); }
-    .observation-details[open] { max-height: 25vh; overflow: auto; }
-    .attention-link { display: inline-flex; align-items: center; gap: 8px; color: var(--warning); }
-    .status-icon { flex: none; width: 16px; height: 16px; vertical-align: -.2em; }
-    .coverage, .warnings, .interaction-feedback { margin: 8px 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
-    .coverage { color: var(--warning); }
-    .map-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 4px 0; flex: none; }
-    .map-navigation > * { flex: none; }
-    .map-navigation .control { padding: 4px 8px; }
-    .map-tools { position: relative; }
-    .map-tools > summary { min-height: 44px; padding: 10px 8px; cursor: pointer; }
+      color-scheme:light;
+      --bg:#fffdf8;--bg-canvas:#fffdf8;--surface:#ffffff;--surface-raised:#f2f5f8;
+      --line:#778394;--line-soft:#dce1e6;--text:#17212f;--muted:#4f5b6c;
+      --main-rail:#202124;--branch-red:#e32017;--branch-blue:#003688;--branch-green:#00782a;
+      --branch-yellow:#ffd300;--branch-cyan:#0098d4;--branch-magenta:#9b0056;
+      --accent:#005bbb;--accent-soft:#e9f1fb;--success:#176b38;--warning:#8a4b00;
+      --danger:#b42318;--unknown:#4f5b6c;--focus:#005bbb;--keyline:#4f5b6c;
+   }
+    * {box-sizing:border-box;}
+    html, body {margin:0;min-width:0;min-height:100%;background:var(--bg);color:var(--text);}
+    html {container-type:inline-size;container-name:dock;}
+    body {font:.875rem/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;-webkit-font-smoothing:antialiased;}
+    button, input {font:inherit;color:inherit;}
+    button {min-height:44px;padding:8px 10px;border:1px solid transparent;background:transparent;text-align:left;cursor:pointer;touch-action:manipulation;}
+    button:hover {background:var(--surface-raised);}
+    button:active {background:var(--accent-soft);}
+    button:disabled {cursor:wait;color:var(--muted);}
+    button:focus-visible, a:focus-visible, input:focus-visible, .worktree-cluster:focus-visible {outline:3px solid var(--focus);outline-offset:2px;}
+    [aria-current="true"] {outline:2px solid var(--focus);outline-offset:2px;}
+    [hidden] {display:none !important;}
+    ::selection {background:var(--accent-soft);color:var(--text);}
+    .skip-link {position:fixed;z-index:20;top:8px;left:8px;padding:8px 12px;transform:translateY(-160%);background:var(--text);color:var(--surface);}
+    .skip-link:focus {transform:translateY(0);}
+    .shell {width:min(1440px, 100%);height:100dvh;margin:0 auto;padding:8px 16px;display:flex;flex-direction:column;}
+    #dock-main, .map-frame {flex:1;min-height:0;display:flex;flex-direction:column;}
+    .masthead {display:flex;flex:none;align-items:flex-start;justify-content:space-between;gap:12px;margin:0;}
+    .masthead-actions {display:flex;align-items:center;gap:8px;}
+    .connection, .task-inventory, .subhead, .meta {margin:0;color:var(--muted);font-size:.75rem;}
+    .connection {color:var(--success);} .connection.offline {color:var(--warning);}
+    .refresh, .control {border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+    .map-frame {min-width:0;}
+    h1 {margin:8px 0 0;font-size:1rem;line-height:1.25;font-weight:700;letter-spacing:-.02em;}
+    .attention-list {display:flex;flex-wrap:wrap;gap:4px 8px;max-height:22vh;overflow:auto;}
+    .attention-summary summary, .edge-wayfinding summary, .observation-details summary {cursor:pointer;min-height:32px;padding:4px 0;}
+    .attention-summary {flex:none;margin:0;}
+    .observation-details {font-size:.75rem;color:var(--muted);}
+    .observation-details[open] {max-height:25vh;overflow:auto;}
+    .attention-link {display:inline-flex;align-items:center;gap:8px;color:var(--warning);}
+    .status-icon {flex:none;width:16px;height:16px;vertical-align:-.2em;}
+    .coverage, .warnings, .interaction-feedback {margin:8px 0;color:var(--muted);font-size:.75rem;overflow-wrap:anywhere;}
+    .coverage {color:var(--warning);}
+    .map-navigation {display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:4px 0;flex:none;}
+    .map-navigation > * {flex:none;}
+    .map-navigation .control {padding:4px 8px;}
+    .map-tools {position:relative;}
+    .map-tools > summary {min-height:44px;padding:10px 8px;cursor:pointer;}
     .map-tools-panel{position:absolute;z-index:20;right:0;top:100%;width:300px;max-width:calc(100vw - 32px);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
-    .map-tools-panel > * { margin: 4px 0; }
-    .pan-controls { display: inline-flex; align-items: center; gap: 4px; }
-    .zoom-controls { display: inline-flex; gap: 4px; }
-    .zoom-controls button { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
-    .pan-label { color: var(--muted); font-size: .75rem; }
-    .branch-index { position: relative; max-width: 100%; }
-    .branch-index summary { min-height: 44px; padding: 10px; cursor: pointer; }
-    .branch-list { display: flex; flex-wrap: wrap; max-height: 220px; overflow: auto; gap: 4px; padding: 4px; }
-    .branch-index[open] { flex-basis: 100%; }
-    .branch-choice { display: inline-flex; align-items: center; gap: 8px; max-width: 320px; }
-    .branch-choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .branch-swatch { width: 28px; height: 10px; flex: none; overflow: visible; }
-    .topology-viewport { position: relative; width: 100%; flex: 1; min-height: 100px; overflow: auto; overscroll-behavior-inline: contain; background: var(--bg-canvas); border-block: 1px solid var(--line-soft); cursor: grab; }
-    .edge-wayfinding { flex: none; font-size: .75rem; border-bottom: 1px solid var(--line-soft); }
-    .edge-list { max-height: 20vh; overflow: auto; }
-    .edge-route { display: flex; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--line-soft); }
-    .edge-destination { font-size: .75rem; overflow-wrap: anywhere; flex: 1 1 160px; }
-    .selection-details { max-height: 35vh; overflow: auto; flex: none; }
-    .map-help { flex: none; max-height: 22vh; overflow: auto; margin: 0; }
-    .map-help summary { min-height: 32px; padding-block: 4px; }
-    .topology-viewport:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
-    .topology-viewport.is-panning { cursor: grabbing; user-select: none; }
-    .topology-surface { position: relative; width: 100%; min-height: 320px; }
-    .topology-world { position: relative; overflow: hidden; min-height: 100px; }
-    .topology-world .topology-surface { position: absolute; left: 16px; top: 16px; transform-origin: 0 0; }
-    .topology-world .limited-world { position: relative; left: 0; top: 0; }
-    [data-overview="true"] :is(.node-label, .ref-label, .boundary-label, .worktree-cluster, .station) { visibility: hidden; }
-    [data-overview="true"] .rail-edge { stroke-width: calc(1.5px / var(--map-scale)); }
-    [data-overview="true"] .rail-keyline { stroke-width: calc(3px / var(--map-scale)); }
-    [data-overview="true"] mask path { stroke-width: calc(4px / var(--map-scale)); stroke-linecap: square; }
-    .overview-markers { position: absolute; inset: 0; pointer-events: none; }
-    .topology-surface[data-overview="true"] { visibility: hidden; }
-    .overview-markers .rail-edge { stroke-width: 3; }
-    .overview-markers .rail-keyline { stroke-width: 6; }
-    .overview-station { position: absolute; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; }
-    .overview-station::before { content: ""; display: block; width: 10px; height: 10px; margin: auto; border: 2px solid var(--rail-color); border-radius: 50%; background: var(--surface); }
-    .overview-station.transfer::before { outline: 2px solid var(--rail-color); outline-offset: 2px; }
-    .overview-station span { position: absolute; bottom: 16px; left: -8px; white-space: nowrap; font-size: 11px; background: var(--bg-canvas); color: var(--text); }
-    .overview-arrival { position: absolute; width: 216px; padding: 10px; border: 1px dashed var(--muted); border-radius: 6px; background: var(--surface); text-align: left; pointer-events: auto; font-size: .75rem; }
-    .overview-arrival strong, .overview-arrival span { display: block; overflow-wrap: anywhere; }
-    .overview-arrival strong { font-size: .875rem; margin-bottom: 4px; }
-    .overview-marker .branch-meta { display: block; overflow-wrap: anywhere; }
-    .overview-marker .overview-passengers { white-space: normal; }
-    .passenger-icon { display: inline-flex; width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; color: var(--muted); flex: none; }
-    .task-heading .passenger-icon { margin-top: 2px; }
-    .subagent-group { margin: 0 0 8px 14px; padding: 0 0 0 10px; border-left: 1px solid var(--line); font-size: 12px; }
-    .subagent-group summary { padding: 6px 0; color: var(--muted); cursor: pointer; }
-    .subagent-group ul { list-style: none; padding: 0; margin: 0; }
-    .subagent-row { padding: 5px 0; overflow-wrap: anywhere; }
-    .subagent-row strong, .subagent-state { display: block; }
-    .subagent-state { color: var(--muted); font-size: 11px; }
-    .overview-marker { position: absolute; z-index: 1; width: 236px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); text-align: left; padding: 8px 10px; pointer-events: auto; font-size: .75rem; }
-    .overview-marker strong { display: block; font-size: .875rem; overflow-wrap: anywhere; }
-    .overview-marker .workspace-risk { display: block; margin: 4px 0 0; }
-    .overview-marker.current { background: var(--accent-soft); border-color: var(--accent); }
-    .map-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 8px; color: var(--muted); font-size: .75rem; }
-    .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-rail { width: 24px; border-top: 2px solid var(--branch-blue); }
-    .legend-stem { width: 24px; border-top: 2px dashed var(--muted); }
-    .legend-commit { width: 10px; height: 10px; border: 2px solid var(--main-rail); border-radius: 50%; }
-    .workspace-choice { display: block; width: 100%; border-top: 1px solid var(--line-soft); }
-    .worktree-name, .worktree-stop .branch-meta { white-space: normal; overflow-wrap: anywhere; }
-    .overview-workspaces { flex: none; max-height: 28vh; overflow: auto; border-bottom: 1px solid var(--line-soft); }
-    .overview-help { margin: 6px 0; font-size: .75rem; color: var(--muted); }
-    .overview-workspace { display: block; width: 100%; border-top: 1px solid var(--line-soft); padding: 8px; }
-    .overview-heading { display: flex; align-items: center; gap: 8px; }
-    .overview-heading strong { overflow-wrap: anywhere; }
-    .overview-workspace .workspace-risk { display: block; padding: 0; }
-    .measurement-world { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; }
-    .metro-connections { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
-    .rail-edge { fill: none; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
-    .rail-keyline { fill: none; stroke: var(--keyline); stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
-    .route-plan { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); font-size: 12px; }
-    .route-plan-title { padding: 3px 0; text-align: left; font-weight: 650; overflow-wrap: anywhere; }
-    .future-route { list-style: none; padding: 0 0 0 10px; margin: 10px 0 6px 5px; }
-    .future-stop { position: relative; padding: 0 0 14px 15px; border-left: 2px dashed var(--muted); overflow-wrap: anywhere; line-height: 1.45; }
-    .future-stop:last-child { border-left-color: transparent; padding-bottom: 0; }
-    .future-stop::before { content: ""; position: absolute; left: -6px; top: 3px; width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; background: var(--surface, white); }
-    .future-stop.observed::before { background: var(--muted); }
-    .plan-state { color: var(--muted); margin: 5px 0; overflow-wrap: anywhere; }
-    .route-plan-list { display: grid; gap: 8px; margin-top: 10px; }
-    .association { fill: none; stroke: var(--muted); stroke-width: 1; }
-    .station { position: absolute; z-index: 2; width: 44px; height: 44px; min-width: 44px; padding: 0; border: 0; transform: translate(-50%, -50%); background: transparent; border-radius: 50%; }
-    .station:hover { background: var(--accent-soft); }
-    .station-dot { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; transform: translate(-50%, -50%); border: 3px solid var(--rail-color, var(--main-rail)); border-radius: 50%; background: var(--bg-canvas); }
-    .station.light .station-dot { box-shadow: 0 0 0 1px var(--keyline), inset 0 0 0 1px var(--keyline); }
-    .station.boundary .station-dot { border-style: double; }
-    .node-label, .ref-label, .boundary-label { position: absolute; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px; line-height: 1.2; white-space: nowrap; overflow: hidden; font-size: .875rem; }
-    .node-label { font-size: .75rem; }
-    .label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .boundary-label { color: var(--warning); }
-    .worktree-cluster { position: absolute; z-index: 1; padding: 4px 0; border-block: 1px solid var(--line-soft); cursor: auto; }
-    .worktree-stop { display: block; width: 100%; padding: 4px 8px; }
-    .worktree-name { display: block; font-size: .9375rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .branch-meta { display: block; color: var(--muted); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .current-pill { display: inline-block; margin-left: 8px; color: var(--accent); font-size: .75rem; font-weight: 650; }
-    .workspace-branch.current .worktree-stop { background: var(--accent-soft); }
-    .workspace-facts { padding: 2px 8px 8px; color: var(--muted); font-size: .75rem; display: flex; flex-wrap: wrap; gap: 0 8px; }
-    .fact-line { margin: 2px 0; overflow-wrap: anywhere; }
-    .fact-line.attention { color: var(--warning); } .fact-line.unknown { color: var(--unknown); }
-    .fact-line .status-icon { margin-right: 6px; }
-    .agent-roster { display: grid; }
-    .task-node { display: block; width: 100%; border-top: 1px solid var(--line-soft); padding: 8px; }
-    a.task-node { min-height: 44px; color: inherit; text-decoration: none; cursor: pointer; }
-    a.task-node:hover { background: var(--surface-raised); }
-    a.task-node:active { background: var(--accent-soft); }
-    .task-title, .conversation-title { display: block; font-size: .875rem; font-weight: 600; overflow-wrap: anywhere; }
-    .task-heading { display: flex; align-items: start; gap: 8px; }
-    .task-heading .task-title { flex: 1; min-width: 0; }
-    .task-onward { flex: none; font-size: .75rem; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-    [data-navigable="false"] .task-onward { color: var(--muted); text-decoration: none; }
-    .conversation-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; font-size: .75rem; color: var(--muted); }
-    .conversation-state { color: var(--muted); } .active .conversation-state { color: var(--accent); }
-    .conversation-context, .conversation-audit { display: none; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
-    html[data-density="full"] .conversation-context, html[data-density="full"] .conversation-audit { display: block; }
-    .historical-conversations, .task-disclosure { width: 100%; color: var(--accent); font-size: .875rem; }
-    .unlinked { margin: 4px 8px; color: var(--muted); font-size: .75rem; }
-    .empty { margin: 0; padding: 16px; color: var(--muted); }
-    .limited-world .worktree-cluster { position: relative; margin: 16px; }
-    .selection-details { padding: 16px 0; border-top: 1px solid var(--line); }
-    .selection-details h2 { display: inline; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-    .dismiss-details { float: right; }
-    .detail-grid { display: grid; grid-template-columns: minmax(100px, .4fr) minmax(0, 1.6fr); gap: 6px 12px; margin: 14px 0 0; }
-    .detail-grid dt { color: var(--muted); } .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
-    .detail-grid code { font: .75rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
-    .copy-hash { margin-top: 12px; border: 1px solid var(--line); border-radius: 6px; }
-    .map-help { color: var(--muted); font-size: .75rem; }
-    .map-help summary { cursor: pointer; }
-    @container dock (max-width: 619px) {
-      .shell { padding: 8px; }
-      .masthead { align-items: flex-start; }
-      .masthead-actions { gap: 4px; justify-content: flex-end; }
-      .connection { flex-basis: 100%; text-align: right; }
-      .detail-grid { grid-template-columns: minmax(0, 1fr); }
-      .detail-grid dd { margin-bottom: 6px; }
-    }
-    @media (prefers-reduced-motion: reduce) { .topology-viewport { scroll-behavior: auto; } }
-    .workspace-risk { font-size: .75rem; padding: 0 8px; color: var(--warning); }
-    .worktree-cluster { border-top: 4px solid var(--accent); background: var(--bg-canvas); }
-    .platform-heading { display:flex; justify-content:space-between; gap:8px; margin:0; padding:4px 8px; font-size:.75rem; color:var(--muted); }
-    .passenger-count { font-weight:700; color:var(--text); }
-    .platform-origin { display:block; width:100%; padding:4px 8px; font-size:.75rem; color:var(--accent); }
-    .workspace-details { padding:4px 8px; color:var(--muted); font-size:.75rem; }
-    .workspace-details summary { cursor:pointer; min-height:32px; }
-    .workspace-risk:empty { display:none; }
-    .platform-occupancy:empty { display:none; }
-    .transfer .station-dot { width:24px; height:24px; border:5px double var(--rail-color); }
-    .future-connection { fill:none; stroke:var(--muted); stroke-width:2; stroke-dasharray:7 6; }
-    .arrival-zone { position:absolute; border-left:2px dashed var(--muted); padding:0 12px; color:var(--muted); font-size:.75rem; }
-    .arrival-zone strong { display:block; font-size:.875rem; color:var(--text); }
-    .arrival-zone::before { content:""; position:absolute; width:12px; height:12px; left:-7px; top:-6px; border:2px solid var(--muted); border-radius:50%; background:var(--bg-canvas); }
-    .journey-context { flex:none; border-block:1px solid var(--line-soft); padding:6px 0; max-height:28vh; overflow:auto; }
+    .map-tools-panel > * {margin:4px 0;}
+    .pan-controls {display:inline-flex;align-items:center;gap:4px;}
+    .zoom-controls {display:inline-flex;gap:4px;}
+    .zoom-controls button {min-width:44px;text-align:center;font-variant-numeric:tabular-nums;}
+    .pan-label {color:var(--muted);font-size:.75rem;}
+    .branch-index {position:relative;max-width:100%;}
+    .branch-index summary {min-height:44px;padding:10px;cursor:pointer;}
+    .branch-list {display:flex;flex-wrap:wrap;max-height:220px;overflow:auto;gap:4px;padding:4px;}
+    .branch-index[open] {flex-basis:100%;}
+    .branch-choice {display:inline-flex;align-items:center;gap:8px;max-width:320px;}
+    .branch-choice span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .branch-swatch {width:28px;height:10px;flex:none;overflow:visible;}
+    .topology-viewport {position:relative;width:100%;flex:1;min-height:100px;overflow:auto;overscroll-behavior-inline:contain;background:var(--bg-canvas);border-block:1px solid var(--line-soft);cursor:grab;}
+    .edge-wayfinding {flex:none;font-size:.75rem;border-bottom:1px solid var(--line-soft);}
+    .edge-list {max-height:20vh;overflow:auto;}
+    .edge-route {display:flex;flex-wrap:wrap;align-items:center;border-top:1px solid var(--line-soft);}
+    .edge-destination {font-size:.75rem;overflow-wrap:anywhere;flex:1 1 160px;}
+    .selection-details {max-height:35vh;overflow:auto;flex:none;}
+    .map-help {flex:none;max-height:22vh;overflow:auto;margin:0;}
+    .map-help summary {min-height:32px;padding-block:4px;}
+    .topology-viewport:focus-visible {outline:3px solid var(--focus);outline-offset:-3px;}
+    .topology-viewport.is-panning {cursor:grabbing;user-select:none;}
+    .topology-surface {position:relative;width:100%;min-height:320px;}
+    .topology-world {position:relative;overflow:hidden;min-height:100px;}
+    .topology-world .topology-surface {position:absolute;left:16px;top:16px;transform-origin:0 0;}
+    .topology-world .limited-world {position:relative;left:0;top:0;}
+    .overview-markers {position:absolute;inset:0;pointer-events:none;}
+    .passenger-icon {display:inline-flex;width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:var(--muted);flex:none;}
+    .task-heading .passenger-icon {margin-top:2px;}
+    .subagent-group {margin:0 0 8px 14px;padding:0 0 0 10px;border-left:1px solid var(--line);font-size:12px;}
+    .subagent-group summary {padding:6px 0;color:var(--muted);cursor:pointer;}
+    .subagent-group ul {list-style:none;padding:0;margin:0;}
+    .subagent-row {padding:5px 0;overflow-wrap:anywhere;}
+    .subagent-row strong, .subagent-state {display:block;}
+    .subagent-state {color:var(--muted);font-size:11px;}
+    .map-legend {display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0 8px;color:var(--muted);font-size:.75rem;}
+    .map-legend span {display:inline-flex;align-items:center;gap:6px;}
+    .legend-rail {width:24px;border-top:2px solid var(--branch-blue);}
+    .legend-stem {width:24px;border-top:2px dashed var(--muted);}
+    .legend-commit {width:10px;height:10px;border:2px solid var(--main-rail);border-radius:50%;}
+    .workspace-choice {display:block;width:100%;border-top:1px solid var(--line-soft);}
+    .worktree-name, .worktree-stop .branch-meta {white-space:normal;overflow-wrap:anywhere;}
+    .overview-workspaces {flex:none;max-height:28vh;overflow:auto;border-bottom:1px solid var(--line-soft);}
+    .overview-help {margin:6px 0;font-size:.75rem;color:var(--muted);}
+    .overview-workspace {display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
+    .overview-heading {display:flex;align-items:center;gap:8px;}
+    .overview-heading strong {overflow-wrap:anywhere;}
+    .overview-workspace .workspace-risk {display:block;padding:0;}
+    .measurement-world {position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;}
+    .metro-connections {position:absolute;top:0;left:0;pointer-events:none;overflow:visible;}
+    .rail-edge {fill:none;stroke-width:5;stroke-linejoin:round;stroke-linecap:round;}
+    .rail-keyline {fill:none;stroke:var(--keyline);stroke-width:8;stroke-linejoin:round;stroke-linecap:round;}
+    .route-plan {margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--line);font-size:12px;}
+    .route-plan-title {padding:3px 0;text-align:left;font-weight:650;overflow-wrap:anywhere;}
+    .future-route {list-style:none;padding:0 0 0 10px;margin:10px 0 6px 5px;}
+    .future-stop {position:relative;padding:0 0 14px 15px;border-left:2px dashed var(--muted);overflow-wrap:anywhere;line-height:1.45;}
+    .future-stop:last-child {border-left-color:transparent;padding-bottom:0;}
+    .future-stop::before {content:"";position:absolute;left:-6px;top:3px;width:10px;height:10px;border:2px solid var(--muted);border-radius:50%;background:var(--surface, white);}
+    .future-stop.observed::before {background:var(--muted);}
+    .plan-state {color:var(--muted);margin:5px 0;overflow-wrap:anywhere;}
+    .route-plan-list {display:grid;gap:8px;margin-top:10px;}
+    .association {fill:none;stroke:var(--muted);stroke-width:1;}
+    .worktree-cluster {position:absolute;z-index:1;padding:4px 0;border-block:1px solid var(--line-soft);cursor:auto;}
+    .worktree-name {display:block;font-size:.9375rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .branch-meta {display:block;color:var(--muted);font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .current-pill {display:inline-block;margin-left:8px;color:var(--accent);font-size:.75rem;font-weight:650;}
+    .workspace-facts {padding:2px 8px 8px;color:var(--muted);font-size:.75rem;display:flex;flex-wrap:wrap;gap:0 8px;}
+    .fact-line {margin:2px 0;overflow-wrap:anywhere;}
+    .fact-line.attention {color:var(--warning);} .fact-line.unknown {color:var(--unknown);}
+    .fact-line .status-icon {margin-right:6px;}
+    .agent-roster {display:grid;}
+    .task-node {display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
+    a.task-node {min-height:44px;color:inherit;text-decoration:none;cursor:pointer;}
+    a.task-node:hover {background:var(--surface-raised);}
+    a.task-node:active {background:var(--accent-soft);}
+    .task-title, .conversation-title {display:block;font-size:.875rem;font-weight:600;overflow-wrap:anywhere;}
+    .task-heading {display:flex;align-items:start;gap:8px;}
+    .task-heading .task-title {flex:1;min-width:0;}
+    .task-onward {flex:none;font-size:.75rem;color:var(--accent);text-decoration:underline;text-underline-offset:3px;}
+    [data-navigable="false"] .task-onward {color:var(--muted);text-decoration:none;}
+    .conversation-facts {display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:3px;font-size:.75rem;color:var(--muted);}
+    .conversation-state {color:var(--muted);} .active .conversation-state {color:var(--accent);}
+    .conversation-context, .conversation-audit {display:none;font-size:.75rem;color:var(--muted);overflow-wrap:anywhere;}
+    html[data-density="full"] .conversation-context, html[data-density="full"] .conversation-audit {display:block;}
+    .historical-conversations, .task-disclosure {width:100%;color:var(--accent);font-size:.875rem;}
+    .unlinked {margin:4px 8px;color:var(--muted);font-size:.75rem;}
+    .empty {margin:0;padding:16px;color:var(--muted);}
+    .limited-world .worktree-cluster {position:relative;margin:16px;}
+    .selection-details {padding:16px 0;border-top:1px solid var(--line);}
+    .selection-details h2 {display:inline;margin:0;font-size:1rem;overflow-wrap:anywhere;}
+    .dismiss-details {float:right;}
+    .detail-grid {display:grid;grid-template-columns:minmax(100px, .4fr) minmax(0, 1.6fr);gap:6px 12px;margin:14px 0 0;}
+    .detail-grid dt {color:var(--muted);} .detail-grid dd {margin:0;overflow-wrap:anywhere;}
+    .detail-grid code {font:.75rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;}
+    .copy-hash {margin-top:12px;border:1px solid var(--line);border-radius:6px;}
+    .map-help {color:var(--muted);font-size:.75rem;}
+    .map-help summary {cursor:pointer;}
+    @container dock (max-width:619px) {
+      .shell {padding:8px;}
+      .masthead {align-items:flex-start;}
+      .masthead-actions {gap:4px;justify-content:flex-end;}
+      .connection {flex-basis:100%;text-align:right;}
+      .detail-grid {grid-template-columns:minmax(0, 1fr);}
+      .detail-grid dd {margin-bottom:6px;}
+   }
+    @media (prefers-reduced-motion:reduce) {.topology-viewport {scroll-behavior:auto;}}
+    .workspace-risk {font-size:.75rem;padding:0 8px;color:var(--warning);}
+    .worktree-cluster {border-top:4px solid var(--accent);background:var(--bg-canvas);}
+    .platform-heading {display:flex;justify-content:space-between;gap:8px;margin:0;padding:4px 8px;font-size:.75rem;color:var(--muted);}
+    .passenger-count {font-weight:700;color:var(--text);}
+    .platform-origin {display:block;width:100%;padding:4px 8px;font-size:.75rem;color:var(--accent);}
+    .workspace-details {padding:4px 8px;color:var(--muted);font-size:.75rem;}
+    .workspace-details summary {cursor:pointer;min-height:32px;}
+    .workspace-risk:empty {display:none;}
+    .platform-occupancy:empty {display:none;}
+    .future-connection {fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:7 6;}
+    .arrival-zone {position:absolute;border-left:2px dashed var(--muted);padding:0 12px;color:var(--muted);font-size:.75rem;}
+    .arrival-zone strong {display:block;font-size:.875rem;color:var(--text);}
+    .arrival-zone::before {content:"";position:absolute;width:12px;height:12px;left:-7px;top:-6px;border:2px solid var(--muted);border-radius:50%;background:var(--bg-canvas);}
+    .journey-context {flex:none;border-block:1px solid var(--line-soft);padding:6px 0;max-height:28vh;overflow:auto;}
     .journey-heading{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:.75rem;}
-    .journey-heading strong { overflow-wrap:anywhere; }
-    .journey-heading > [data-journey-action="focus"] { margin-left:auto; }
-    .passenger-compact { display:none; }
-    .journey-stops { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
-    .journey-stop { font-size:.75rem; color:var(--accent); padding:4px 8px; }
-    .journey-unknown { font-size:.75rem; color:var(--muted); padding:4px 8px; }
-    .arrival-source { cursor:pointer; }
-    .arrival-workspace { display:block; width:100%; }
-    .worktree-cluster[data-journey-muted="true"] { opacity:.55; }
-    .worktree-cluster[data-journey-muted="true"]:is(:hover,:focus-within) { opacity:1; }
-    .worktree-cluster[data-journey-muted="true"] > :not(.worktree-identity):not(.platform-heading:first-child) { display:none; }
-    .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) { display:none; }
-    @container dock (max-width: 760px) {
+    .journey-heading strong {overflow-wrap:anywhere;}
+    .journey-heading > [data-journey-action="focus"] {margin-left:auto;}
+    .passenger-compact {display:none;}
+    .journey-stops {display:flex;flex-wrap:wrap;align-items:center;gap:4px;}
+    .journey-stop {font-size:.75rem;color:var(--accent);padding:4px 8px;}
+    .journey-unknown {font-size:.75rem;color:var(--muted);padding:4px 8px;}
+    .arrival-source {cursor:pointer;}
+    .arrival-workspace {display:block;width:100%;}
+    .worktree-cluster[data-journey-muted="true"] {opacity:.55;}
+    .worktree-cluster[data-journey-muted="true"]:is(:hover,:focus-within) {opacity:1;}
+    .worktree-cluster[data-journey-muted="true"] > :not(.worktree-identity):not(.platform-heading:first-child) {display:none;}
+    .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) {display:none;}
+    @container dock (max-width:760px) {
       .map-navigation{position:relative;}.map-tools{position:static;}
-      .selection-details { max-height:32vh; }
-      .journey-heading > .journey-passengers { display:none; }
-      .attention-summary[data-empty="true"] { display:none; }
-      .zoom-controls { flex-wrap:wrap; }
-      .journey-context { max-height:22vh; padding:4px 0; }
-      .journey-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; }
+      .selection-details {max-height:32vh;}
+      .journey-heading > .journey-passengers {display:none;}
+      .attention-summary[data-empty="true"] {display:none;}
+      .zoom-controls {flex-wrap:wrap;}
+      .journey-context {max-height:22vh;padding:4px 0;}
+      .journey-heading {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;}
       .journey-heading>strong{grid-column:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-      .journey-heading > .journey-passengers { grid-column:1; }
+      .journey-heading > .journey-passengers {grid-column:1;}
       .journey-heading>[data-journey-action="focus"]{grid-column:2;grid-row:1/3;margin:0;}
-      .journey-passengers .passenger-full { display:none; }
-      .journey-passengers .passenger-compact { display:inline; }
-      .journey-stops { flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-inline:contain; }
-      .journey-stops > * { flex:none; white-space:nowrap; }
-      .journey-stop, .journey-unknown { padding-inline:6px; }
-      .worktree-cluster > .workspace-risk { margin-block:6px; }
-      .map-legend { margin-bottom:4px; gap:4px 12px; }
-    }
+      .journey-passengers .passenger-full {display:none;}
+      .journey-passengers .passenger-compact {display:inline;}
+      .journey-stops {flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-inline:contain;}
+      .journey-stops > * {flex:none;white-space:nowrap;}
+      .journey-stop, .journey-unknown {padding-inline:6px;}
+      .worktree-cluster > .workspace-risk {margin-block:6px;}
+      .map-legend {margin-bottom:4px;gap:4px 12px;}
+   }
     .route-map .rail-edge{stroke-width:4;}
     .route-platform{position:absolute;text-align:left;padding:3px 8px;min-height:52px;border:0;border-radius:0;background:var(--bg-canvas);}
     .route-platform strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.875rem;}
     .platform-meta{display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--muted);white-space:nowrap;}
+    .platform-directory,.platform-state,.platform-target{display:block;font-size:.75rem;line-height:1.42;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .platform-directory{display:none;}
+    .route-platform[data-retained="true"]{border-left:1px solid var(--border);}
+    .route-platform[data-retained="true"] strong{font-weight:500;color:var(--muted);}
     .route-platform.current{background:var(--accent-soft);box-shadow:inset 0 -2px var(--accent);}
-    .platform-current{position:absolute;bottom:100%;left:8px;color:var(--accent);font-size:10px;}
+    .platform-current{position:absolute;bottom:100%;left:8px;color:var(--accent);font-size:12px;}
     .route-platform[data-journey-muted="true"]{opacity:.55;}
     .route-station{position:absolute;width:24px;height:24px;min-height:24px;padding:0;border:0;background:transparent;transform:translate(-50%,-50%);}
     .route-station::before{content:"";display:block;width:4px;height:4px;margin:auto;border-radius:50%;background:var(--rail-color);}
@@ -250,7 +222,7 @@
     .route-station.transfer::before{outline:2px solid var(--rail-color);outline-offset:2px;}
     .junction-label{position:absolute;left:14px;bottom:18px;font-size:10px;white-space:nowrap;color:var(--text);background:var(--bg-canvas);}
     .map-direction,.line-name{position:absolute;font-size:.75rem;color:var(--muted);white-space:nowrap;}
-    .line-name{font-weight:700;color:var(--text);}
+    .line-name{font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;}
     .workspace-inspector{position:relative;border:0;max-height:none!important;overflow:visible!important;padding:0;}
     .selection-details{padding:8px 0;overscroll-behavior:contain;}
     .selection-details .detail-grid:empty{display:none;}
@@ -288,7 +260,7 @@
             <button class="control" id="zoom-in" type="button" aria-label="Zoom map in" disabled>+</button>
             <button class="control" id="zoom-fit" type="button" disabled>Full map</button>
           </div>
-          <button class="control" id="locate-current" type="button" aria-label="Locate current workspace" disabled>Locate current</button>
+          <button class="control" id="locate-current" type="button" aria-label="Locate map source workspace" title="Locate map source workspace" disabled>Locate</button>
           <details class="map-tools" id="map-tools"><summary id="map-tools-trigger">More</summary><div class="map-tools-panel">
           <button class="control" id="overview-toggle" type="button" aria-controls="overview-workspaces" aria-expanded="false" hidden>Workspaces</button>
           <div class="pan-controls" role="group" aria-label="Pan repository topology">
@@ -311,7 +283,7 @@
         <p class="interaction-feedback" id="interaction-feedback" role="status" aria-live="polite" hidden></p>
         <details class="map-help" id="route-plan-panel" hidden><summary>Route plans</summary><div class="route-plan-list" id="route-plan-list"></div></details>
         <details class="map-help"><summary>Map key and observation rules</summary>
-          <p>Start at your current workspace. Full map shows named locations; expand shared locations to choose a workspace. Drag to pan. Map keys: + / − / 0 (full map).</p>
+          <p>Map source is the directory this viewer opened from, not a verified Agent execution location. Select a platform to inspect it. Drag to pan; + / − / 0 zoom.</p>
           <p>Journey endpoints stay above the map while you inspect a station. Focus journey locates its endpoints; long routes retain readable endpoint links. Select a planned arrival to find its source workspaces.</p>
           <p>Stations are commits. Colored rails follow verified parent relationships; thin attachment stems identify workspaces and references. Dashed routes and hollow stops show future plans, never completed Git operations. A gap at a crossing means no connection. History is ordered by ancestry, not equal calendar intervals.</p>
           <p>Double-ring stations mark observed forks or merges. Worktree platforms attach at HEAD; passengers are existing unarchived chats, counted once including their Agent. Finished, idle and unloaded chats remain passengers. Common ancestor means current shared history, not a recorded creation point.</p>
@@ -515,19 +487,22 @@
         count.title = count.textContent; count.children[1].className = "passenger-full";
         count.append(element("span", "passenger-compact", passengers.state === "unknown" ? "Passengers unknown · " + passengers.observedCount + " observed" : passengers.observedCount + " passengers · observed"));
         const plans = (value.route_plans || []).filter(p => p.worktree_id === lane.worktree_id && !p.abandoned);
-        const signature = JSON.stringify([lane.workspace_path,lane.branch,lane.head,lane.relationship?.fork_point,plans,count.textContent,value.warnings,journeyFocused]);
+        const origin=value.workspace_facts?.find(f=>f.worktree_id===lane.worktree_id)?.origin;
+        const signature = JSON.stringify([lane.workspace_path,lane.branch,lane.head,lane.relationship?.fork_point,origin,plans,count.textContent,value.warnings,journeyFocused]);
         if (panel.dataset.signature !== signature) {
           const focused = [...panel.querySelectorAll("[data-journey-action]")].find(n => n === document.activeElement)?.dataset.journeyAction;
           const scroll = panel.scrollTop, endpointScroll = panel.querySelector(".journey-stops")?.scrollLeft || 0;
           const heading = element("div", "journey-heading");
-          const name = element("strong", "", worktreeDisplayName(lane.workspace_path)); name.title = lane.workspace_path;
+          const name = element("strong", "", branchName(lane)+" · "+worktreeDisplayName(lane.workspace_path)); name.title = lane.workspace_path;
           heading.append(name,count);
           const stops = element("nav", "journey-stops"); stops.setAttribute("aria-label", "Journey endpoints");
           const add = (id, text, action, host = stops) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; host.append(control); };
-          const ancestor = lane.relationship?.fork_point?.commit;
-          if (ancestor) add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
+          const creation=origin?.recorded_creation;
+          const ancestor = origin?.common_ancestor?.oid || lane.relationship?.fork_point?.commit;
+          if(creation?.kind==="recorded_creation"&&safeHash(creation.oid))add("creation","Created at · "+creation.oid.slice(0,8),()=>{locateObject("commit:"+creation.oid);showCommit(creation.oid);});
+          else if (ancestor) add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
           else stops.append(element("span", "journey-unknown", "Origin not recorded"));
-          if (safeHash(lane.head) && !/^0+$/.test(lane.head)) add("head", "Now · " + lane.head.slice(0,8), () => { locateWorkspace(lane.worktree_id); showCommit(lane.head); });
+          if (safeHash(lane.head) && !/^0+$/.test(lane.head)) add("head", "HEAD · " + lane.head.slice(0,8), () => { locateWorkspace(lane.worktree_id); showCommit(lane.head); });
           else stops.append(element("span", "journey-unknown", "No commit yet"));
           for (const plan of plans) {
             const missing = value.warnings.some(w => w.code === "planned_target_unavailable" && w.subject_id === plan.route_id);
@@ -606,7 +581,6 @@
         return /^(refs\/heads\/)?(main|master)$/.test(ref.ref_name) ? { token: "main-rail", pattern: "solid" }
           : { token: ref.color.colorToken, pattern: ref.color.pattern };
       }
-      function strokePattern(pattern) { return pattern === "long-dash" ? "16 6" : pattern === "dot" ? "2 7" : ""; }
       function swatch(identity) {
         const node = svg("svg", { class: "branch-swatch", viewBox: "0 0 28 10", "aria-hidden": "true" });
         if (identity.token === "branch-yellow") node.append(svg("path", { d: "M2 5 H26", class: "rail-keyline" }));
@@ -646,39 +620,6 @@
           path.dataset.routeId = route.route_id; root.append(path);
         }
         return root;
-      }
-      function createStation(node, layout, value) {
-        const identity = laneIdentity(layout.lanes.find(lane => lane.id === node.lane_id));
-        const commit = value.topology.commits.find(commit => commit.oid === node.id);
-        const label = commit ? (commit.subject || "Commit") + " · " + node.id : "History boundary · " + node.id;
-        const control = graphButton("station " + node.kind + (identity.token === "branch-yellow" ? " light" : ""), label, () => showCommit(node.id));
-        control.dataset.commitOid = node.id; control.dataset.objectId = "commit:" + node.id;
-        control.title = label; position(control, node); control.style.setProperty("--rail-color", "var(--" + identity.token + ")");
-        const dot = element("span", "station-dot"); dot.dataset.stationDot = ""; control.append(dot);
-        const caption = graphButton("node-label", label, () => showCommit(node.id));
-        caption.dataset.objectId = "commit:" + node.id; caption.title = label;
-        caption.append(element("span", "label-text", node.kind === "boundary" ? "Boundary" : node.id.slice(0, 8)));
-        if (node.transfer) {
-          control.className += " transfer";
-          control.title = (node.transfer === "merge" ? "Merge station" : "Fork station") + " · " + label;
-          caption.title = control.title;
-          control.setAttribute("aria-label", control.title);
-          caption.querySelector(".label-text").textContent = (node.transfer === "merge" ? "Merge · " : "Fork · ") + node.id.slice(0,8);
-        }
-        position(caption, node.label_rect); return [control, caption];
-      }
-      function createRef(ref) {
-        const fullLabel = ref.display_name + " · " + ref.ref_kind + " · " + ref.oid;
-        const control = graphButton("ref-label", fullLabel, () => { locateObject("commit:" + ref.oid); showCommit(ref.oid); });
-        control.dataset.objectId = ref.id; control.dataset.refName = ref.ref_name; control.title = fullLabel;
-        control.append(swatch(refIdentity(ref)), element("span", "label-text", ref.display_name));
-        position(control, ref); return control;
-      }
-      function createBoundary(boundary) {
-        const label = (BOUNDARIES[boundary.reason] || "History boundary") + " · " + boundary.oid.slice(0, 8);
-        const control = graphButton("boundary-label", label, () => showCommit(boundary.oid));
-        control.dataset.objectId = "boundary:" + boundary.id; control.title = label;
-        control.append(warningIcon(true), element("span", "label-text", label)); position(control, boundary); return control;
       }
       function observationLabel(value) {
         const timestamp = value.task_observation?.observed_at, ms = instant(timestamp);
@@ -743,7 +684,7 @@
         workspace.dataset.objectId = cluster.dataset.objectId; workspace.title = identityLabel;
         const name = element("span", "worktree-name", lane.workspace_path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) || displayName);
         const branch = element("span", "branch-meta", "Branch · " + (lane.branch || "detached HEAD"));
-        if (lane.worktree_id === value.current_worktree_id) branch.append(element("span", "current-pill", "Current"));
+        if (lane.worktree_id === value.current_worktree_id) branch.append(element("span", "current-pill", "Map source"));
         workspace.append(name, branch);
         // The stable ID disambiguates repeated directory basenames; full path is accessible.
         branch.append(element("span", "workspace-short-id", " · " + lane.worktree_id.slice(-8)));
@@ -768,7 +709,16 @@
         // Active identities precede verbose observations; every factual reason remains in the card.
         const details = element("details", "workspace-details");
         const summary = element("summary", "", "Workspace details"); summary.dataset.objectId = "facts:" + lane.worktree_id;
-        details.append(summary, element("p", "", "Creation point not recorded"), factsNode);
+        const creation=facts?.origin?.recorded_creation;
+        details.append(summary, element("p", "", creation?.kind==="recorded_creation"&&safeHash(creation.oid)?"Created at · "+creation.oid+" · "+(creation.source||"Recorded event"):"Creation not recorded"), factsNode);
+        for(const start of facts?.origin?.plan_starts || (value.route_plans||[]).filter(p=>p.worktree_id===lane.worktree_id).map(p=>({oid:p.start_commit,source:p.source,event_at:null}))) {
+          details.append(element("p","fact-line","Plan start · "+start.oid+" · "+(start.source||"Recorded plan")+(start.event_at?" · "+start.event_at:"")));
+        }
+        if(facts?.origin?.common_ancestor?.oid||ancestor)details.append(element("p","fact-line","Common ancestor · "+(facts?.origin?.common_ancestor?.oid||ancestor)+" · current shared history"));
+        for(const b of facts?.bindings||[]) {
+          const name=id=>worktreeDisplayName(value.lanes.find(w=>w.worktree_id===id)?.workspace_path||id);
+          details.append(element("p","fact-line","Task "+b.task_id+" · association "+(b.from_worktree_id?name(b.from_worktree_id)+" → ":"")+name(b.worktree_id)+" · observed "+b.observed_at));
+        }
         details.open = expandedFacts.has(lane.worktree_id);
         details.addEventListener("toggle", () => {
           if (details.open === expandedFacts.has(lane.worktree_id)) return;
@@ -883,6 +833,22 @@
         byId("zoom-in").disabled=!layout||mapScale>=2;
         byId("zoom-out").disabled=!layout||mapScale<=.75;
       }
+      function branchName(lane) { return lane.branch || (safeHash(lane.head) && !/^0+$/.test(lane.head) ? "Detached HEAD · " + lane.head.slice(0,8) : "No commit yet"); }
+      function passengerLabel(count, value) {
+        if(count.state!=="unknown")return count.observedCount+" tasks";
+        if(!count.observedCount)return "Task count unconfirmed";
+        return count.observedCount+" seen · "+(tasksConfirmed(value)?"detail incomplete":value.task_observation?.complete?"refresh needed":"list incomplete");
+      }
+      function platformState(rows, primaryId) {
+        const states=rows.map(({lane,facts})=>{
+          const working=facts?.working_state==="dirty"?(lane.relationship?.changed_file_count>0?lane.relationship.changed_file_count+" uncommitted":"Uncommitted changes"):facts?.working_state==="clean"?"Clean":"Working state unknown";
+          const integration=facts?.integration==="included"?"HEAD in "+(facts.target_ref?.replace(/^refs\/heads\//,"")||"target"):facts?.integration==="ahead"?"Not in "+(facts.target_ref?.replace(/^refs\/heads\//,"")||"target"):facts?.integration==="terminal"?"Mainline":"Inclusion unknown";
+          const publication=facts?.upstream==="local_only"?"Unpushed":facts?.upstream==="published"?"Published":"Publication unknown";
+          return {working,integration,publication};
+        });
+        const s=states[Math.max(0,rows.findIndex(r=>r.lane.worktree_id===primaryId))];
+        return {short:[s.working,s.publication==="Unpushed"?s.publication:s.integration].join(" · "),full:states.map((s,i)=>worktreeDisplayName(rows[i].lane.workspace_path)+": "+[s.working,s.integration,s.publication].join(" · ")).join("\n")};
+      }
       function renderPlatforms(records,value,layout) {
         const nodes=[], groups=new Map();
         for(const record of records) {
@@ -895,7 +861,7 @@
         for(const [key,rows] of groups) {
           const current=rows.some(r=>r.lane.worktree_id===value.current_worktree_id), first=rows[0];
           const stop=graphButton("route-platform"+(current?" current":""), "View workspace "+rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")+" · "+r.lane.worktree_id).join(", "),()=>{
-            if(rows.length===1) selectLane(first.lane);
+            if(rows.length===1) zoomWorkspace(first.lane.worktree_id);
             else showWorkspaceChoices(key,(byId("relationship-map").overviewRows||[]).filter(r=>rows.some(row=>row.lane.worktree_id===r.lane.worktree_id)));
           });
           stop.dataset.worktreeId=first.lane.worktree_id; stop.dataset.objectId="workspace:"+first.lane.worktree_id;
@@ -903,28 +869,37 @@
           stop.title=rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")).join("\n");
           position(stop,first.a);stop.style.width=first.a.width+"px";
           const named=rows.find(r=>r.lane.worktree_id===value.current_worktree_id)||first;
-          const name=named.lane.workspace_path.replaceAll("\\","/").split("/").filter(Boolean).at(-1)+(rows.length>1?" +"+(rows.length-1):"");
+          const name=branchName(named.lane)+(rows.length>1?" +"+(rows.length-1):"");
           stop.append(element("strong","",name));
+          stop.append(element("span","platform-directory",worktreeDisplayName(named.lane.workspace_path)));
           const label=element("span","platform-meta");
           const full=element("span"), count=populatePassengers(full,{chats:rows.flatMap(r=>uniqueTasks(r.lane))},value);
           label.title=full.textContent;
-          label.append(passengerIcon(),element("span","",count.state==="unknown"?count.observedCount+" observed · unknown":count.observedCount+" passengers"));
-          if(current)stop.append(element("span","platform-current","Current"));
+          label.append(passengerIcon(),element("span","",passengerLabel(count,value)));
+          if(current)stop.append(element("span","platform-current","Map source"));
           stop.dataset.journeyMuted=String(journeyFocused&&!rows.some(r=>r.lane.worktree_id===journeyWorkspaceId));
           if(!layout.nodes.some(n=>n.id===first.a.head_oid))label.textContent="Position unavailable";
           if(rows.some(r=>workspaceAttention(r.lane,r.facts,value).level==="attention")) {label.append(warningIcon());stop.title+=" · Needs attention";}
-          stop.append(label); nodes.push(stop);
+          const state=platformState(rows,named.lane.worktree_id), status=element("span","platform-state",state.short);status.title=state.full;
+          const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&rows.some(r=>r.lane.worktree_id===p.worktree_id));
+          const retained=!current&&count.state==="unattended"&&!plans.length&&rows.every(r=>r.facts?.working_state==="clean"&&r.facts?.integration==="included"&&r.facts?.head_ref_coverage==="protected"&&workspaceAttention(r.lane,r.facts,value).level!=="attention");
+          stop.dataset.retained=String(retained);
+          stop.append(label,status);
+          if(plans.length)stop.append(element("span","platform-target","→ "+[...new Set(plans.map(p=>p.target_ref?.replace(/^refs\/heads\//,"")||"unspecified"))].join(", ")+" · planned"));
+          else if(retained)stop.append(element("span","platform-target","Retained workspace"));
+          stop.title+="\n"+state.full; nodes.push(stop);
         }
         return nodes;
       }
       function routeStation(node,layout,value) {
         const key=node.transfer||node.kind==="boundary"||layout.attachments.some(a=>a.head_oid===node.id)||layout.refs.some(r=>r.oid===node.id&&/^refs\/heads\/(main|master)$/.test(r.ref_name));
         const identity=laneIdentity(layout.lanes.find(l=>l.id===node.lane_id));
-        const label=(node.transfer?node.transfer+" station · ":"")+(value.topology.commits.find(c=>c.oid===node.id)?.subject||"History boundary")+" · "+node.id;
+        const refs=value.topology.refs.filter(r=>r.oid===node.id).map(r=>r.display_name).join(", ");
+        const label=(node.transfer?node.transfer+" station · ":"")+(value.topology.commits.find(c=>c.oid===node.id)?.subject||"History boundary")+" · "+node.id+(refs?" · "+refs:"");
         const control=graphButton("route-station"+(key?" key":"")+(node.transfer?" transfer":""),label,()=>showCommit(node.id));
         control.dataset.commitOid=node.id;control.dataset.objectId="commit:"+node.id;control.title=label;
         position(control,node);control.style.setProperty("--rail-color","var(--"+identity.token+")");
-        if(node.transfer||node.kind==="boundary") control.append(element("span","junction-label",(node.transfer||"Boundary")+" · "+node.id.slice(0,7)));
+        if(node.transfer||node.kind==="boundary") control.append(element("span","junction-label",(node.transfer==="fork"?"History splits":node.transfer==="merge"?"Merge commit":"Boundary")+" · "+node.id.slice(0,7)));
         return control;
       }
       function showWorkspaceChoices(oid, rows) {
@@ -939,8 +914,8 @@
         for (const row of rows) {
           const choice = button("workspace-choice", "View workspace " + row.lane.workspace_path, () => zoomWorkspace(row.lane.worktree_id));
           choice.dataset.worktreeId = row.lane.worktree_id;
-          choice.append(element("strong", "worktree-name", worktreeDisplayName(row.lane.workspace_path) || row.lane.worktree_id), element("span", "branch-meta", row.lane.workspace_path), element("span", "branch-meta", "Branch · " + (row.lane.branch || "Detached HEAD")), element("span", "branch-meta", row.count));
-          if (row.current) choice.append(element("span", "current-pill", "Current workspace"));
+          choice.append(element("strong", "worktree-name", branchName(row.lane)), element("span", "branch-meta", row.lane.workspace_path), element("span", "branch-meta", "HEAD · " + row.lane.head.slice(0,8)), element("span", "branch-meta", row.count));
+          if (row.current) choice.append(element("span", "current-pill", "Map source"));
           if (row.risk) choice.append(element("span", "workspace-risk", row.risk));
           panel.append(choice);
         }
@@ -949,7 +924,7 @@
       function zoomWorkspace(id) {
         const lane=lastSnapshot && workspaceRecords(lastSnapshot).find(r=>r.lane.worktree_id===id)?.lane;
         if(!lane)return;
-        locateWorkspace(id);selectLane(lane);
+        selectLane(lane);requestAnimationFrame(()=>locateWorkspace(id));
         byId("selection-details").querySelector(".dismiss-details")?.focus({preventScroll:true});
       }
       function setMapScale(next) {
@@ -997,9 +972,9 @@
           const head = byId("relationship-map").metroLayout?.refs.find(ref => ref.ref_name === "refs/heads/" + lane.branch);
           const heading = element("span", "overview-heading");
           if (head) heading.append(swatch(refIdentity(head)));
-          heading.append(element("strong", "", worktreeDisplayName(lane.workspace_path) || lane.worktree_id));
-          if (lane.worktree_id === value.current_worktree_id) heading.append(element("span", "current-pill", "Current"));
-          control.append(heading, element("span", "branch-meta", (lane.branch || "Detached HEAD") + " · " + lane.worktree_id.slice(-8)), element("span", "branch-meta", row.count));
+          heading.append(element("strong", "", branchName(lane)));
+          if (lane.worktree_id === value.current_worktree_id) heading.append(element("span", "current-pill", "Map source"));
+          control.append(heading, element("span", "branch-meta", worktreeDisplayName(lane.workspace_path) + " · " + lane.worktree_id.slice(-8)), element("span", "branch-meta", row.count));
           if (row.risk) control.append(element("span", "workspace-risk", row.risk));
           panel.append(control);
           if (focused === lane.worktree_id) control.focus({ preventScroll: true });
@@ -1017,18 +992,28 @@
         const dimensions=records.map(({lane,facts})=>({worktree_id:lane.worktree_id,head_oid:facts?.head_oid??lane.head,width:196,height:52}));
         let layout=null;
         if(value.schema_version==="devmap/dock/4") {
-          const options={repositoryId:value.repository_id,width:Math.max(360,viewport.clientWidth-32),vertical:viewport.clientWidth<=760};
+          const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale};
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
           if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[])};
           const fragment=document.createDocumentFragment();fragment.append(connectionLayer(layout));
           for(const node of layout.nodes)fragment.append(routeStation(node,layout,value));
           fragment.append(...renderPlatforms(records,value,layout));
-          const direction=element("span","map-direction",layout.orientation==="vertical"?"History ↓ Present":"History → Present");
+          const direction=element("span","map-direction",layout.orientation==="vertical"?"Earlier history ↓ Descendants":"Earlier history → Descendants");
           position(direction,{x:32,y:0});fragment.append(direction);
-          for(const lane of layout.lanes.filter(l=>l.role==="main")) {
-            const first=layout.nodes.find(n=>n.lane_id===lane.id);
-            if(first) {const label=element("span","line-name",lane.ref_name?.replace(/^refs\/heads\//,"")||"Mainline");position(label,{x:first.x+12,y:first.y-28});fragment.append(label);}
+          const refGroups=new Map();
+          for(const ref of layout.refs.filter(r=>r.ref_name.startsWith("refs/heads/"))) {if(!refGroups.has(ref.oid))refGroups.set(ref.oid,[]);refGroups.get(ref.oid).push(ref);}
+          const refLabels=[];
+          for(const [oid,refs] of refGroups) {
+            refs.sort((a,b)=>Number(/^refs\/heads\/(main|master)$/.test(b.ref_name))-Number(/^refs\/heads\/(main|master)$/.test(a.ref_name))||a.ref_name.localeCompare(b.ref_name));
+            const node=layout.nodes.find(n=>n.id===oid),ref=refs[0],main=/^refs\/heads\/(main|master)$/.test(ref.ref_name);
+            if(node&&main) {
+              const label=element("span","line-name",ref.ref_name.slice(11)+" · tip"+(refs.length>1?" +"+(refs.length-1):""));label.dataset.refName=ref.ref_name;label.dataset.refOid=oid;label.title=refs.map(r=>r.ref_name).join("\n");
+              const rect={x:node.x+14,y:node.y+(layout.orientation==="vertical"?-64*textScale:6),width:Math.min(220,options.width-32),height:20*textScale};
+              if(refLabels.some(r=>rect.x<r.x+r.width&&rect.x+rect.width>r.x&&Math.abs(rect.y-r.y)<rect.height))continue;
+              refLabels.push(rect);position(label,rect);label.style.maxWidth=rect.width+"px";fragment.append(label);
+            }
           }
           for(const zone of layout.arrivals||[]) {
             const control=button("arrival-zone arrival-source","View workspaces planning arrival at "+(zone.target_ref||"unspecified destination"),()=>showArrivalSources(zone.target_ref));
@@ -1188,7 +1173,7 @@
         if(lane) refreshSelectedDetails();
       }
       function directTaskUrl(chat) {
-        return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && chat.association_source === "codex_task_cwd" && safeCodexThreadId(chat.codex_thread_id)
+        return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && ["codex_task_cwd","agent_reported_working_directory"].includes(chat.association_source) && safeCodexThreadId(chat.codex_thread_id)
           ? "codex://threads/" + chat.codex_thread_id : null;
       }
       function createTask(chat, worktreeId, value) {
@@ -1219,6 +1204,7 @@
         state.dataset.captureIncomplete = String(chat.capture_incomplete === true);
         facts.append(agent, state, element("span", "", "Chat · " + (chat.lifecycle || "unknown")));
         const context = document.createElement("span"); context.className = "conversation-context"; context.textContent = `${chat.host} · ${relativeActivity(chat.last_event_at)}`;
+        if (chat.working_directory) { facts.append(element("span", "", "Agent reported working here")); context.textContent += " · " + chat.working_directory.observed_at + " · Chat registered at " + chat.registered_workspace_path; }
         const audit = document.createElement("span"); audit.className = "conversation-audit task-meta"; audit.textContent = `${chat.session_id} · ${chat.association_source}${chat.capture_incomplete ? " · CAPTURE INCOMPLETE" : ""}`;
         node.append(heading, facts, context, audit); return node;
       }
@@ -1338,12 +1324,13 @@
         selectedObjectId = "workspace:" + lane.worktree_id;
         selectedWorkspaceId = lane.worktree_id; selectedTaskId = null;
         const facts = lastSnapshot?.workspace_facts?.find(f => f.worktree_id === lane.worktree_id);
-        showDetails(worktreeDisplayName(lane.workspace_path)||lane.worktree_id,[],facts?.head_oid||lane.head);
+        showDetails(branchName(lane),[],facts?.head_oid||lane.head);
         const card=createWorkspace(lane,facts,lastSnapshot,Math.max(240,byId("selection-details").clientWidth));
         card.classList.add("workspace-inspector");card.style.width="100%";
         const identity=element("dl","detail-grid");
         for(const [key,text] of [["Workspace",lane.workspace_path],["Branch",lane.branch||"Detached HEAD"],["HEAD",facts?.head_oid||lane.head]])identity.append(element("dt","",key),element("dd","",text));
         card.querySelector(".workspace-details").append(identity);
+        const copy=byId("selection-details").querySelector(".copy-hash");if(copy)card.querySelector(".workspace-details").append(copy);
         for(const boundary of lastSnapshot.topology?.boundaries||[]) if(boundary.oid===lane.head)card.querySelector(".workspace-details").append(element("p","",BOUNDARIES[boundary.reason]));
         byId("selection-details").append(card);
         const route = lane.chats.find(chat => chat.route_id)?.route_id || "none";
@@ -1353,7 +1340,7 @@
         setJourneyWorkspace(selectedWorkspaceId);
         const threadId = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id) ? chat.codex_thread_id : null;
         const lane = workspaceRecords(lastSnapshot).find(record => record.lane.worktree_id === selectedWorkspaceId)?.lane;
-        showDetails(chat.display_title, [["Task ID", threadId || "No verified Codex task ID"], ["Workspace", lane?.workspace_path || "Unavailable"], ["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Last activity", chat.last_event_at], ["Task observation", observationLabel(lastSnapshot)], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]], null, threadId);
+        showDetails(chat.display_title, [["Task ID", threadId || "No verified Codex task ID"], ["Workspace", lane?.workspace_path || "Unavailable"], ["Chat registered at", chat.registered_workspace_path || "Unknown"], ["Working directory report", chat.working_directory ? chat.working_directory.path + " · " + chat.working_directory.observed_at + " · Agent report" : "Not supplied"], ["Session", chat.session_id], ["Host", chat.host], ["Host state", chat.host_status || chat.status], ["Last activity", chat.last_event_at], ["Task observation", observationLabel(lastSnapshot)], ["Association", chat.association_source], ["Capture", chat.capture_incomplete ? "CAPTURE INCOMPLETE" : "Complete"]], null, threadId);
       }
       function refreshSelectedDetails() {
         if (byId("selection-details").hidden || !lastSnapshot) return;

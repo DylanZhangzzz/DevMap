@@ -27,7 +27,7 @@
   const STATUS_SOURCES = new Set(["host_explicit", "capture_event", "lease", "git_only"]);
   const CONFIDENCE_STATES = new Set(["observed", "leased", "inferred", "unknown"]);
   const CAPTURE_GRADES = new Set(["A", "B", "C", "D"]);
-  const ASSOCIATION_SOURCES = new Set(["presence_worktree_id", "codex_task_cwd"]);
+  const ASSOCIATION_SOURCES = new Set(["presence_worktree_id", "codex_task_cwd", "agent_reported_working_directory"]);
   const ACTIVE_TASK_STATES = new Set(["active", "starting", "working"]);
   const LIFECYCLES = new Set(["present", "archived", "deleted", "unknown"]);
   const TASK_STATES = new Set(["active", "starting", "working", "waiting", "idle", "completed", "stale", "unknown", "notLoaded"]);
@@ -245,6 +245,12 @@
 
   function validChat(chat) {
     return isRecord(chat)
+      && (chat.registered_workspace_path === undefined || boundedString(chat.registered_workspace_path, false))
+      && (chat.working_directory === undefined ? chat.association_source !== "agent_reported_working_directory"
+        : isRecord(chat.working_directory) && chat.working_directory.source === "agent_report"
+          && chat.association_source === "agent_reported_working_directory" && boundedString(chat.registered_workspace_path, false)
+          && boundedString(chat.working_directory.path, false) && boundedString(chat.working_directory.observed_at, false)
+          && Number.isFinite(Date.parse(chat.working_directory.observed_at)))
       && (chat.lifecycle === undefined || LIFECYCLES.has(chat.lifecycle))
       && boundedString(chat.session_id, false)
       && safeCodexThreadId(chat.codex_thread_id)
@@ -438,6 +444,10 @@
         if (!(facts.merge_commit_oid === null || safeOid(facts.merge_commit_oid))) addError(errors, "invalid_merge_commit_oid");
         if (safeOid(facts.merge_commit_oid) && !commitOids.has(facts.merge_commit_oid) && !boundaryOids.has(facts.merge_commit_oid)) addError(errors, "merge_commit_missing");
         if (!nullableStringField(facts.task_observed_at) || !nullableStringField(facts.git_observed_at)) addError(errors, "invalid_workspace_observation_time");
+        const origin=facts.origin;
+        const evidence=(e,kind)=>isRecord(e)&&(e.kind===kind&&safeOid(e.oid)||e.kind==='unknown'&&e.oid===null)&&[e.source,e.event_at,e.route_id].every(v=>v==null||boundedString(v,false));
+        if(origin!==undefined&&(!isRecord(origin)||!evidence(origin.recorded_creation,'recorded_creation')||!evidence(origin.common_ancestor,'common_ancestor')||!boundedArray(origin.plan_starts,64)||!origin.plan_starts.every(e=>evidence(e,'plan_start'))))addError(errors,'invalid_origin_evidence');
+        if(facts.bindings!==undefined&&(!boundedArray(facts.bindings,32)||!facts.bindings.every(b=>isRecord(b)&&boundedString(b.task_id,false)&&boundedString(b.kind,false)&&boundedString(b.observed_at,false))))addError(errors,'invalid_task_bindings');
         if (!boundedArray(facts.writer_evidence, MAX_ROWS)) {
           addError(errors, "invalid_writer_evidence");
         } else {
@@ -802,13 +812,16 @@
   function layoutRouteMap(graph, attachments, options = {}) {
     const base = layoutTopology(graph, attachments.map(a => ({...a,width:64,height:32})), options);
     const vertical = options.vertical !== false;
+    const textScale=Number.isFinite(options.textScale)?Math.max(1,Math.min(4,options.textScale)):1;
+    const platformHeight=76*textScale,platformGap=platformHeight+16*textScale;
     const heads = new Set(base.attachments.map(a=>a.head_oid));
     const keys = base.nodes.filter(n=>heads.has(n.id)||n.transfer||n.kind==='boundary');
     const count = new Set(keys.map(n=>n.x)).size + 2;
-    const length = Math.min(15000, Math.max(240, count * 116));
-    const breadth = Math.max(160, Math.min(240, (options.width || 500) * .4));
-    const projected = projectTopology(base, {width:length,height:breadth});
-    const point = p => vertical ? {x:p.y,y:p.x+24} : {...p};
+    const length = Math.min(15000, Math.max(240, count * 128 * textScale));
+    const breadth = Math.max(96, Math.min(160, (options.width || 500) * .24));
+    const projected = projectTopology(base, {width:length,height:Math.max(160,breadth)});
+    const cross = value => 32+(value-32)*(breadth-64)/(Math.max(160,breadth)-64);
+    const point = p => vertical ? {x:cross(p.y),y:p.x+24} : {x:p.x,y:cross(p.y)};
     const nodes = projected.nodes.map(n=>({...n,...point(n)}));
     const edges = projected.edges.map(e=>({...e,points:e.points.map(point),gaps:[]}));
     const crossings = railCrossings(edges,nodes);
@@ -818,14 +831,14 @@
       if (!groups.has(key)) groups.set(key,{node,items:[]});
       groups.get(key).items.push(a);
     }
-    const labelWidth = vertical ? Math.max(120, Math.min(300,(options.width || 500)-breadth-24)) : 196;
+    const labelWidth = vertical ? Math.max(120, Math.min(320,(options.width || 500)-breadth-24)) : 196;
     const output = [], placed = [];
     for (const group of [...groups.values()].sort((a,b)=>(a.node?.rank ?? Infinity)-(b.node?.rank ?? Infinity))) {
       const node=group.node;
       const x=vertical ? breadth+16 : node?.x || 32;
       let y=vertical ? (node?.y || length+40)-22 : (node?.y || breadth)+28;
-      for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+60 && y+60>p.y) y=p.y+60;
-      const rect={x,y,width:labelWidth,height:52}; placed.push(rect);
+      for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+platformGap && y+platformGap>p.y) y=p.y+platformGap;
+      const rect={x,y,width:labelWidth,height:platformHeight}; placed.push(rect);
       for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [point(projected.nodes.find(n=>n.id===node.id)),{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
     }
     const refs=base.refs.map(r=>({...r,...nodes.find(n=>n.id===r.oid),id:r.id,oid:r.oid,width:24,height:24,stem:null}));

@@ -832,7 +832,10 @@ fn map_tool_response(
             id,
             tool_result(json!({
                 "repository_id":model["repository_id"], "revision":model["revision"],
+                "observation_revision":model["observation_revision"],
             "generated_at":model["generated_at"], "workspace":workspace,
+            "workspace_selection":{"basis":if entity.is_some(){"explicit_entity"}else{"map_source_default"},
+                "map_source_worktree_id":model["current_worktree_id"],"execution_location_verified":false},
             "task_observation":model["task_observation"],
             "workspace_facts":model["workspace_facts"].as_array().into_iter().flatten().find(|facts| &facts["worktree_id"] == workspace_id),
                 "route_plans":plans, "warnings":model["warnings"], "truncated":model["truncated"],
@@ -1050,6 +1053,7 @@ fn parse_codex_tasks(
                 "hostId",
                 "kind",
                 "subagents",
+                "workingDirectory",
             ],
         )?;
         if required_string(row, "kind")? != "codex" {
@@ -1096,6 +1100,7 @@ fn parse_codex_tasks(
         .map_err(|_| DevMapError::InvalidDomain("codex_tasks.updatedAt"))?
         .format(&Rfc3339)?;
         tasks.push(ObservedTask {
+            working_directory: parse_working_directory(row.get("workingDirectory"))?,
             subagents: parse_subagents(row.get("subagents"))?,
             lifecycle,
             session_id,
@@ -1108,6 +1113,37 @@ fn parse_codex_tasks(
         });
     }
     Ok(Some(ObservedTaskInventory { tasks, complete }))
+}
+
+fn parse_working_directory(
+    value: Option<&Value>,
+) -> Result<Option<crate::dock::WorkingDirectoryObservation>, DevMapError> {
+    let Some(value) = value else { return Ok(None) };
+    let row = value
+        .as_object()
+        .ok_or(DevMapError::InvalidDomain("codex_tasks.workingDirectory"))?;
+    ensure_fields(row, &["path", "observedAt", "source"])?;
+    let source = required_string(row, "source")?;
+    if source != "agent_report" {
+        return Err(DevMapError::InvalidDomain(
+            "codex_tasks.workingDirectory.source",
+        ));
+    }
+    let seconds = row
+        .get("observedAt")
+        .and_then(Value::as_i64)
+        .filter(|v| *v >= 0)
+        .ok_or(DevMapError::InvalidDomain(
+            "codex_tasks.workingDirectory.observedAt",
+        ))?;
+    let observed_at = OffsetDateTime::from_unix_timestamp(seconds)
+        .map_err(|_| DevMapError::InvalidDomain("codex_tasks.workingDirectory.observedAt"))?
+        .format(&Rfc3339)?;
+    Ok(Some(crate::dock::WorkingDirectoryObservation {
+        path: required_string(row, "path")?,
+        observed_at,
+        source,
+    }))
 }
 
 // Nested membership is an explicit host observation of this chat's direct
@@ -1445,7 +1481,7 @@ fn tool_descriptors() -> Vec<Value> {
         json!({"type":"string", "enum":["app","browser"]});
     let mut read = dock_tool_descriptor(MAP_READ_TOOL, false);
     read["description"] = json!(
-        "Read the bounded map. View agent returns delivery intent and observed workspace facts for the current worktree, or an exact worktree entity_id. It never certifies merge readiness. View context reads capture context."
+        "Read the bounded map. View agent defaults to the configured map source, or reads an exact worktree entity_id. Neither selection proves the agent execution directory or merge readiness. Verify actual cwd and worktree identity before Git actions. View context reads capture context."
     );
     read["inputSchema"]["properties"]["entity_id"] =
         json!({"type":"string","minLength":1,"maxLength":128});
@@ -1583,7 +1619,7 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                 "codex_tasks": {
                     "type": "array",
                     "maxItems": MAX_SEMANTIC_ARRAY_ITEMS,
-                    "description": "Optional active, idle, or notLoaded Codex task metadata. DevMap associates each task only when cwd exactly matches a local worktree.",
+                    "description": "Local Codex task metadata. Preserve host cwd. An optional explicitly reported workingDirectory places that one task at an exact local worktree; otherwise cwd is used.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -1594,6 +1630,16 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                                 "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
                             },
                             "title": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},
+                            "workingDirectory": {
+                                "type":"object", "additionalProperties":false,
+                                "description":"Optional execution-directory observation for this exact task, reported by its Agent after checking the command cwd and canonical Git worktree root. Not host-authenticated execution proof. Never infer from map source, branch, title or a plan. Omit without direct evidence; preserve host cwd.",
+                                "required":["path","observedAt","source"],
+                                "properties":{
+                                    "path":{"type":"string","minLength":1,"maxLength":MAX_SEMANTIC_STRING_BYTES},
+                                    "observedAt":{"type":"integer","minimum":0,"description":"Unix seconds of the actual directory check; never freshen on Git-only or host-only refresh."},
+                                    "source":{"type":"string","const":"agent_report"}
+                                }
+                            },
                             "status": {"type": "string", "enum": ["active", "idle", "waiting", "completed", "notLoaded"]},
                             "lifecycle": {"type":"string", "enum":["present","archived","deleted","unknown"], "description":"Chat existence independent of execution status. Present requires an observed unarchived chat. Omission means unknown; absence from a list never proves deletion."},
                             "cwd": {"type": "string", "minLength": 1, "maxLength": MAX_SEMANTIC_STRING_BYTES},

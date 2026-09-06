@@ -39,6 +39,36 @@ test('route map keeps true topology and workspace positions independent of detai
   assert.equal(a.attachments.length, TOPOLOGY.attachments.length);
 });
 
+test('route platforms reserve space for branch, passengers, state and destination', () => {
+  for(const vertical of [true,false]) {
+    const map=require(CORE_PATH).layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{repositoryId:'repo',width:500,vertical});
+    assert.ok(map.attachments.every(a=>a.height>=76));
+    const unique=[...new Map(map.attachments.map(a=>[a.head_oid,a])).values()];
+    for(const a of unique) for(const b of unique) if(a!==b) {
+      assert.ok(a.x+a.width<=b.x || b.x+b.width<=a.x || a.y+a.height<=b.y || b.y+b.height<=a.y,'distinct platform labels must not overlap');
+    }
+  }
+});
+
+test('compact sidebar packs workspaces without shrinking text or dropping Git stations', () => {
+  const core=require(CORE_PATH);
+  for (const width of [390,516]) {
+    const map=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{width});
+    assert.ok(map.height<1024, 'six fixture workspaces should fit in a shorter readable route');
+    assert.ok(map.attachments.every(a=>a.width>=250 && a.height>=76));
+    assert.equal(map.nodes.length, TOPOLOGY.graph.commits.length);
+    assert.equal(map.edges.length, TOPOLOGY.graph.edges.length);
+    assert.ok(map.width<=width, 'compact sidebar must fit its container');
+  }
+});
+
+test('text sizing reserves platform space without using passenger detail dimensions', () => {
+  const core=require(CORE_PATH),large=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{repositoryId:'repo',width:500,textScale:2});
+  assert.ok(large.attachments.every(a=>a.height>=152));
+  const points=large.attachments.filter((a,i,all)=>all.findIndex(b=>b.head_oid===a.head_oid)===i);
+  for(const a of points)for(const b of points)if(a!==b)assert.ok(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y);
+});
+
 test('passengers describe chat existence, independent of running state', () => {
   const core = require(CORE_PATH), obs = {complete:true,observedAtMs:1000};
   const tasks = ['completed','idle','notLoaded','waiting'].map((status,i) => ({id:String(i),status,lifecycle:'present'}));

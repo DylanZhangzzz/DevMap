@@ -1,4 +1,135 @@
 mod support;
+
+#[test]
+fn map_workspace_selection_is_not_execution_location_evidence() {
+    let repo = support::committed_repo();
+    let mut runtime = initialized_runtime(repo.path());
+    let default = call(
+        &mut runtime,
+        "devmap_read_map",
+        serde_json::json!({"view":"agent"}),
+    );
+    let default = &default["result"]["structuredContent"];
+    assert_eq!(
+        default["workspace_selection"]["basis"],
+        "map_source_default"
+    );
+    assert_eq!(
+        default["workspace_selection"]["execution_location_verified"],
+        false
+    );
+    let id = default["workspace"]["worktree_id"].clone();
+    let explicit = call(
+        &mut runtime,
+        "devmap_read_map",
+        serde_json::json!({"view":"agent","entity_id":id}),
+    );
+    let explicit = &explicit["result"]["structuredContent"];
+    assert_eq!(explicit["workspace_selection"]["basis"], "explicit_entity");
+    assert_eq!(
+        explicit["workspace_selection"]["execution_location_verified"],
+        false
+    );
+    assert_eq!(
+        explicit["workspace_selection"]["map_source_worktree_id"],
+        id
+    );
+}
+
+#[test]
+fn an_older_map_source_does_not_become_the_selected_development_worktree() {
+    let repo = support::committed_repo();
+    let holder = tempfile::tempdir().unwrap();
+    let worktree = holder.path().join("development");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "codex/development",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    support::git(
+        &worktree,
+        ["commit", "--allow-empty", "-m", "Development ahead"],
+    );
+    let mut runtime = initialized_runtime(repo.path());
+    let map = call(&mut runtime, "devmap_read_map", json!({}));
+    let model = &map["result"]["structuredContent"];
+    let target = model["lanes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|lane| lane["branch"] == "codex/development")
+        .unwrap()["worktree_id"]
+        .clone();
+    let default = call(&mut runtime, "devmap_read_map", json!({"view":"agent"}));
+    let explicit = call(
+        &mut runtime,
+        "devmap_read_map",
+        json!({"view":"agent","entity_id":target}),
+    );
+    let default = &default["result"]["structuredContent"];
+    let explicit = &explicit["result"]["structuredContent"];
+    assert_eq!(
+        default["workspace"]["head"],
+        support::git(repo.path(), ["rev-parse", "HEAD"])
+    );
+    assert_eq!(
+        explicit["workspace"]["head"],
+        support::git(&worktree, ["rev-parse", "HEAD"])
+    );
+    assert_ne!(default["workspace"]["head"], explicit["workspace"]["head"]);
+    assert_eq!(
+        explicit["workspace_selection"]["map_source_worktree_id"],
+        model["current_worktree_id"]
+    );
+    assert_eq!(
+        explicit["workspace_selection"]["execution_location_verified"],
+        false
+    );
+}
+
+#[test]
+fn agent_and_map_share_identity_origin_and_binding_facts_at_same_revision() {
+    let repo = support::committed_repo();
+    let mut runtime = initialized_runtime(repo.path());
+    let map = call(&mut runtime, "devmap_read_map", serde_json::json!({}));
+    let agent = call(
+        &mut runtime,
+        "devmap_read_map",
+        serde_json::json!({"view":"agent"}),
+    );
+    let map = &map["result"]["structuredContent"];
+    let agent = &agent["result"]["structuredContent"];
+    assert_eq!(map["revision"], agent["revision"]);
+    let facts = map["workspace_facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["worktree_id"] == map["current_worktree_id"])
+        .unwrap();
+    assert_eq!(facts["facts_schema_version"], "devmap/workspace-facts/1");
+    // Sequential reads refresh observations while preserving the facts revision.
+    assert!(
+        agent["observation_revision"]
+            .as_u64()
+            .expect("agent observation identity")
+            > map["observation_revision"].as_u64().unwrap()
+    );
+    let mut map_facts = facts.clone();
+    let mut agent_facts = agent["workspace_facts"].clone();
+    assert_eq!(map_facts["git_observed_at"], map["generated_at"]);
+    assert_eq!(agent_facts["git_observed_at"], agent["generated_at"]);
+    map_facts.as_object_mut().unwrap().remove("git_observed_at");
+    agent_facts
+        .as_object_mut()
+        .unwrap()
+        .remove("git_observed_at");
+    assert_eq!(map_facts, agent_facts);
+}
 use devmap::mcp::McpRuntime;
 use serde_json::{Value, json};
 

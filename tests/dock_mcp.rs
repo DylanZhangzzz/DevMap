@@ -80,6 +80,118 @@ fn initialize() -> Value {
 }
 
 #[test]
+fn reported_working_directory_places_only_that_chat_and_preserves_host_registration() {
+    let repo = support::committed_repo();
+    let holder = tempfile::tempdir().unwrap();
+    let worktree = holder.path().join("development");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "codex/development",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let mut runtime = McpRuntime::open(repo.path()).unwrap();
+    runtime.handle(&initialize()).unwrap();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let mut task = json!({"id":"01a00000-0000-7000-8000-000000000001", "title":"Working chat", "status":"active", "lifecycle":"present", "cwd":repo.path(), "updatedAt":now, "hostId":"local", "kind":"codex"});
+    let mut other = task.clone();
+    other["id"] = json!("01a00000-0000-7000-8000-000000000002");
+    let host_only = task.clone();
+    task["workingDirectory"] = json!({"path":worktree, "observedAt":now, "source":"agent_report"});
+    let response = runtime
+        .handle(&call(
+            json!(2),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[task.clone(),other.clone()],"codex_tasks_complete":true}),
+        ))
+        .unwrap();
+    let model = &response["result"]["structuredContent"];
+    assert_eq!(model["counts"]["tasks"], 2, "{response}");
+    let lanes = model["lanes"].as_array().unwrap();
+    let target = lanes
+        .iter()
+        .find(|lane| lane["branch"] == "codex/development")
+        .unwrap();
+    let root = lanes
+        .iter()
+        .find(|lane| lane["is_current"] == true)
+        .unwrap();
+    assert_eq!(target["chats"].as_array().unwrap().len(), 1);
+    assert_eq!(target["chats"][0]["codex_thread_id"], task["id"]);
+    assert_eq!(
+        target["chats"][0]["registered_workspace_path"],
+        host_only["cwd"]
+    );
+    assert_eq!(
+        target["chats"][0]["association_source"],
+        "agent_reported_working_directory"
+    );
+    assert_eq!(
+        target["chats"][0]["working_directory"]["source"],
+        "agent_report"
+    );
+    assert_eq!(root["chats"].as_array().unwrap().len(), 1);
+    assert_eq!(root["chats"][0]["codex_thread_id"], other["id"]);
+    // The host-association journal must not invent a host migration.
+    assert!(
+        model["workspace_facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|f| f["bindings"].as_array().unwrap())
+            .all(|b| b["worktree_id"] == root["worktree_id"])
+    );
+    for invalid in [
+        json!({"path":holder.path(),"observedAt":now,"source":"agent_report"}),
+        json!({"path":worktree,"observedAt":now + 3600,"source":"agent_report"}),
+        json!({"path":worktree,"observedAt":now,"source":"guessed"}),
+    ] {
+        let mut row = task.clone();
+        row["workingDirectory"] = invalid;
+        let rejected = runtime
+            .handle(&call(
+                json!(3),
+                DOCK_DATA_TOOL,
+                json!({"codex_tasks":[row]}),
+            ))
+            .unwrap();
+        assert_eq!(rejected["result"]["isError"], true, "{rejected}");
+    }
+    let retained = runtime
+        .handle(&call(json!(4), DOCK_DATA_TOOL, json!({})))
+        .unwrap();
+    assert_eq!(
+        retained["result"]["structuredContent"]["lanes"],
+        model["lanes"]
+    );
+    let replaced = runtime
+        .handle(&call(
+            json!(5),
+            DOCK_DATA_TOOL,
+            json!({"codex_tasks":[host_only,other],"codex_tasks_complete":true}),
+        ))
+        .unwrap();
+    let lanes = replaced["result"]["structuredContent"]["lanes"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        lanes
+            .iter()
+            .find(|lane| lane["is_current"] == true)
+            .unwrap()["chats"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "a new host-only observation must not recycle the previous execution report"
+    );
+}
+
+#[test]
 fn observed_subagents_remain_attached_to_the_parent_chat_without_adding_passengers() {
     let repo = support::committed_repo();
     let mut runtime = McpRuntime::open(repo.path()).unwrap();

@@ -17,6 +17,7 @@ use crate::worktrees::{WorktreeScanner, repository_id};
 
 const MAX_JOURNAL_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_PLANS: usize = 64;
+type PlanStarts = BTreeMap<String, (String, String)>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -111,17 +112,26 @@ impl RoutePlanStore {
     }
 
     pub fn list(&self) -> Result<Vec<RoutePlan>, DevMapError> {
+        self.list_with_starts().map(|(plans, _)| plans)
+    }
+
+    /// The first journal record establishes plan creation, not worktree creation.
+    pub(crate) fn list_with_starts(&self) -> Result<(Vec<RoutePlan>, PlanStarts), DevMapError> {
         let Some(path) = self.existing_path()? else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), BTreeMap::new()));
         };
         let mut file = checked_file(&path, false, false)?;
         FileExt::lock_shared(&file)?;
         let records = read_records(&mut file, &repository_id(&self.workspace))?;
         let mut latest = BTreeMap::new();
+        let mut starts = BTreeMap::new();
         for record in records {
+            starts
+                .entry(record.plan.route_id.clone())
+                .or_insert_with(|| (record.plan.updated_at.clone(), record.plan.source.clone()));
             latest.insert(record.plan.route_id.clone(), record.plan);
         }
-        Ok(latest.into_values().collect())
+        Ok((latest.into_values().collect(), starts))
     }
 
     pub fn set(&self, input: PlanInput) -> Result<RoutePlan, DevMapError> {
