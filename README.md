@@ -56,6 +56,8 @@ Git refresh does not refresh task observations. Missing, stale or partial invent
 
 ## Quick start
 
+For Codex, give your Agent the [installation guide](docs/agent-install.md): **“Read this guide and install DevMap, including its Codex Skill and MCP configuration.”** The Agent performs setup; npm alone does not configure Codex.
+
 Install **Node.js 22+ (with npm)** and **Git**, then run this inside the repository you want to inspect. No Rust, compilation or npm account is needed:
 
 ```sh
@@ -112,15 +114,15 @@ devmap agents --source . --json
 
 ### In Codex
 
-The plugin package is [plugins/devmap](plugins/devmap/.codex-plugin/plugin.json). It contains one Skill and an MCP configuration that runs `devmap mcp`; ensure the installed `devmap` executable is available to the host through `PATH`.
-
-Register that package in your configured plugin marketplace, then install it using the marketplace's actual name:
+The [public plugin](plugins/devmap/.codex-plugin/plugin.json) bundles the Skill and MCP configuration. It starts the pinned npm package through npx, so no global executable installation is required. Agents should follow the [complete installation and verification guide](docs/agent-install.md).
 
 ```sh
-codex plugin add devmap@YOUR_MARKETPLACE
+npx --yes devmap-cli@0.1.0 --version
+codex plugin marketplace add DylanZhangzzz/DevMap --ref main
+codex plugin add devmap@devmap-marketplace
 ```
 
-`YOUR_MARKETPLACE` is a placeholder, not a public marketplace bundled with this repository. Start a new task after installation or updating the plugin so the host loads the current tools and Skill.
+Start a new task after installation to load the Skill and tools.
 
 Ask: **“Open DevMap in the right sidebar.”** The Browser surface uses the local viewer. An MCP App surface is also available when supported by the host; embedding and task navigation depend on host capabilities. Updating the source checkout alone does not update an already installed binary or plugin.
 

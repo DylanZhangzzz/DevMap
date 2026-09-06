@@ -6,6 +6,10 @@ DevMap can run from a prebuilt npm tarball or a native archive. Building from so
 
 Use the prebuilt package from [release v0.1.0](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0). Its stable filename is `devmap-0.1.0.tgz`, independent of the eventual npm account or scope. GitHub installation does not require npm registry publication or an npm account. The registry package is `devmap-cli`; the examples pin version 0.1.0.
 
+## Agent installation for Codex
+
+Give your Agent the [installation guide](agent-install.md). It installs the public Codex plugin with both the Skill and MCP configuration. npm by itself does not configure Codex.
+
 ## npm / npx
 
 Requirements: Git on PATH, Node.js 22+ with npm. Rust is not needed.
@@ -61,11 +65,7 @@ Run the Quick start command with `--version` instead of `view --live --source .`
 
 Use your host's supported npx command resolution on Windows. A host that cannot launch `npx.cmd` can use `node` as the command and the absolute path to npm's `npm-cli.js` followed by `exec --yes --package=devmap-cli@0.1.0 -- devmap mcp --source ...` as individual arguments. The launcher itself never invokes a shell.
 
-An MCP entry runs the tools; it does not install a Skill. The bundled [Skill](../plugins/devmap/skills/live-worktree-dock/SKILL.md) supplies Codex-specific inventory and navigation instructions. The existing plugin configuration continues using `devmap mcp`. Install that command without Rust using:
-
-```sh
-npm install --global devmap-cli@0.1.0
-```
+An MCP entry runs the tools; it does not install a Skill. For Codex use the [plugin installation guide](agent-install.md), which installs both. The public plugin starts `npx --yes devmap-cli@0.1.0 mcp` and does not require a globally installed `devmap` command.
 
 A standalone map shows Git worktrees. Complete Agent task observations and task navigation require host integration; npx alone does not provide that data.
 
@@ -78,7 +78,7 @@ tar -xzf devmap-VERSION-TARGET.tar.gz
 ./devmap view --live --source /path/to/repository
 ```
 
-On Windows use `.\devmap.exe` after extraction. Keep the executable in a stable directory and add that directory to PATH to use the existing plugin.
+On Windows use `.\devmap.exe` after extraction. Keep the executable in a stable directory. For a Node-free MCP setup, configure your host to launch its absolute path with `mcp`; the public Codex plugin uses npx and requires Node.
 
 | System | Release target | Baseline |
 | --- | --- | --- |

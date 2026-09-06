@@ -1,12 +1,14 @@
 {
   "mcpServers": {
     "devmap": {
-      "command": "devmap",
+      "command": "npx",
       "args": [
+        "--yes",
+        "devmap-cli@0.1.0",
         "mcp"
       ],
       "enabled": true,
-      "startup_timeout_sec": 10,
+      "startup_timeout_sec": 60,
       "tool_timeout_sec": 10,
       "default_tools_approval_mode": "writes",
       "tools": {

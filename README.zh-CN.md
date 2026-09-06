@@ -54,6 +54,8 @@ Git 刷新不会刷新任务观察时间。缺失、过期或不完整的清单�
 
 ## 快速开始
 
+**推荐让 Agent 安装：** 把[安装指南](docs/agent-install.md)链接交给 Codex，并说：**“请按这份文档安装并配置 DevMap，包括 Skill 和 MCP，完成后验证。”** Agent 会完成接入；单独运行 npm 不会配置 Codex。
+
 先安装 **Node.js 22+（包含 npm）** 和 **Git**，然后在想查看的仓库目录运行下面这一条命令。**不需要 Rust、不需要编译，也不需要 npm 账号：**
 
 ```sh
@@ -110,15 +112,15 @@ devmap agents --source . --json
 
 ### 在 Codex 中使用
 
-插件包位于 [plugins/devmap](plugins/devmap/.codex-plugin/plugin.json)，包含一个 Skill 和启动 `devmap mcp` 的 MCP 配置。请确保宿主可以通过 `PATH` 找到已安装的 `devmap` 程序。
-
-将插件包注册到你配置的插件市场，然后使用实际市场名称安装：
+[公共插件](plugins/devmap/.codex-plugin/plugin.json)包含 Skill 和 MCP 配置，通过 npx 启动固定版本的 npm 包，无需全局安装可执行程序。请让 Agent 按[完整安装和验证指南](docs/agent-install.md)执行。
 
 ```sh
-codex plugin add devmap@YOUR_MARKETPLACE
+npx --yes devmap-cli@0.1.0 --version
+codex plugin marketplace add DylanZhangzzz/DevMap --ref main
+codex plugin add devmap@devmap-marketplace
 ```
 
-`YOUR_MARKETPLACE` 是占位符，不代表仓库附带了同名公共市场。安装或更新插件后，新建任务，让宿主加载当前工具和 Skill。
+安装后新建任务，加载 Skill 和工具。
 
 可以直接说：**“在右侧栏打开 DevMap。”** Browser 入口使用本地查看器；支持 MCP App 的宿主也可以使用 App 入口。嵌入显示和任务跳转取决于宿主能力。只更新源码 checkout，不会更新已经安装的程序或插件。
 

@@ -1,0 +1,20 @@
+{
+  "name": "devmap-marketplace",
+  "interface": {
+    "displayName": "Devmap Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "devmap",
+      "source": {
+        "source": "local",
+        "path": "./plugins/devmap"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
