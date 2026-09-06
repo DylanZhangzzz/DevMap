@@ -1,6 +1,7 @@
 name: Package and release
 on:
   push:
+    branches: [main, 'codex/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:

@@ -1,2 +1,5 @@
+# Keep embedded Dock resource bytes reproducible across Windows checkouts.
+assets/dock.html text eol=lf
+assets/metro-core.js text eol=lf
 packaging/**/*.cjs text eol=lf
 .github/workflows/*.yml text eol=lf

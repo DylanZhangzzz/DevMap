@@ -2,7 +2,7 @@
 
 ## What is automated
 
-`.github/workflows/release.yml` runs on pull requests, manual dispatch and `v*` tag pushes. Pull requests and manual runs only produce artifacts. Tag pushes also create a GitHub Release after checks and all five native package smoke tests pass.
+`.github/workflows/release.yml` runs on pushes to main/codex branches, pull requests, manual dispatch and `v*` tag pushes. Branch pushes, pull requests and manual runs only produce artifacts. Tag pushes also create a GitHub Release after checks and all five native package smoke tests pass.
 
 The workflow:
 1. Runs Rust formatting, clippy and tests plus Node packaging tests.
