@@ -32,8 +32,15 @@
     .shell {width:min(1440px, 100%);height:100dvh;margin:0 auto;padding:8px 16px;display:flex;flex-direction:column;}
     #dock-main, .map-frame {flex:1;min-height:0;display:flex;flex-direction:column;}
     .masthead {display:flex;flex:none;align-items:flex-start;justify-content:space-between;gap:12px;margin:0;}
-    .masthead-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+    .masthead-actions {display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 8px;min-width:0;}
+    .masthead-actions>.refresh {grid-column:1;grid-row:1;}
+    .masthead-actions>.observation-details {grid-column:2;grid-row:1;}
+    .masthead-actions>.refresh-status {grid-column:1 / -1;grid-row:2;overflow-wrap:anywhere;}
     .refresh-status {flex-basis:100%;margin:0;font-size:.75rem;color:var(--muted);text-align:right;}
+    .observation-strip {flex:none;display:flex;flex-wrap:wrap;gap:4px 16px;padding:6px 0;border-bottom:1px solid var(--line-soft);}
+    .observation-strip p {margin:0;font-size:.75rem;overflow-wrap:anywhere;}
+    #agent-location {flex-basis:100%;color:var(--muted);}
+    #task-inventory[data-stale="true"] {color:var(--warning);font-weight:600;}
     .connection, .task-inventory, .subhead, .meta {margin:0;color:var(--muted);font-size:.75rem;}
     .connection {color:var(--success);} .connection.offline {color:var(--warning);}
     .refresh, .control {border:1px solid var(--line-soft);border-radius:6px;background:var(--surface);}
@@ -280,18 +287,26 @@
       <div class="masthead-actions">
         <button class="refresh" id="refresh" type="button">Refresh map</button>
         <p class="refresh-status" id="refresh-status" role="status">Not refreshed yet</p>
-        <details class="observation-details"><summary>Observations</summary><p class="connection" id="connection" aria-live="polite">Git · connecting</p><p class="task-inventory" id="task-inventory" aria-live="polite">Tasks · observation unavailable</p>
-          <p>DevMap · Rail View</p>
+        <details class="observation-details"><summary>Version &amp; details</summary>
+          <p>Running DevMap <span id="runtime-version">DEVMAP_RUNTIME_VERSION</span> · Rail View</p>
+          <p>Build: DEVMAP_BUILD_REVISION</p>
+          <p>After updating DevMap, start a new Codex task and reopen the map. Reloading this page keeps the same running program.</p>
           <p class="subhead" id="revision">Waiting for a valid snapshot</p>
           <p><span id="metric-workspaces">0</span> Workspaces · <span id="metric-tasks">0</span> Linked tasks · <span id="metric-open">0</span> need attention</p>
         </details>
       </div>
     </header>
+    <section class="observation-strip" aria-label="Live data and Agent location">
+      <p class="connection" id="connection" aria-live="polite">Git · connecting</p>
+      <p class="task-inventory" id="task-inventory">Tasks · observation unavailable</p>
+      <p id="agent-location">Current Agent · location unverified</p>
+    </section>
     <main id="dock-main" tabindex="-1">
       <section class="map-frame" aria-labelledby="map-title">
         <details class="attention-summary" id="attention-summary" hidden></details>
         <p class="coverage" id="coverage" role="status" hidden></p>
         <div class="map-navigation" id="map-navigation">
+          <button class="control" id="locate-agent" type="button" disabled>Locate current Agent</button>
           <button class="control" id="overview-toggle" type="button" aria-controls="overview-workspaces" aria-expanded="false" hidden>Workspaces</button>
           <div class="zoom-controls" role="group" aria-label="Map zoom">
             <button class="control" id="zoom-out" type="button" aria-label="Zoom map out" disabled>−</button>
@@ -304,7 +319,7 @@
             <option value="vertical">Layout: Vertical</option>
             <option value="horizontal">Layout: Horizontal</option>
           </select>
-          <button class="control" id="locate-current" type="button" aria-label="Locate map source workspace" title="Locate map source workspace" disabled>Locate</button>
+          <button class="control" id="locate-current" type="button" aria-label="Locate map source workspace" title="Locate map source workspace" disabled>Locate map source</button>
           <details class="map-tools" id="map-tools"><summary id="map-tools-trigger">More</summary><div class="map-tools-panel">
           <div class="pan-controls" role="group" aria-label="Pan repository topology">
             <span class="pan-label">Pan</span>
@@ -1673,6 +1688,23 @@
         const label = value ? observationLabel(value) : "Task observation unavailable";
         const text = "Tasks · " + label.replace(/^Tasks /, "");
         if (node.textContent !== text) node.textContent = text;
+        node.dataset.stale = String(!value || !tasksConfirmed(value));
+        updateAgentLocation(value);
+      }
+      function currentAgentLane(value) {
+        const match = /^#codex-task=([0-9a-fA-F-]+)$/.exec(window.location.hash || "");
+        if (!value || !match || !safeCodexThreadId(match[1])) return null;
+        const candidates = value.lanes.filter(lane => lane.chats.some(chat => {
+          const report = chat.working_directory, age = Date.now() - Date.parse(report?.observed_at || "");
+          return chat.codex_thread_id === match[1] && chat.host === "local" && chat.lifecycle === "present" && chat.association_source === "agent_reported_working_directory" && report?.path === lane.workspace_path && age >= 0 && age <= 300000;
+        }));
+        return candidates.length === 1 ? candidates[0] : null;
+      }
+      function updateAgentLocation(value) {
+        const lane = currentAgentLane(value);
+        byId("locate-agent").disabled = !lane;
+        const source = value?.lanes.find(l => l.worktree_id === value.current_worktree_id);
+        byId("agent-location").textContent = "Map source: " + (source?.branch || source?.workspace_path || "unknown") + " · Current Agent: " + (lane ? (lane.branch || "Detached HEAD") + " · " + lane.workspace_path + " (Agent reported)" : "location unverified or expired; ask Codex to refresh DevMap");
       }
       function refreshDynamicState() {
         if (!lastSnapshot) return;
@@ -1809,6 +1841,8 @@
         if (byId("map-tools").open && !byId("selection-details").hidden) collapseInspector(true, false);
       });
       byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
+      byId("locate-agent").addEventListener("click", () => { const lane = currentAgentLane(lastSnapshot); if (lane) { setJourneyWorkspace(lane.worktree_id); locateWorkspace(lane.worktree_id); openFullWorkspace(lane.worktree_id); } });
+      window.addEventListener("hashchange", () => updateAgentLocation(lastSnapshot));
       window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
       document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
       installPanControls(byId("topology-viewport"));

@@ -40,9 +40,9 @@ fn dock_asset_is_self_contained_and_uses_portable_bridge() {
     assert!(!html.contains("localStorage"));
     assert!(!html.contains("sessionStorage"));
     // Includes the chooser, inspector and reversible commit-history summaries.
-    // Retain a bounded 184 KiB
+    // Retain a bounded 188 KiB including runtime identity and observation status.
     // regression budget without changing the 512 KiB MCP resource limit.
-    assert!(html.len() < 184 * 1024);
+    assert!(html.len() < 188 * 1024);
 }
 
 #[test]
@@ -164,11 +164,14 @@ fn dock_asset_supports_safe_horizontal_pan_inputs() {
 fn dock_asset_preserves_required_titles_and_hides_unselected_inspector() {
     let html = dock_html();
     assert!(html.contains("<title>DevMap · Rail View — Repository topology</title>"));
-    assert!(html.contains(">DevMap · Rail View</p>"));
+    assert!(html.contains("Running DevMap"));
+    assert!(html.contains(env!("CARGO_PKG_VERSION")));
+    assert!(!html.contains("DEVMAP_RUNTIME_VERSION"));
+    assert!(!html.contains("DEVMAP_BUILD_REVISION"));
     assert!(html.contains("<h1 id=\"map-title\">Repository topology</h1>"));
     assert!(html.contains("id=\"selection-details\" aria-labelledby=\"selection-title\" hidden"));
     assert!(html.contains("id=\"interaction-feedback\" role=\"status\" aria-live=\"polite\""));
-    assert!(html.contains("id=\"task-inventory\" aria-live=\"polite\""));
+    assert!(html.contains("id=\"task-inventory\""));
     assert_eq!(html.matches("<main").count(), 1);
 }
 

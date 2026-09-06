@@ -51,7 +51,7 @@ class Element {
   scrollTo(options) { this.scrollLeft = options.left ?? this.scrollLeft; this.scrollTop = options.top ?? this.scrollTop; }
   focus() {}
 }
-function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl } = {}) {
+function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl, taskFragment = '' } = {}) {
   const ids = new Map(); const events = {};
   const clock = { value: nowMs }; const timers = new Map(); let nextTimer = 1;
   class ClockDate extends Date { static now() { return clock.value; } }
@@ -64,7 +64,7 @@ function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl } = {}) {
     addEventListener() {},
   };
   const messages = [];
-  const window = { parent: { postMessage: m => messages.push(m) }, location: { search: '' }, addEventListener: (k, cb) => { events[k] = cb; }, matchMedia: () => ({ matches: true }) };
+  const window = { parent: { postMessage: m => messages.push(m) }, location: { search: '', hash: taskFragment }, addEventListener: (k, cb) => { events[k] = cb; }, matchMedia: () => ({ matches: true }) };
   if (mode === 'browser') window.parent = window;
   let html = fs.readFileSync(path.join(root, 'assets/dock.html'), 'utf8').replace('/* DEVMAP_METRO_CORE */', fs.readFileSync(path.join(root, 'assets/metro-core.js'), 'utf8'));
   let script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
@@ -1570,4 +1570,14 @@ test('browser refresh distinguishes Git from Agent observation updates', async (
   await ui.ids.get('refresh').listeners.click();
   assert.match(ui.ids.get('refresh-status').textContent,/Git refreshed/);
   assert.match(ui.ids.get('refresh-status').textContent,/Agent locations not updated/);
+});
+
+test('Agent locator requires exact identity and fresh reported directory, never active-state guessing', () => {
+ const v=snapshot(), lane=v.lanes[1], task=v.lanes[0].chats.shift(); lane.chats.push(task);
+ task.registered_workspace_path=v.lanes[0].workspace_path;task.association_source='agent_reported_working_directory';task.working_directory={path:lane.workspace_path,observed_at:stamp,source:'agent_report'};
+ const absent=harness();absent.acceptSnapshot(v);assert.equal(absent.ids.get('locate-agent').disabled,true);
+ const ui=harness({taskFragment:'#codex-task='+task.codex_thread_id});assert.ok(ui.acceptSnapshot(v));
+ assert.equal(ui.ids.get('locate-agent').disabled,false);assert.match(ui.ids.get('agent-location').textContent,/auth-folder/);
+ ui.advance(301000);ui.refreshDynamicState();assert.equal(ui.ids.get('locate-agent').disabled,true);
+ assert.match(ui.ids.get('agent-location').textContent,/expired/);
 });

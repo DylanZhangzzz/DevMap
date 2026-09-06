@@ -21,13 +21,15 @@ pub fn dock_html() -> &'static str {
         );
         // The template has no preformatted text or multiline string literals.
         // Strip source indentation for transport, keeping readable source and the
-        // 184 KiB resource budget including reversible commit-history summaries.
+        // 188 KiB resource budget including reversible commit-history summaries.
         // Keep newlines for JavaScript comments.
         TEMPLATE
             .lines()
             .map(str::trim_start)
             .collect::<Vec<_>>()
             .join("\n")
+            .replace("DEVMAP_RUNTIME_VERSION", env!("CARGO_PKG_VERSION"))
+            .replace("DEVMAP_BUILD_REVISION", env!("DEVMAP_BUILD_REVISION"))
             .replacen(
                 PLACEHOLDER,
                 &CORE

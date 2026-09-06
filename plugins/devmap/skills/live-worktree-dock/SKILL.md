@@ -25,6 +25,7 @@ After preparing the task inventory above, use this workflow for the default Brow
 
 1. Call `devmap_open_map` with `surface: browser` once with `codex_tasks` and `codex_tasks_complete`. It starts a loopback Viewer when needed and otherwise reuses the healthy Viewer owned by this MCP process.
 2. Read `structuredContent.url` from the result.
+   When the calling task's exact local Codex UUID is verified, append `#codex-task=<verified UUID>` to the Browser URL before opening it. This selects the current Agent for the locator; it does not attest its execution directory. Include its freshly verified `workingDirectory` in the task inventory as described below. Never choose a task by its title or activity state. Without a verified calling identity, leave the fragment absent so the UI reports the Agent location as unverified. The fragment stays local to the Browser and is not an HTTP query parameter.
 3. In Codex, call `open_in_codex` with `target: {type: browser, url: <returned URL>}` and `placement: right`. In another host, use only its documented local-app surface.
 4. If Codex reports that the tab was queued, report the queued state accurately and do not call `devmap_open_map` with `surface: browser` again.
 
