@@ -1,0 +1,146 @@
+name: Package and release
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: win32-x64
+            target: x86_64-pc-windows-msvc
+            binary: devmap.exe
+          - runner: macos-15-intel
+            platform: darwin-x64
+            target: x86_64-apple-darwin
+            binary: devmap
+          - runner: macos-14
+            platform: darwin-arm64
+            target: aarch64-apple-darwin
+            binary: devmap
+          - runner: ubuntu-22.04
+            platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+            binary: devmap
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            binary: devmap
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate release tag
+        run: node packaging/release.cjs version
+      - name: Install Rust
+        run: rustup toolchain install 1.96.1 --profile minimal --target ${{ matrix.target }}
+      - name: Compile native binary
+        run: cargo +1.96.1 build --release --locked --target ${{ matrix.target }}
+      - name: Stage native archive
+        run: node packaging/release.cjs native ${{ matrix.platform }} target/${{ matrix.target }}/release/${{ matrix.binary }} dist
+      - name: Test real npm installation and MCP on this platform
+        run: node packaging/smoke.cjs dist/native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: dist
+      - name: Assemble complete npm tarball and checksums
+        env:
+          PACKAGE_NAME: ${{ vars.DEVMAP_NPM_PACKAGE || 'devmap-local-preview' }}
+        run: node packaging/release.cjs assemble dist "$PACKAGE_NAME"
+      - name: Verify checksums
+        working-directory: dist/assets
+        run: sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/assets/
+          if-no-files-found: error
+          retention-days: 30
+
+  github-release:
+    needs: assemble
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+      - name: Publish tag assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$RELEASE_TAG" assets/* --verify-tag --generate-notes "${prerelease[@]}"
+
+  npm-publish:
+    needs: [assemble, github-release]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && vars.DEVMAP_NPM_PUBLISH == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+      - name: Publish using npm trusted publishing
+        env:
+          PACKAGE_NAME: ${{ vars.DEVMAP_NPM_PACKAGE }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -n "$PACKAGE_NAME" || { echo "Set DEVMAP_NPM_PACKAGE before enabling publication"; exit 1; }
+          tag=latest
+          if [[ "$RELEASE_TAG" == *-* ]]; then tag=next; fi
+          npm publish assets/*.tgz --access public --tag "$tag"

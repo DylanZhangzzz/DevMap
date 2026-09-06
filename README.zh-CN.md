@@ -54,6 +54,10 @@ Git 刷新不会刷新任务观察时间。缺失、过期或不完整的清单�
 
 ## 快速开始
 
+无需 Rust 的方式见 [npm/npx 与预编译安装说明](docs/installation.md)。仓库已加入五个平台的 GitHub 自动打包、真实 npm 安装测试与标签发布流程；公开包是否可用请以 Releases 的实际产物为准。维护者配置见[自动发布说明](docs/releasing.md)。
+
+### 从源码构建
+
 构建 CLI 需要 Git 和 **Rust 1.96 或更高版本**。
 
 ```sh

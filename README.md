@@ -56,6 +56,10 @@ Git refresh does not refresh task observations. Missing, stale or partial invent
 
 ## Quick start
 
+For a no-Rust installation, see [npm/npx and prebuilt downloads](docs/installation.md). GitHub Actions now defines five-platform packaging, native npm smoke tests, and tag releases; actual public package availability must be confirmed on the Releases page. Maintainers: [automated release setup](docs/releasing.md).
+
+### Build from source
+
 You need Git and **Rust 1.96 or newer** to build the CLI.
 
 ```sh
