@@ -70,7 +70,7 @@ function harness({ textScale = 1, mode = 'mcp', nowMs = now } = {}) {
   let script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
   script = script.replace('if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();', '');
   const last = script.lastIndexOf('})();');
-  script = script.slice(0, last) + 'globalThis.renderer = { acceptSnapshot, renderSnapshot, inspectWorkspace: id => zoomWorkspace(id || lastSnapshot.current_worktree_id), refreshDynamicState: typeof refreshDynamicState === "function" ? refreshDynamicState : () => { throw new Error("refreshDynamicState missing"); }, explorationState: () => ({ selectedWorkspaceId: typeof selectedWorkspaceId === "undefined" ? undefined : selectedWorkspaceId, selectedTaskId: typeof selectedTaskId === "undefined" ? undefined : selectedTaskId, expandedWorkspaces: [...expandedWorkspaces], expandedConversationHistory: [...expandedConversationHistory], viewportPosition: typeof viewportPosition === "undefined" ? undefined : { ...viewportPosition } }) };' + script.slice(last);
+  script = script.slice(0, last) + 'globalThis.renderer = { acceptSnapshot, renderSnapshot, inspectWorkspace: id => openFullWorkspace(id || lastSnapshot.current_worktree_id), refreshDynamicState: typeof refreshDynamicState === "function" ? refreshDynamicState : () => { throw new Error("refreshDynamicState missing"); }, explorationState: () => ({ selectedWorkspaceId: typeof selectedWorkspaceId === "undefined" ? undefined : selectedWorkspaceId, selectedTaskId: typeof selectedTaskId === "undefined" ? undefined : selectedTaskId, expandedWorkspaces: [...expandedWorkspaces], expandedConversationHistory: [...expandedConversationHistory], viewportPosition: typeof viewportPosition === "undefined" ? undefined : { ...viewportPosition } }) };' + script.slice(last);
   const context = vm.createContext({ document, window, navigator: {}, console, Date: ClockDate,
     setTimeout: cb => { const id = nextTimer++; timers.set(id, cb); return id; }, clearTimeout: id => timers.delete(id),
     requestAnimationFrame: cb => cb(), ResizeObserver: class { observe() {} disconnect() {} } });
@@ -95,6 +95,143 @@ function snapshot() {
 module.exports = { snapshot, chat };
 
 if (require.main === module) {
+test('inline refresh preserves scroll but switching resets it and missing task focus returns to summary', () => {
+  const ui=harness(), value=snapshot();ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map');
+  map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id).listeners.click();
+  map.querySelector('.workspace-summary').scrollTop=190;
+  map.querySelector('.task-node').focus();
+  const changed=structuredClone(value); changed.observation_revision++; changed.lanes[0].chats[0].lifecycle='archived';
+  assert.equal(ui.acceptSnapshot(changed),true);
+  assert.equal(map.querySelector('.workspace-summary').scrollTop,190);
+  assert.equal(ui.document.activeElement.className,'workspace-summary');
+  const other=map.querySelectorAll('.route-platform').find(n=>n.dataset.workspaceCount==='1'&&n.dataset.worktreeId!==value.current_worktree_id);
+  other.listeners.click();
+  assert.equal(map.querySelectorAll('.workspace-summary').length,1);
+  assert.equal(map.querySelector('.workspace-summary').scrollTop,0);
+});
+
+test('inline summary distinguishes unavailable or partial destination inventory from absent plans', () => {
+  for(const [code,label] of [['route_plans_unavailable','Destination observation unavailable'],['route_plans_truncated','Partial destination inventory']]) {
+    const ui=harness(),value=snapshot();value.warnings=[{code,subject_id:null}];
+    assert.equal(ui.acceptSnapshot(value),true);
+    const map=ui.ids.get('relationship-map');map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id).listeners.click();
+    assert.ok(map.querySelector('.workspace-summary').textContent.includes(label));
+    assert.ok(!map.querySelector('.workspace-summary').textContent.includes('No recorded destination'));
+  }
+});
+
+test('inline workspace summary toggles, preserves history and hands off to full details', () => {
+  const ui=harness(), value=snapshot(); ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map'), initial=JSON.stringify(map.metroLayout.nodes), edges=JSON.stringify(map.metroLayout.edges);
+  const stop=()=>map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
+  stop().listeners.click();
+  assert.equal(map.querySelectorAll('.workspace-summary').length,1);
+  assert.equal(ui.ids.get('selection-details').hidden,true);
+  assert.equal(stop().getAttribute('aria-expanded'),'true');
+  assert.equal(map.querySelector('.workspace-summary').querySelectorAll('.task-node').length,2);
+  assert.equal(JSON.stringify(map.metroLayout.nodes),initial);
+  assert.equal(JSON.stringify(map.metroLayout.edges),edges);
+  const viewport=ui.explorationState().viewportPosition;
+  const summary=map.querySelector('.workspace-summary'); summary.scrollTop=37;
+  summary.querySelector('.summary-details').focus(); ui.refreshDynamicState();
+  assert.equal(map.querySelector('.workspace-summary').scrollTop,37);
+  assert.equal(ui.document.activeElement.className,'summary-details');
+  ui.acceptSnapshot({...value,observation_revision:10});
+  assert.deepEqual(ui.explorationState().viewportPosition,viewport);
+  map.querySelector('.summary-details').listeners.click();
+  assert.equal(ui.ids.get('selection-details').hidden,false);
+  assert.equal(map.querySelectorAll('.workspace-summary').length,0);
+  stop().listeners.click(); stop().listeners.click();
+  assert.equal(map.querySelectorAll('.workspace-summary').length,0);
+  stop().listeners.click();
+  map.querySelector('.workspace-summary').listeners.keydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(map.querySelectorAll('.workspace-summary').length,0);
+  assert.equal(ui.document.activeElement.dataset.worktreeId,value.current_worktree_id);
+});
+
+test('workspace chooser filters branch and path, survives refresh, and closes on selection', () => {
+  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value);
+  ui.ids.get('overview-toggle').listeners.click();
+  const search = ui.ids.get('workspace-filter');
+  assert.ok(search?.listeners.input, 'workspace search is wired');
+  search.value = 'AUTH-FOLDER'; search.listeners.input();
+  const visible = () => ui.ids.get('overview-workspaces').querySelectorAll('.overview-workspace').filter(n => !n.hidden);
+  assert.equal(visible().length, 1);
+  assert.equal(visible()[0].dataset.worktreeId, value.lanes[1].worktree_id);
+  ui.acceptSnapshot({...value, observation_revision:10});
+  assert.equal(visible().length, 1);
+  visible()[0].listeners.click();
+  assert.equal(ui.ids.get('overview-workspaces').hidden, true);
+  assert.equal(ui.ids.get('overview-toggle').getAttribute('aria-expanded'), 'false');
+  search.value = 'no-such-workspace'; search.listeners.input();
+  assert.equal(visible().length, 0);
+  ui.ids.get('overview-toggle').listeners.click();
+  assert.equal(ui.ids.get('workspace-filter-empty').hidden, false);
+});
+
+test('inspector collapse and size preserve workspace, viewport and refresh while explicit selection reopens', () => {
+  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value); ui.inspectWorkspace();
+  const details = ui.ids.get('selection-details'), map = ui.ids.get('relationship-map');
+  const geometry = JSON.stringify(map.metroLayout), selection = ui.explorationState().selectedWorkspaceId;
+  const viewport = ui.explorationState().viewportPosition;
+  assert.ok(details.querySelector('.resize-details'), 'inspector has size control');
+  details.querySelector('.resize-details').listeners.click();
+  assert.equal(details.dataset.size, 'large');
+  details.querySelector('.collapse-details').listeners.click();
+  assert.equal(details.dataset.collapsed, 'true');
+  ui.acceptSnapshot({...value, observation_revision:10});
+  assert.equal(details.dataset.collapsed, 'true');
+  assert.equal(details.dataset.size, 'large');
+  assert.equal(ui.explorationState().selectedWorkspaceId, selection);
+  assert.deepEqual(ui.explorationState().viewportPosition, viewport);
+  assert.equal(JSON.stringify(map.metroLayout), geometry);
+  ui.inspectWorkspace(value.lanes[1].worktree_id);
+  assert.equal(details.dataset.collapsed, 'false');
+  details.listeners.keydown({key:'Escape',preventDefault(){}});
+  assert.equal(details.dataset.collapsed, 'true');
+  assert.equal(ui.explorationState().selectedWorkspaceId, value.lanes[1].worktree_id);
+});
+
+test('planned destination remains separate and selected with an explicit retained target navigation', () => {
+  const ui = harness(), value = journeySnapshot(); ui.acceptSnapshot(value); ui.inspectWorkspace();
+  const map = ui.ids.get('relationship-map'), geometry = JSON.stringify(map.metroLayout);
+  const future = map.querySelectorAll('path').find(n => n.getAttribute('class') === 'future-connection');
+  assert.equal(future.dataset.journeySelected, 'true');
+  assert.ok(ui.ids.get('selection-details').querySelector('.inspector-destination'), 'destination remains visible beside tasks');
+  ui.ids.get('journey-context').querySelectorAll('[data-journey-action]').find(n => n.dataset.journeyAction === value.route_plans[0].route_id).listeners.click();
+  const target = ui.ids.get('selection-details').querySelector('.plan-target');
+  assert.ok(target, 'retained target branch can be located');
+  assert.ok(target.textContent.includes('main'));
+  target.listeners.click();
+  assert.ok(ui.ids.get('selection-details').textContent.includes(value.topology.refs.find(r => r.ref_name === 'refs/heads/main').oid));
+  assert.equal(JSON.stringify(map.metroLayout), geometry);
+  ui.inspectWorkspace(value.lanes[1].worktree_id);
+  assert.equal(future.dataset.journeySelected, 'false');
+});
+
+test('shared workspace refresh preserves chooser and exact inspector controls', () => {
+  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value);
+  ui.ids.get('relationship-map').querySelectorAll('.route-platform').find(n => Number(n.dataset.workspaceCount) > 1).listeners.click();
+  const map = ui.ids.get('relationship-map');
+  const choice=map.querySelector('.workspace-choice');choice.focus();ui.refreshDynamicState();
+  assert.equal(ui.document.activeElement.dataset.worktreeId,choice.dataset.worktreeId);
+  ui.ids.get('overview-toggle').listeners.click();
+  ui.refreshDynamicState();
+  assert.equal(ui.ids.get('overview-workspaces').hidden, false);
+});
+
+test('multiple planned destinations preserve exact action focus on age refresh', () => {
+  const ui = harness(), value = journeySnapshot();
+  value.route_plans.push({...value.route_plans[0],route_id:'route-fedcba9876543210fedcba9876543210',target_ref:'refs/heads/feature/1',goal:'Second destination'});
+  ui.acceptSnapshot(value); ui.inspectWorkspace();
+  const details = ui.ids.get('selection-details');
+  const second = details.querySelectorAll('.inspector-destination')[1]; second.focus();
+  ui.refreshDynamicState();
+  assert.equal(ui.document.activeElement.dataset.routeId, value.route_plans[1].route_id);
+  assert.equal(ui.document.activeElement.textContent, second.textContent);
+});
+
 test('reported working directory shows the passenger with provenance and a verified task link', () => {
   const ui = harness({mode:'browser'}), value = snapshot(), parent = value.lanes[0].chats.shift(), lane = value.lanes[1];
   parent.association_source = 'agent_reported_working_directory';
@@ -120,6 +257,7 @@ test('route map starts with compact platforms and opens passenger details outsid
   const platform=map.querySelector('[data-worktree-id]'); assert.ok(platform);
   const before=JSON.stringify(map.metroLayout);
   platform.listeners.click();
+  map.querySelector('.summary-details').listeners.click();
   const details=ui.ids.get('selection-details');
   assert.equal(details.hidden,false); assert.ok(details.querySelector('.task-node'));
   const expand=details.querySelector('.task-disclosure'); expand.listeners.click();
@@ -136,6 +274,7 @@ test('opening a platform locates it after the inspector reduces the map viewport
   const surface=ui.ids.get('relationship-map');
   const platform=surface.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
   platform.listeners.click();
+  surface.querySelector('.summary-details').listeners.click();
   const a=surface.metroLayout.attachments.find(a=>a.worktree_id===value.current_worktree_id);
   assert.equal(details.hidden,false);
   assert.ok(16+a.y+a.height<=viewport.scrollTop+viewport.clientHeight,'selected platform stays visible above the opened inspector');
@@ -476,8 +615,8 @@ test('overview workspace activation zooms to that exact checkout without opening
   assert.equal(ui.explorationState().selectedWorkspaceId, id);
   assert.equal(ui.ids.get('overview-workspaces').hidden, true);
   assert.equal(ui.messages.filter(message => message.method === 'ui/message').length, 0);
-  assert.equal(ui.document.activeElement.className,'dismiss-details','keyboard enters the inspector without opening a task');
-  assert.equal(ui.ids.get('selection-details').hidden,false);
+  assert.equal(ui.document.activeElement.className,'workspace-summary','keyboard enters the summary without opening a task');
+  assert.equal(ui.ids.get('selection-details').hidden,true);
 });
 
 test('zoom preserves the center world point and survives observation, age, and geometry refresh', () => {
@@ -551,7 +690,7 @@ test('overview marks workspace HEADs, groups shared HEADs, and preserves readabl
   shared.listeners.click();
   assert.equal(Number(map.dataset.scale),1,'shared choices preserve route scale');
   ui.acceptSnapshot({ ...value, observation_revision: value.observation_revision + 1 });
-  const choices = ui.ids.get('selection-details').querySelectorAll('.workspace-choice');
+  const choices = map.querySelectorAll('.workspace-choice');
   assert.equal(choices.length, Number(shared.dataset.workspaceCount));
   choices[1].listeners.click();
   assert.equal(Number(map.dataset.scale), 1);
@@ -995,12 +1134,12 @@ test('current and risk drill-down keep the station, stem and full workspace prev
   ui.ids.get('locate-current').listeners.click();
   assertJoint(value.current_worktree_id);
   const currentHead = layout.nodes.find(node => node.id === value.workspace_facts[0].head_oid);
-  assert.ok(currentHead.x >= viewport.scrollLeft && currentHead.x <= viewport.scrollLeft + viewport.clientWidth);
+  assert.ok(16+currentHead.x >= viewport.scrollLeft && 16+currentHead.x <= viewport.scrollLeft + viewport.clientWidth);
   const risk = ui.ids.get('attention-summary').querySelectorAll('.attention-link').find(node => node.textContent.includes('auth-folder'));
   assert.ok(risk); risk.listeners.click();
   assertJoint(value.workspace_facts[1].worktree_id);
   const riskHead = layout.nodes.find(node => node.id === value.workspace_facts[1].head_oid);
-  assert.ok(riskHead.x >= viewport.scrollLeft && riskHead.x <= viewport.scrollLeft + viewport.clientWidth);
+  assert.ok(16+riskHead.x >= viewport.scrollLeft && 16+riskHead.x <= viewport.scrollLeft + viewport.clientWidth);
 });
 
 test('attention stays compact while each risky workspace and exact reasons remain discoverable', () => {
@@ -1215,10 +1354,12 @@ test('wayfinding includes through-routes and leave-reenter paths but excludes fu
     { ...base, id: 'through', points: [{x:-20,y:50},{x:120,y:50}] },
     { ...base, id: 'reenter', points: [{x:20,y:20},{x:120,y:20},{x:120,y:80},{x:20,y:80}] },
     { ...base, id: 'offscreen', points: [{x:120,y:120},{x:180,y:120}] },
+    { ...base, id: 'diagonal-through', points: [{x:-20,y:-20},{x:120,y:120}] },
+    { ...base, id: 'diagonal-miss', points: [{x:-20,y:50},{x:10,y:200}] },
   ] };
   viewport.listeners.scroll();
   const visible = [...new Set(ui.ids.get('edge-list').querySelectorAll('.edge-destination').map(node => node.dataset.edgeId))];
-  assert.deepEqual(visible, ['through', 'reenter']);
+  assert.deepEqual(visible, ['through', 'reenter', 'diagonal-through']);
 });
 
 test('passenger freshness ages independently and idle chats keep ownership', () => {

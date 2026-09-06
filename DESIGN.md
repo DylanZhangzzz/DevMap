@@ -197,7 +197,7 @@ Warm paper and white surfaces support a charcoal primary rail, six saturated bra
 
 The Dock is a full-height flex column inside a centered container capped at 1440px. The header, attention summary, navigation, offscreen wayfinding, inspector, and help remain outside the scrollable topology viewport. At 619px and below, the outer padding tightens from 16px to 8px and detail grids collapse to one column.
 
-The map uses one CSS-pixel world. Commit ranks advance horizontally, branch lanes stack vertically, and all rails, stations, crossing masks, labels, refs, and workspace stems are positioned from the same deterministic geometry. Horizontal and vertical overflow remain native. Workspace groups are measured before layout, capped at 320px wide, reduced to the viewport minus 80px when necessary, and limited to a scrollable 1024px height for very large task inventories.
+The map uses one CSS-pixel world. The v4 route view lays out real commit identities directly: stable topology rank/ID order advances along the history axis, with separate tracks at least 24px apart at normal text size. Continuous history stays straight; branch changes use short diagonal entries/exits, and connections skipping unrelated stations use a separate bypass. The history axis turns vertical in narrow views. Geometry is not squeezed to fit the container; native overflow preserves readable tracks and labels. Crossing masks and offscreen navigation intersect the actual segments, including diagonals. Workspace summaries reserve space separately and never move historical rails when opened.
 
 Spacing follows a compact 4px/8px rhythm, with 12px and 16px reserved for panel relationships and larger separation. The implemented graph uses 96px column gaps and a corrected 48px lane-row gap, while 8px shelves keep workspace identity, refs, and commit labels grouped without overlap.
 
@@ -264,7 +264,7 @@ Controls use gently compact 6px corners. Workspace groups, task rows, the inspec
 - One existing unarchived chat counts as one passenger, including its executing Agent. Completed, idle and unloaded chats still count. Archived/deleted records remain outside the passenger roster; legacy existence is unknown. Developing, waiting, finished and unknown activity are distinct from presence. A complete fresh inventory is required to confirm an unattended platform. Unattended uncommitted or unmerged work raises attention; clean included work only suggests cleanup review.
 - Double-ring stations identify forks and merges present in retained commit topology. A current common ancestor never claims to be a recorded worktree creation point.
 - Dashed journeys leave the platform for a labeled planned arrival area outside commit history. They add no commit, ancestry edge, or claimed completed merge. Missing retained target geometry remains distinct from an explicitly unavailable target.
-- The self-contained resource budget is 144 KiB, including platform and arrival navigation; no external UI dependencies are added.
+- The self-contained resource regression budget is 176 KiB, including the searchable workspace chooser, persistent inspector controls and arrival navigation; no external UI dependencies are added. The 512 KiB runtime resource cap and snapshot validation limits remain unchanged.
 
 ### Task Rows
 
@@ -281,9 +281,13 @@ Controls use gently compact 6px corners. Workspace groups, task rows, the inspec
 
 ### Selection Details
 
-- **Container:** Secondary panel separated by a stronger top rule and `16px 0` padding.
+- **Primary selection:** Clicking a v4 workspace opens one inline summary beside its HEAD label. Shared HEADs first offer exact workspace choices. The summary shows two current tasks, recorded destinations and an early View full details action. Repeat click or Escape collapses it. Selecting another workspace resets summary scroll; refreshing the same one preserves scroll and focus, with fallback when a task disappears.
+- **Geometry:** A bounded 320px summary reservation scales with text size. Label collision placement and association stems can move; actual commit coordinates and historical rails remain unchanged. Selection preserves the workspace screen anchor and map zoom. Unavailable or partial destination observations remain explicit and never establish a parent branch.
+- **Container:** A single bottom inspector provides full details on explicit request, separated by a stronger top rule, with sticky title/actions and one scrolling content area. Standard height is 34dvh; Larger requests 50dvh, yielding space when the viewport is constrained.
 - **Content:** A two-column definition grid becomes one column in compact Docks; exact hashes use the mono role.
-- **Dismissal:** Details are dismissible and never duplicate the primary station/task hierarchy by default.
+- **Dismissal:** Collapse/Expand and Escape retain selection and map position; Close explicitly dismisses selection. Refresh preserves size, collapse state and exact focused action. Selecting another object opens its details. Opening the workspace chooser collapses the inspector to preserve map space.
+- **Navigation:** Workspaces is a primary toolbar action. Its optional branch/path filter and list appear above the canvas; choosing a workspace closes the list. More tools expand in document flow without covering the map. Narrow journey endpoints scroll horizontally instead of consuming additional map height.
+- **Future destinations:** Recorded destinations remain visible beside workspace tasks and in the journey strip. The selected workspace's dashed future path and arrival are accented independently of branch identity. Plan inspection prioritizes destination/status/milestones and can locate a retained target branch. This never fabricates a parent branch or completed merge.
 
 ### Named Rules
 

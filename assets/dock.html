@@ -50,9 +50,10 @@
     .map-navigation {display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:8px 0 4px;flex:none;}
     .map-navigation > * {flex:none;}
     .map-navigation .control {padding:4px 8px;}
-    .map-tools {position:relative;}
+    .map-tools {display:contents;}
     .map-tools > summary {min-height:44px;padding:10px 8px;cursor:pointer;}
-    .map-tools-panel{position:absolute;z-index:20;right:0;top:100%;width:300px;max-width:calc(100vw - 32px);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+    .map-tools-panel{flex-basis:100%;min-width:0;padding:8px;border-block:1px solid var(--line-soft);background:var(--surface);}
+    .map-tools:not([open])>.map-tools-panel{display:none;}
     .map-tools-panel > * {margin:4px 0;}
     .pan-controls {display:inline-flex;align-items:center;gap:4px;}
     .zoom-controls {display:inline-flex;gap:4px;}
@@ -70,7 +71,7 @@
     .edge-list {max-height:20vh;overflow:auto;}
     .edge-route {display:flex;flex-wrap:wrap;align-items:center;border-top:1px solid var(--line-soft);}
     .edge-destination {font-size:.75rem;overflow-wrap:anywhere;flex:1 1 160px;}
-    .selection-details {max-height:35vh;overflow:auto;flex:none;}
+    .selection-details {height:34dvh;min-height:min(160px,24dvh);overflow:auto;flex:0 1 34dvh;}
     .map-help {flex:none;max-height:22vh;overflow:auto;margin:0;}
     .map-help summary {min-height:32px;padding-block:4px;cursor:pointer;}
     .topology-viewport:focus-visible {outline:3px solid var(--focus);outline-offset:-3px;}
@@ -96,6 +97,11 @@
     .workspace-choice {display:block;width:100%;border-top:1px solid var(--line-soft);}
     .worktree-name, .worktree-stop .branch-meta {white-space:normal;overflow-wrap:anywhere;}
     .overview-workspaces {flex:none;max-height:28vh;overflow:auto;border-bottom:1px solid var(--line-soft);}
+    .workspace-search {display:flex;align-items:center;gap:8px;flex:none;padding:8px 0;}
+    .workspace-search label {font-size:.75rem;color:var(--muted);}
+    .workspace-search input {min-width:0;flex:1;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+    .workspace-search button {flex:none;}
+    .workspace-filter-empty {padding:8px;color:var(--muted);margin:0;}
     .overview-help {margin:6px 0;font-size:.75rem;color:var(--muted);}
     .overview-workspace {display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
     .overview-heading {display:flex;align-items:center;gap:8px;}
@@ -168,6 +174,9 @@
     .workspace-risk:empty {display:none;}
     .platform-occupancy:empty {display:none;}
     .future-connection {fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:7 6;}
+    .future-connection[data-journey-selected="true"] {stroke:var(--accent);stroke-width:3;}
+    .journey-destination {border:1px dashed var(--accent);border-radius:6px;}
+    .arrival-zone[data-journey-selected="true"] {background:var(--accent-soft);border-color:var(--accent);}
     .arrival-zone {position:absolute;border-left:2px dashed var(--muted);padding:0 12px;color:var(--muted);font-size:.75rem;}
     .arrival-zone strong {display:block;font-size:.875rem;color:var(--text);}
     .arrival-zone::before {content:"";position:absolute;width:12px;height:12px;left:-7px;top:-6px;border:2px solid var(--muted);border-radius:50%;background:var(--bg-canvas);}
@@ -186,19 +195,19 @@
     .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) {display:none;}
     @container dock (max-width:760px) {
       .map-navigation{position:relative;}.map-tools{position:static;}
-      .selection-details {max-height:32vh;}
       .journey-heading > .journey-passengers {display:none;}
       .attention-summary[data-empty="true"] {display:none;}
       .zoom-controls {flex-wrap:wrap;}
       .journey-context {max-height:22vh;padding:4px 0;}
-      .journey-heading {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;}
-      .journey-heading>strong{grid-column:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+      .journey-heading {display:flex;flex-wrap:nowrap;gap:2px 8px;}
+      .journey-heading>strong{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
       .journey-heading > .journey-passengers {grid-column:1;}
-      .journey-heading>[data-journey-action="focus"]{grid-column:2;grid-row:1/3;margin:0;}
+      .journey-heading>[data-journey-action="focus"]{flex:none;margin:0;}
       .journey-passengers .passenger-full {display:none;}
       .journey-passengers .passenger-compact {display:inline;}
-      .journey-stops {flex-wrap:wrap;gap:0 4px;}
-      .journey-stops > * {flex:none;white-space:normal;}
+      .journey-stops {flex-wrap:nowrap;gap:0 4px;overflow-x:auto;padding:3px;}
+      .journey-stops > * {flex:none;white-space:nowrap;}
+      .journey-stop .endpoint-hash {display:none;}
       .journey-stop, .journey-unknown {padding-inline:6px;}
       .worktree-cluster > .workspace-risk {margin-block:6px;}
       .map-legend {margin-bottom:4px;gap:4px 12px;}
@@ -213,6 +222,18 @@
     .route-platform[data-retained="true"]{border-left:1px solid var(--line-soft);}
     .route-platform[data-retained="true"] strong{font-weight:500;color:var(--muted);}
     .route-platform.current{background:var(--accent-soft);box-shadow:inset 0 -1px var(--accent);}
+    .route-platform[aria-expanded="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 var(--accent);}
+    .workspace-summary{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--bg-canvas);border-left:3px solid var(--accent);border-bottom:1px solid var(--line-soft);padding:8px;scrollbar-gutter:stable;}
+    .workspace-summary p{margin:0 0 8px;overflow-wrap:anywhere;font-size:.8125rem;color:var(--muted);}
+    .workspace-summary button,.workspace-summary a{min-height:44px;max-width:100%;}
+    .workspace-summary .task-node{position:relative;display:block;width:100%;margin:4px 0;padding:6px;text-align:left;}
+    .workspace-summary .task-heading{display:grid;grid-template-columns:16px minmax(0,1fr);gap:4px;}
+    .workspace-summary .task-onward{grid-column:2;justify-self:start;}
+    .workspace-summary .task-title{display:block;white-space:normal;overflow-wrap:anywhere;}
+    .workspace-summary .conversation-context,.workspace-summary .conversation-audit,.workspace-summary .agent-identity{display:none;}
+    .workspace-summary .conversation-facts{font-size:.75rem;}
+    .summary-details{display:block;width:100%;margin-top:8px;text-align:left;}
+    .summary-destination{display:block;width:100%;text-align:left;border-style:dashed;margin:6px 0;overflow-wrap:anywhere;}
     .platform-current{position:absolute;bottom:100%;left:8px;color:var(--accent);font-size:12px;font-weight:600;line-height:1.5;}
     .route-platform[data-journey-muted="true"]{color:var(--muted);}
     .route-platform[data-journey-muted="true"] strong{font-weight:500;}
@@ -225,14 +246,22 @@
     .map-direction,.line-name{position:absolute;font-size:.75rem;color:var(--muted);white-space:nowrap;}
     .line-name{font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;}
     .workspace-inspector{position:relative;border:0;max-height:none!important;overflow:visible!important;padding:0;}
-    .selection-details{padding:8px 0;overscroll-behavior:contain;}
+    .selection-details{padding:0 0 8px;overscroll-behavior:contain;}
+    .selection-details[data-size="large"]{height:50dvh;flex-basis:50dvh;}
+    .selection-details[data-collapsed="true"]{height:auto;min-height:0;padding:0;overflow:visible;flex:none;}
+    .selection-details[data-collapsed="true"]>:not(.inspector-header){display:none;}
+    .inspector-header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:4px 0;background:var(--bg);border-bottom:1px solid var(--line-soft);}
+    .inspector-header h2{flex:1 1 180px;min-width:0;font-size:.9375rem;}
+    .inspector-actions{display:flex;flex:none;gap:4px;margin-left:auto;}
+    .inspector-actions button{font-size:.75rem;padding:4px 8px;}
+    .inspector-actions .dismiss-details{float:none;}
+    .workspace-inspector>.inspector-destination{display:block;border-block:1px dashed var(--line);margin:4px 0;}
     .selection-details .detail-grid:empty{display:none;}
     .selection-details .worktree-identity{padding-inline:8px;}
     .selection-details .platform-heading:first-child{display:none;}
-    .workspace-inspector>.worktree-identity,.workspace-inspector>.platform-origin,.workspace-inspector>.platform-heading:not(.passenger-count):not(.platform-occupancy){display:none;}
+    .workspace-inspector>.worktree-identity,.workspace-inspector>.platform-origin:not(.inspector-destination),.workspace-inspector>.platform-heading:not(.passenger-count):not(.platform-occupancy){display:none;}
     .selection-details>.copy-hash{float:right;margin:0 4px;}
-    .selection-details>.dismiss-details{position:sticky;top:0;z-index:2;background:var(--surface);}
-    .workspace-inspector>.passenger-count{margin:4px 0;font-weight:400;}
+    .workspace-inspector>.passenger-count{margin:4px 0;font-weight:400;justify-content:flex-start;}
     .journey-heading>[data-journey-action="focus"]{min-height:32px;}
   </style>
 </head>
@@ -255,6 +284,7 @@
         <details class="attention-summary" id="attention-summary" hidden></details>
         <p class="coverage" id="coverage" role="status" hidden></p>
         <div class="map-navigation" id="map-navigation">
+          <button class="control" id="overview-toggle" type="button" aria-controls="overview-workspaces" aria-expanded="false" hidden>Workspaces</button>
           <div class="zoom-controls" role="group" aria-label="Map zoom">
             <button class="control" id="zoom-out" type="button" aria-label="Zoom map out" disabled>−</button>
             <button class="control" id="zoom-reset" type="button" aria-label="Reset map to 100 percent" disabled>100%</button>
@@ -263,7 +293,6 @@
           </div>
           <button class="control" id="locate-current" type="button" aria-label="Locate map source workspace" title="Locate map source workspace" disabled>Locate</button>
           <details class="map-tools" id="map-tools"><summary id="map-tools-trigger">More</summary><div class="map-tools-panel">
-          <button class="control" id="overview-toggle" type="button" aria-controls="overview-workspaces" aria-expanded="false" hidden>Workspaces</button>
           <div class="pan-controls" role="group" aria-label="Pan repository topology">
             <span class="pan-label">Pan</span>
             <button class="control" id="pan-left" type="button" aria-label="Pan topology left">Left</button>
@@ -274,10 +303,12 @@
         </div>
         <div class="map-legend" aria-label="Map key"><span><i class="legend-rail" aria-hidden="true"></i>Commit history</span><span><i class="legend-stem" aria-hidden="true"></i>Future plan</span><span><i class="legend-commit" aria-hidden="true"></i>Commit</span></div>
         <section class="journey-context" id="journey-context" aria-label="Selected workspace journey" hidden></section>
+        <div class="workspace-search" id="workspace-search" hidden><label for="workspace-filter">Find workspace</label><input id="workspace-filter" type="search" placeholder="Branch or folder" aria-controls="overview-workspaces" autocomplete="off"><button id="workspace-search-close" type="button">Close list</button></div>
+        <nav class="overview-workspaces" id="overview-workspaces" aria-label="Workspace overview" hidden></nav>
+        <p class="workspace-filter-empty" id="workspace-filter-empty" role="status" hidden>No matching workspaces.</p>
         <div class="topology-viewport" id="topology-viewport" tabindex="0" aria-label="Scrollable repository topology">
           <div class="topology-world" id="topology-world"><div class="relationship-map topology-canvas topology-surface" id="relationship-map"><p class="empty">Waiting for repository topology and linked tasks…</p></div><div class="overview-markers" id="overview-markers" hidden></div></div>
         </div>
-        <nav class="overview-workspaces" id="overview-workspaces" aria-label="Workspace overview" hidden></nav>
         <details class="edge-wayfinding" id="edge-wayfinding" hidden><summary id="edge-summary">Connections beyond view</summary><nav class="edge-list" id="edge-list" aria-label="Trace offscreen parent and child connections"></nav></details>
         <section class="selection-details" id="selection-details" aria-labelledby="selection-title" hidden></section>
         <p class="interaction-feedback" id="snapshot-feedback" role="status" aria-live="polite" hidden></p>
@@ -310,8 +341,10 @@
       let lastTaskInventorySync = null, requestedTaskInventorySync = null, refreshRequestTimer;
       let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
       let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
+      let inlineWorkspaceId = null, inlineGroup = false;
       let mapScale = 1;
       let overviewListOpen = false;
+      let refreshingDetails = false;
       let journeyWorkspaceId = null, journeyFocused = false;
       const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set();
       const expandedSubagents = new Set();
@@ -478,6 +511,12 @@
       function renderJourney(value) {
         const panel = byId("journey-context");
         const lane = value && workspaceRecords(value).find(r => r.lane.worktree_id === journeyWorkspaceId)?.lane;
+        for (const path of byId("relationship-map").querySelectorAll("[data-route-id]")) {
+          path.dataset.journeySelected = String(!!lane && (value.route_plans || []).some(p => !p.abandoned && p.route_id === path.dataset.routeId && p.worktree_id === lane.worktree_id));
+        }
+        for (const arrival of byId("relationship-map").querySelectorAll(".arrival-zone")) {
+          arrival.dataset.journeySelected = String(!!lane && (value.route_plans || []).some(p => !p.abandoned && p.target_ref === arrival.dataset.targetRef && p.worktree_id === lane.worktree_id));
+        }
         for (const card of byId("relationship-map").querySelectorAll(".route-platform")) {
           card.dataset.journeyMuted = String(!!lane && journeyFocused && card.dataset.worktreeId !== journeyWorkspaceId && card.dataset.headOid !== lane.head);
           card.dataset.journeyFocused = String(!!lane && journeyFocused && card.dataset.worktreeId === journeyWorkspaceId);
@@ -497,17 +536,21 @@
           const name = element("strong", "", branchName(lane)+" · "+worktreeDisplayName(lane.workspace_path)); name.title = lane.workspace_path;
           heading.append(name,count);
           const stops = element("nav", "journey-stops"); stops.setAttribute("aria-label", "Journey endpoints");
-          const add = (id, text, action, host = stops) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; host.append(control); };
+          const add = (id, text, action, host = stops) => { const control = button("journey-stop", text, action); control.textContent = text; control.dataset.journeyAction = id; host.append(control); return control; };
           const creation=origin?.recorded_creation;
           const ancestor = origin?.common_ancestor?.oid || lane.relationship?.fork_point?.commit;
           if(creation?.kind==="recorded_creation"&&safeHash(creation.oid))add("creation","Created at · "+creation.oid.slice(0,8),()=>{locateObject("commit:"+creation.oid);showCommit(creation.oid);});
-          else if (ancestor) add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
+          else if (ancestor) {
+            const control = add("ancestor", "Common ancestor · " + ancestor.slice(0,8), () => { locateObject("commit:" + ancestor); showCommit(ancestor); });
+            control.title = "Common ancestor · " + ancestor;
+            control.replaceChildren(element("span", "", "Common ancestor"), element("span", "endpoint-hash", " · " + ancestor.slice(0,8)));
+          }
           else stops.append(element("span", "journey-unknown", "Origin not recorded"));
           if (safeHash(lane.head) && !/^0+$/.test(lane.head)) add("head", "HEAD · " + lane.head.slice(0,8), () => { locateWorkspace(lane.worktree_id); showCommit(lane.head); });
           else stops.append(element("span", "journey-unknown", "No commit yet"));
           for (const plan of plans) {
             const missing = value.warnings.some(w => w.code === "planned_target_unavailable" && w.subject_id === plan.route_id);
-            add(plan.route_id, "To " + (plan.target_ref?.replace(/^refs\/heads\//, "") || "unspecified") + (missing ? " · unavailable" : " · planned"), () => locateArrival(plan));
+            add(plan.route_id, "To " + (plan.target_ref?.replace(/^refs\/heads\//, "") || "unspecified") + (missing ? " · unavailable" : " · planned"), () => locateArrival(plan)).classList.add("journey-destination");
           }
           const coverage = destinationCoverage(value);
           if (coverage || !plans.length) stops.append(element("span", "journey-unknown", coverage || "No destination recorded"));
@@ -734,10 +777,11 @@
           }
         }
         for (const plan of value.route_plans || []) if (plan.worktree_id === lane.worktree_id) {
-          const destination = button("platform-origin", "Locate planned arrival for " + plan.goal, () => {
+          const destination = button("platform-origin inspector-destination", "Locate planned arrival for " + plan.goal, () => {
             locateArrival(plan);
           });
           destination.textContent = plan.abandoned ? "Plan abandoned" : "To " + (plan.target_ref?.replace("refs/heads/", "") || "unknown destination") + " · planned";
+          destination.dataset.routeId = plan.route_id;
           cluster.append(destination); details.append(createRoutePlan(plan, lane, value));
         }
         if (destinationCoverage(value) || !(value.route_plans || []).some(p => p.worktree_id === lane.worktree_id && !p.abandoned)) cluster.append(element("p", "platform-heading", destinationCoverage(value) || "No destination recorded"));
@@ -746,12 +790,19 @@
       }
       function showRoutePlan(plan) {
         selectedObjectId = "plan:" + plan.route_id; selectedWorkspaceId = null; selectedTaskId = null;
-        showDetails(plan.goal, [["Plan", plan.route_id], ["Revision", String(plan.revision)],
+        showDetails(plan.goal, [["Planned destination", plan.target_ref || "Not specified"], ["Status", plan.abandoned ? "Abandoned plan" : "Planned, not proof of integration"], ["Milestones", plan.milestones.join(" / ") || "None specified"],
+          ["Plan", plan.route_id], ["Revision", String(plan.revision)],
           ["Delivery intent", plan.delivery?.mode || "manual"], ["Completion conditions", plan.delivery?.conditions.join(" / ") || "Not specified"],
           ["Recorded authorization source", plan.delivery?.authorization_source || "Not recorded"],
-          ["Recorded start", plan.start_commit], ["Planned destination", plan.target_ref || "Not specified"],
-          ["Milestones", plan.milestones.join(" / ") || "None specified"], ["Plan source", plan.source],
-          ["Status", plan.abandoned ? "Abandoned plan" : "Planned, not proof of integration"], ["Updated", plan.updated_at]]);
+          ["Recorded start", plan.start_commit], ["Plan source", plan.source], ["Updated", plan.updated_at]]);
+        const target = lastSnapshot?.topology?.refs.find(ref => ref.ref_name === plan.target_ref);
+        if (target) {
+          const control = button("control plan-target", "Locate destination branch " + target.display_name, () => { locateObject("commit:" + target.oid); showCommit(target.oid); });
+          control.textContent = "Locate destination branch · " + target.display_name;
+          control.dataset.endpointOid = target.oid;
+          const section = byId("selection-details"), children = [...section.children];
+          section.replaceChildren(children[0],control,...children.slice(1));
+        }
       }
       function createRoutePlan(plan, lane, value) {
         const node = element("section", "route-plan"); node.dataset.routeId = plan.route_id;
@@ -829,6 +880,8 @@
         byId("overview-toggle").hidden=!layout;
         byId("overview-toggle").setAttribute("aria-expanded",String(overviewListOpen));
         byId("overview-workspaces").hidden=!overviewListOpen;
+        byId("workspace-search").hidden=!overviewListOpen;
+        filterWorkspaces();
         byId("zoom-reset").textContent=Math.round(mapScale*100)+"%";
         for(const id of ["zoom-in","zoom-out","zoom-reset","zoom-fit"]) byId(id).disabled=!layout;
         byId("zoom-in").disabled=!layout||mapScale>=2;
@@ -862,33 +915,37 @@
         for(const [key,rows] of groups) {
           const current=rows.some(r=>r.lane.worktree_id===value.current_worktree_id), first=rows[0];
           const stop=graphButton("route-platform"+(current?" current":""), "View workspace "+rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")+" · "+r.lane.worktree_id).join(", "),()=>{
-            if(rows.length===1) zoomWorkspace(first.lane.worktree_id);
-            else showWorkspaceChoices(key,(byId("relationship-map").overviewRows||[]).filter(r=>rows.some(row=>row.lane.worktree_id===r.lane.worktree_id)));
+            toggleWorkspaceSummary(rows.some(r=>r.lane.worktree_id===inlineWorkspaceId)?inlineWorkspaceId:first.lane.worktree_id,rows.length>1);
           });
           stop.dataset.worktreeId=first.lane.worktree_id; stop.dataset.objectId="workspace:"+first.lane.worktree_id;
           stop.dataset.headOid=first.a.head_oid;stop.dataset.workspaceCount=String(rows.length);
           stop.title=rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")).join("\n");
           position(stop,first.a);stop.style.width=first.a.width+"px";
-          const named=rows.find(r=>r.lane.worktree_id===value.current_worktree_id)||first;
+          const expanded=rows.some(r=>r.lane.worktree_id===inlineWorkspaceId), scale=layout.textScale||1;
+          stop.style.height=76*scale+"px";stop.setAttribute("aria-expanded",String(expanded));
+          if(expanded)stop.setAttribute("aria-controls","workspace-summary");
+          const named=(expanded&&!inlineGroup?rows.find(r=>r.lane.worktree_id===inlineWorkspaceId):null)||rows.find(r=>r.lane.worktree_id===value.current_worktree_id)||first;
           const name=branchName(named.lane)+(rows.length>1?" +"+(rows.length-1):"");
           stop.append(element("strong","",name));
           stop.append(element("span","platform-directory",worktreeDisplayName(named.lane.workspace_path)));
           const label=element("span","platform-meta");
-          const full=element("span"), count=populatePassengers(full,{chats:rows.flatMap(r=>uniqueTasks(r.lane))},value);
+          const visibleRows=expanded&&!inlineGroup?[named]:rows;
+          const full=element("span"), count=populatePassengers(full,{chats:visibleRows.flatMap(r=>uniqueTasks(r.lane))},value);
           label.title=full.textContent;
           label.append(passengerIcon(),element("span","",passengerLabel(count,value)));
-          if(current)stop.append(element("span","platform-current","Map source"));
+          if(current&&(!expanded||inlineGroup||named.lane.worktree_id===value.current_worktree_id))stop.append(element("span","platform-current","Map source"));
           stop.dataset.journeyMuted=String(journeyFocused&&!rows.some(r=>r.lane.worktree_id===journeyWorkspaceId));
           if(!layout.nodes.some(n=>n.id===first.a.head_oid))label.textContent="Position unavailable";
           if(rows.some(r=>workspaceAttention(r.lane,r.facts,value).level==="attention")) {label.append(warningIcon());stop.title+=" · Needs attention";}
           const state=platformState(rows,named.lane.worktree_id), status=element("span","platform-state",state.short);status.title=state.full;
-          const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&rows.some(r=>r.lane.worktree_id===p.worktree_id));
+          const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&visibleRows.some(r=>r.lane.worktree_id===p.worktree_id));
           const retained=!current&&count.state==="unattended"&&!plans.length&&rows.every(r=>r.facts?.working_state==="clean"&&r.facts?.integration==="included"&&r.facts?.head_ref_coverage==="protected"&&workspaceAttention(r.lane,r.facts,value).level!=="attention");
           stop.dataset.retained=String(retained);
           stop.append(label,status);
           if(plans.length)stop.append(element("span","platform-target","→ "+[...new Set(plans.map(p=>p.target_ref?.replace(/^refs\/heads\//,"")||"unspecified"))].join(", ")+" · planned"));
           else if(retained)stop.append(element("span","platform-target","Retained workspace"));
           stop.title+="\n"+state.full; nodes.push(stop);
+          if(expanded)nodes.push(workspaceSummary(rows,value,first.a,scale));
         }
         return nodes;
       }
@@ -905,13 +962,11 @@
       }
       function showWorkspaceChoices(oid, rows) {
         const panel = byId("selection-details");
+        if (!refreshingDetails) setWorkspaceChooser(false);
+        showDetails(rows.length + " workspaces at the same commit", []);
         panel.dataset.workspaceGroup = oid;
-        byId("overview-workspaces").hidden = true;
-        panel.replaceChildren(); panel.hidden = false;
-        const close = button("dismiss-details", "Close workspace choices", () => { panel.hidden = true; byId("overview-workspaces").hidden = !overviewListOpen; [...byId("relationship-map").querySelectorAll(".route-platform")].find(n => n.dataset.headOid === oid)?.focus({ preventScroll: true }); });
-        close.textContent = "Close";
-        const title = element("h2", "", rows.length + " workspaces at the same commit"); title.id = "selection-title";
-        panel.append(close, title, element("p", "overview-help", "Choose a workspace to see its tasks and changes."));
+        const close = panel.querySelector(".dismiss-details");
+        panel.append(element("p", "overview-help", "Choose a workspace to see its tasks and changes."));
         for (const row of rows) {
           const choice = button("workspace-choice", "View workspace " + row.lane.workspace_path, () => zoomWorkspace(row.lane.worktree_id));
           choice.dataset.worktreeId = row.lane.worktree_id;
@@ -920,13 +975,57 @@
           if (row.risk) choice.append(element("span", "workspace-risk", row.risk));
           panel.append(choice);
         }
-        close.focus({ preventScroll: true });
+        if (!refreshingDetails) close.focus({ preventScroll: true });
       }
-      function zoomWorkspace(id) {
+      function openFullWorkspace(id) {
         const lane=lastSnapshot && workspaceRecords(lastSnapshot).find(r=>r.lane.worktree_id===id)?.lane;
         if(!lane)return;
+        if(inlineWorkspaceId){inlineWorkspaceId=null;renderSnapshot(lastSnapshot);}
+        setWorkspaceChooser(false);
         selectLane(lane);requestAnimationFrame(()=>locateWorkspace(id));
         byId("selection-details").querySelector(".dismiss-details")?.focus({preventScroll:true});
+      }
+      function zoomWorkspace(id) { toggleWorkspaceSummary(id,false,false); }
+      function collapseWorkspaceSummary() {
+        const id=inlineWorkspaceId;if(!id)return;
+        inlineWorkspaceId=null;renderSnapshot(lastSnapshot,true);
+        [...byId("relationship-map").querySelectorAll(".route-platform")].find(n=>n.dataset.worktreeId===id||n.dataset.headOid===lastSnapshot.workspace_facts?.find(f=>f.worktree_id===id)?.head_oid)?.focus({preventScroll:true});
+      }
+      function toggleWorkspaceSummary(id,group=false,toggle=true) {
+        if(!lastSnapshot)return;
+        if(lastSnapshot.schema_version!=="devmap/dock/4"){openFullWorkspace(id);return;}
+        if(toggle&&inlineWorkspaceId===id){collapseWorkspaceSummary();return;}
+        const chooser=overviewListOpen;
+        setWorkspaceChooser(false);byId("selection-details").hidden=true;
+        inlineWorkspaceId=id;inlineGroup=group;selectedWorkspaceId=id;selectedTaskId=null;selectedObjectId="workspace:"+id;
+        journeyWorkspaceId=id;renderSnapshot(lastSnapshot,true);
+        if(chooser)locateWorkspace(id);
+        byId("relationship-map").querySelector(".workspace-summary")?.focus({preventScroll:true});
+      }
+      function workspaceSummary(rows,value,rect,scale) {
+        const panel=element("section","workspace-summary");panel.id="workspace-summary";panel.tabIndex=-1;panel.dataset.objectId="summary:"+inlineWorkspaceId;
+        panel.setAttribute("aria-label",inlineGroup?"Choose workspace at this commit":"Workspace summary");panel.setAttribute("data-no-pan","");
+        position(panel,{x:rect.x,y:rect.y+76*scale});panel.style.width=rect.width+"px";panel.style.height=320*scale+"px";
+        panel.addEventListener("keydown",event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();collapseWorkspaceSummary();}});
+        if(inlineGroup&&rows.length>1) {
+          panel.append(element("p","",rows.length+" workspaces at this commit · choose one"));
+          for(const {lane} of rows) {
+            const choice=button("workspace-choice","View workspace "+lane.workspace_path,()=>toggleWorkspaceSummary(lane.worktree_id,false,false));
+            choice.dataset.worktreeId=lane.worktree_id;choice.dataset.objectId="summary-choice:"+lane.worktree_id;
+            choice.append(element("strong","",branchName(lane)),element("span","branch-meta",lane.workspace_path));panel.append(choice);
+          }
+          return panel;
+        }
+        const row=rows.find(r=>r.lane.worktree_id===inlineWorkspaceId)||rows[0],lane=row.lane;
+        panel.append(element("p","",lane.workspace_path));
+        const full=button("summary-details","View full workspace details",()=>openFullWorkspace(lane.worktree_id));full.dataset.objectId="summary-details:"+lane.worktree_id;full.textContent="View full details →";panel.append(full);
+        const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&p.worktree_id===lane.worktree_id);
+        for(const plan of plans){const action=button("summary-destination","Inspect planned destination",()=>showRoutePlan(plan));action.dataset.objectId="summary-plan:"+plan.route_id;action.textContent="Planned → "+(plan.target_ref?.replace(/^refs\/heads\//,"")||"Destination not specified");panel.append(action);}
+        const coverage=destinationCoverage(value);if(coverage||!plans.length)panel.append(element("p","",coverage||"No recorded destination"));
+        const tasks=uniqueTasks(lane).filter(chat=>chat.lifecycle==="present");
+        panel.append(element("p","",tasks.length?(tasksConfirmed(value)?"Tasks":"Last observed tasks")+" · "+tasks.length:tasksConfirmed(value)?"No current tasks":"Task count unconfirmed"));
+        for(const chat of tasks.slice(0,2)){const task=createTask(chat,lane.worktree_id,value);task.dataset.objectId="summary-task:"+taskId(chat);panel.append(task);}
+        return panel;
       }
       function setMapScale(next) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
@@ -970,6 +1069,7 @@
           const { lane } = row;
           const control = button("overview-workspace", "Zoom to workspace " + lane.workspace_path, () => zoomWorkspace(lane.worktree_id));
           control.dataset.worktreeId = lane.worktree_id; control.dataset.overviewId = lane.worktree_id;
+          control.dataset.searchText = [branchName(lane),lane.workspace_path,lane.worktree_id].join(" ").toLocaleLowerCase();
           const head = byId("relationship-map").metroLayout?.refs.find(ref => ref.ref_name === "refs/heads/" + lane.branch);
           const heading = element("span", "overview-heading");
           if (head) heading.append(swatch(refIdentity(head)));
@@ -981,10 +1081,27 @@
           if (focused === lane.worktree_id) control.focus({ preventScroll: true });
         }
         panel.scrollTop = scroll;
+        filterWorkspaces();
 
       }
-      function renderSnapshot(value) {
+      function filterWorkspaces() {
+        const query = (byId("workspace-filter").value || "").trim().toLocaleLowerCase();
+        let matches = 0;
+        for (const row of byId("overview-workspaces").querySelectorAll(".overview-workspace")) {
+          row.hidden = !!query && !row.dataset.searchText.includes(query);
+          if (!row.hidden) matches++;
+        }
+        byId("workspace-filter-empty").hidden = !overviewListOpen || matches > 0;
+      }
+      function setWorkspaceChooser(open) {
+        overviewListOpen = open;
+        if (open && !byId("selection-details").hidden) collapseInspector(true);
+        byId("map-tools").open = false;
+        applyMapScale();
+      }
+      function renderSnapshot(value, preserveInlineAnchor=false) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        const previousSummary=surface.querySelector(".workspace-summary"),summaryScroll=previousSummary?.dataset.objectId==="summary:"+inlineWorkspaceId?previousSummary.scrollTop:0;
         const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
         const savedViewport={...viewportPosition}, records=workspaceRecords(value);
         const oldRect=selectedRect(surface.metroLayout,selectedObjectId);
@@ -994,10 +1111,11 @@
         let layout=null;
         if(value.schema_version==="devmap/dock/4") {
           const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
-          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale};
+          if(lastSnapshot?.repository_id!==value.repository_id||!records.some(r=>r.lane.worktree_id===inlineWorkspaceId))inlineWorkspaceId=null;
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale,expandedWorktreeId:inlineWorkspaceId};
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
-          if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[])};
+          if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[]),textScale};
           const fragment=document.createDocumentFragment();fragment.append(connectionLayer(layout));
           for(const node of layout.nodes)fragment.append(routeStation(node,layout,value));
           fragment.append(...renderPlatforms(records,value,layout));
@@ -1019,6 +1137,7 @@
           for(const zone of layout.arrivals||[]) {
             const control=button("arrival-zone arrival-source","View workspaces planning arrival at "+(zone.target_ref||"unspecified destination"),()=>showArrivalSources(zone.target_ref));
             position(control,zone);control.style.width=zone.width+"px";
+            control.dataset.targetRef=zone.target_ref || "";
             control.append(element("strong","","Planned arrival · "+(zone.target_ref?.replace(/^refs\/heads\//,"")||"unspecified")),element("span","",value.warnings.some(w=>w.code==="planned_target_unavailable"&&zone.route_ids.includes(w.subject_id))?"Destination unavailable":!zone.target_ref?"Destination not specified":zone.available?"Merge commit not yet known":"Target outside displayed history"));fragment.append(control);
           }
           if(!layout.nodes.length&&!records.length)fragment.append(element("p","empty","No commits or workspaces observed."));
@@ -1067,11 +1186,13 @@
             locateWorkspace(selectedWorkspaceId, value);
           } else fitMap();
         }
-        else if (offset && newRect && selectedObjectId?.startsWith("commit:")) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
+        else if (offset && newRect && (selectedObjectId?.startsWith("commit:")||((inlineWorkspaceId||preserveInlineAnchor)&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
         else setViewportPosition({ ...savedViewport, behavior: "instant" });
+        const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
         if (focusedId) {
           const control = [...surface.querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusedId && n.tagName === focusedTag);
           control?.focus({ preventScroll: true });
+          if(!control&&focusedId.startsWith("summary"))(summary||viewport).focus({preventScroll:true});
           if (!control && focusedId.startsWith("subagents:")) {
             const parentId = focusedId.slice("subagents:".length);
             const worktree = records.find(r => uniqueTasks(r.lane).some(chat => taskId(chat) === parentId))?.lane.worktree_id;
@@ -1131,11 +1252,17 @@
         if (mapScale < .6) { panel.hidden = true; return; }
         const bounds = { left: (viewport.scrollLeft - 16) / mapScale, right: (viewport.scrollLeft + viewport.clientWidth - 16) / mapScale, top: (viewport.scrollTop - 16) / mapScale, bottom: (viewport.scrollTop + viewport.clientHeight - 16) / mapScale };
         const inside = p => p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom;
-        // All routes are orthogonal. A crossing segment can be visible even when
-        // both real endpoints are offscreen; include those long through-routes.
-        const intersects = (a, b) => a.x === b.x
-          ? a.x >= bounds.left && a.x <= bounds.right && Math.max(a.y, b.y) >= bounds.top && Math.min(a.y, b.y) <= bounds.bottom
-          : a.y >= bounds.top && a.y <= bounds.bottom && Math.max(a.x, b.x) >= bounds.left && Math.min(a.x, b.x) <= bounds.right;
+        // Clip actual segments, including diagonal turns with offscreen ends.
+        const intersects = (a, b) => {
+          let enter=0,leave=1;
+          for(const [start,end,low,high] of [[a.x,b.x,bounds.left,bounds.right],[a.y,b.y,bounds.top,bounds.bottom]]) {
+            const delta=end-start;if(!delta){if(start<low||start>high)return false;continue;}
+            const first=(low-start)/delta,last=(high-start)/delta;
+            enter=Math.max(enter,Math.min(first,last));leave=Math.min(leave,Math.max(first,last));
+            if(enter>leave)return false;
+          }
+          return true;
+        };
         const exits = (layout?.edges || []).filter(edge => edge.points.some(p => !inside(p)) && edge.points.slice(1).some((p, i) => intersects(edge.points[i], p)));
         panel.hidden = !exits.length;
         const signature = JSON.stringify([exits.map(edge => edge.id), layout?.refs.map(ref => [ref.oid, ref.display_name])]);
@@ -1163,8 +1290,9 @@
         const layout=byId("relationship-map").metroLayout, a=layout?.attachments.find(a=>a.worktree_id===id);
         const n=layout?.nodes.find(n=>n.id===a?.head_oid);
         if(a) {
-          const viewport=byId("topology-viewport"),left=Math.min(n?.x??a.x,a.x),right=a.x+a.width;
-          setViewportPosition({left:Math.max(0,16+left-Math.max(8,(viewport.clientWidth-(right-left))/2)),top:Math.max(0,(n?.y??a.y)-Math.min(130,viewport.clientHeight*.3)),behavior:"instant"});
+          const viewport=byId("topology-viewport"),left=Math.min(n?n.x-12:a.x,a.x),right=a.x+a.width;
+          const top=Math.min(n?n.y-12:a.y,a.y),bottom=a.y+Math.min(a.height,76*(layout.textScale||1));
+          setViewportPosition({left:Math.max(0,16+left-Math.max(0,(viewport.clientWidth-(right-left))/2)),top:Math.max(0,16+top-Math.max(0,Math.min(100,(viewport.clientHeight-(bottom-top))/2))),behavior:"instant"});
         }else locateObject("workspace:"+id);
       }
       function rerenderWorkspace(id) {
@@ -1345,18 +1473,22 @@
       }
       function refreshSelectedDetails() {
         if (byId("selection-details").hidden || !lastSnapshot) return;
+        refreshingDetails = true;
+        try {
         const arrivalTarget = byId("selection-details").dataset.arrivalTarget;
         if (arrivalTarget) {
           const panel = byId("selection-details"), scroll = panel.scrollTop;
           const focused = [...panel.querySelectorAll(".arrival-workspace")].find(n => n === document.activeElement)?.dataset.worktreeId;
+          const focusedClass = document.activeElement?.className;
           const hadFocus = [...panel.querySelectorAll("button")].includes(document.activeElement);
           showArrivalSources(JSON.parse(arrivalTarget), false); panel.scrollTop = scroll;
-          if (hadFocus) ([...panel.querySelectorAll(".arrival-workspace")].find(n => n.dataset.worktreeId === focused) || panel.querySelector(".dismiss-details"))?.focus({preventScroll:true});
+          if (hadFocus) ([...panel.querySelectorAll(".arrival-workspace")].find(n => n.dataset.worktreeId === focused) || [...panel.querySelectorAll("button")].find(n => n.className === focusedClass) || panel.querySelector(".dismiss-details"))?.focus({preventScroll:true});
           return;
         }
         const group = byId("selection-details").dataset.workspaceGroup;
         if (group) {
           const panel = byId("selection-details"), scroll = panel.scrollTop;
+          const focusedClass = document.activeElement?.className;
           const focusedId = document.activeElement?.dataset.worktreeId, hadFocus = panel.querySelectorAll("button").length && [...panel.querySelectorAll("button")].includes(document.activeElement);
           const surface = byId("relationship-map"), ids = new Set((surface.metroLayout?.attachments || []).filter(a => a.head_oid === group).map(a => a.worktree_id));
           const rows = (surface.overviewRows || []).filter(r => ids.has(r.lane.worktree_id));
@@ -1364,6 +1496,7 @@
           const previousFocus = document.activeElement;
           showWorkspaceChoices(group, rows); panel.scrollTop = scroll;
           if (focusedId) [...panel.querySelectorAll(".workspace-choice")].find(n => n.dataset.worktreeId === focusedId)?.focus({ preventScroll: true });
+          else if (hadFocus) [...panel.querySelectorAll("button")].find(n => n.className === focusedClass)?.focus({preventScroll:true});
           else if (!hadFocus) previousFocus?.focus({ preventScroll: true });
           return;
         }
@@ -1375,6 +1508,7 @@
         const focusedAction = focusedControl && {
           className: focusedControl.className,
           endpointOid: focusedControl.dataset.endpointOid || null,
+          routeId: focusedControl.dataset.routeId || null,
           navigationAction: focusedControl.dataset.navigationAction || null
         };
         const records = workspaceRecords(lastSnapshot);
@@ -1397,8 +1531,22 @@
           (target||section.querySelector(".dismiss-details"))?.focus({preventScroll:true});
         }
         if (!focusedId && focusedAction) [...section.querySelectorAll("button")].find(node => node.className === focusedAction.className
+          && (node.dataset.routeId || null) === focusedAction.routeId
           && (node.dataset.endpointOid || null) === focusedAction.endpointOid
           && (node.dataset.navigationAction || null) === focusedAction.navigationAction)?.focus({ preventScroll: true });
+        } finally { refreshingDetails = false; }
+      }
+      function updateInspectorControls() {
+        const section = byId("selection-details"), collapsed = section.dataset.collapsed === "true", large = section.dataset.size === "large";
+        const collapse = section.querySelector(".collapse-details"), resize = section.querySelector(".resize-details");
+        if (collapse) { collapse.textContent = collapsed ? "Expand" : "Collapse"; collapse.setAttribute("aria-expanded", String(!collapsed)); }
+        if (resize) { resize.textContent = large ? "Smaller" : "Larger"; resize.hidden = collapsed; resize.setAttribute("aria-pressed", String(large)); }
+      }
+      function collapseInspector(collapsed, moveFocus = true) {
+        const section = byId("selection-details");
+        section.dataset.collapsed = String(collapsed);
+        updateInspectorControls();
+        if (collapsed && moveFocus) section.querySelector(".collapse-details")?.focus({preventScroll:true});
       }
       function showDetails(titleText, rows, copyValue, copyTaskId) {
         const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
@@ -1408,7 +1556,12 @@
         for (const [label, value] of rows) { const term = document.createElement("dt"); term.textContent = label; const detail = document.createElement("dd"); const code = document.createElement("code"); code.textContent = value; detail.append(code); list.append(term, detail); }
         const dismiss = button("dismiss-details", "Close selection details", () => { section.hidden = true; selectedObjectId = null; selectedWorkspaceId = null; selectedTaskId = null; byId("topology-viewport").focus(); });
         dismiss.textContent = "Close"; section.hidden = false;
-        section.replaceChildren(dismiss, title, list);
+        if (!refreshingDetails) { setWorkspaceChooser(false); section.dataset.collapsed = "false"; section.scrollTop = 0; }
+        const collapse = button("collapse-details", "Collapse or expand selection details", () => collapseInspector(section.dataset.collapsed !== "true"));
+        const resize = button("resize-details", "Change selection details height", () => { section.dataset.size = section.dataset.size === "large" ? "standard" : "large"; updateInspectorControls(); });
+        const header = element("header", "inspector-header"), actions = element("div", "inspector-actions");
+        actions.append(collapse,resize,dismiss); header.append(title,actions);
+        section.replaceChildren(header, list); updateInspectorControls();
         if (copyValue && safeHash(copyValue)) {
           const copy = button("copy-hash", "Copy full hash", async () => {
             try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyValue); copy.textContent = "Copied"; announce("Full hash copied"); }
@@ -1493,9 +1646,12 @@
         const surface=byId("relationship-map");
         if(surface.metroLayout) {
           const focus=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId;
+          const summaryScroll=surface.querySelector(".workspace-summary")?.scrollTop||0;
           for(const n of surface.querySelectorAll(".route-platform")) n.remove();
+          for(const n of surface.querySelectorAll(".workspace-summary")) n.remove();
           surface.append(...renderPlatforms(records,lastSnapshot,surface.metroLayout));
-          if(focus) [...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===focus)?.focus({preventScroll:true});
+          const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
+          if(focus) ([...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===focus)||(focus.startsWith("summary")?summary:null))?.focus({preventScroll:true});
         }
         refreshSelectedDetails();
       }
@@ -1537,6 +1693,7 @@
           event.preventDefault(); viewport.scrollLeft = next; viewportPosition = { left: viewport.scrollLeft, top: viewport.scrollTop };
         }, { passive: false });
         viewport.addEventListener("keydown", (event) => {
+          if(event.key==="Escape"&&inlineWorkspaceId){event.preventDefault();collapseWorkspaceSummary();return;}
           if (event.target !== viewport || event.ctrlKey || event.metaKey || event.altKey) return;
           if (["+", "=", "-", "0"].includes(event.key)) {
             event.preventDefault();
@@ -1577,9 +1734,16 @@
       byId("zoom-in").addEventListener("click", () => setMapScale(mapScale * 1.4));
       byId("zoom-reset").addEventListener("click", () => setMapScale(1));
       byId("zoom-fit").addEventListener("click", fitMap);
-      byId("overview-toggle").addEventListener("click", () => { overviewListOpen = !overviewListOpen; applyMapScale(); });
+      byId("overview-toggle").addEventListener("click", () => { setWorkspaceChooser(!overviewListOpen); if (overviewListOpen) byId("workspace-filter").focus(); });
+      byId("workspace-filter").addEventListener("input", filterWorkspaces);
+      byId("workspace-search-close").addEventListener("click", () => { setWorkspaceChooser(false); byId("overview-toggle").focus(); });
+      byId("workspace-search").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); setWorkspaceChooser(false); byId("overview-toggle").focus(); } });
+      byId("selection-details").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); collapseInspector(true); } });
       byId("map-tools").addEventListener("keydown", event => {
         if (event.key === "Escape") { event.preventDefault(); byId("map-tools").open = false; byId("map-tools-trigger").focus(); }
+      });
+      byId("map-tools").addEventListener("toggle", () => {
+        if (byId("map-tools").open && !byId("selection-details").hidden) collapseInspector(true, false);
       });
       byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
       window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot); });

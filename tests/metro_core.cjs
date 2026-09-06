@@ -5,6 +5,20 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const CORE_PATH = path.join(__dirname, '..', 'assets', 'metro-core.js');
+test('inline reservation moves labels without changing historical geometry', () => {
+  const {layoutRouteMap}=require(CORE_PATH), fixture=require('./fixtures/metro/topology.json');
+  for(const vertical of [true,false]) {
+    const options={width:390,vertical}, base=layoutRouteMap(fixture.graph,fixture.attachments,options);
+    const id=fixture.attachments[0].worktree_id;
+    const expanded=layoutRouteMap(fixture.graph,fixture.attachments,{...options,expandedWorktreeId:id});
+    assert.deepEqual(expanded.nodes,base.nodes); assert.deepEqual(expanded.edges,base.edges);
+    assert.ok(expanded.attachments.find(a=>a.worktree_id===id).height>base.attachments.find(a=>a.worktree_id===id).height);
+    for(let i=0;i<expanded.obstacles.length;i++)for(let j=i+1;j<expanded.obstacles.length;j++) {
+      const a=expanded.obstacles[i],b=expanded.obstacles[j];
+      assert.ok(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y,'labels cannot overlap');
+    }
+  }
+});
 const ATTENTION_FIXTURE = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'metro', 'attention.json'), 'utf8'));
 const {
   TASK_FRESHNESS_MS,
@@ -21,6 +35,75 @@ const oid = (character) => character.repeat(40);
 
 const TOPOLOGY = require('./fixtures/metro/topology.json');
 const BOUNDARIES = require('./fixtures/metro/boundaries.json');
+
+test('route tracks retain readable spacing and simple turns at narrow widths', () => {
+  const core=require(CORE_PATH);
+  for(const vertical of [true,false])for(const width of [342,700]) {
+    const map=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{width,vertical});
+    const across=p=>vertical?p.x:p.y;
+    const lanes=[...new Set(map.nodes.map(across))].sort((a,b)=>a-b);
+    for(let i=1;i<lanes.length;i++)assert.ok(lanes[i]-lanes[i-1]>=24,'parallel tracks need room for station rings and strokes');
+    for(const edge of map.edges) {
+      assert.ok(edge.points.length<=4,'ordinary branch routes must not inherit six-point hooks');
+      for(let i=1;i<edge.points.length;i++)assert.ok(Math.hypot(edge.points[i].x-edge.points[i-1].x,edge.points[i].y-edge.points[i-1].y)>=16,'no subpixel or tiny turn segments');
+      const from=map.nodes.find(n=>n.id===edge.from_oid),to=map.nodes.find(n=>n.id===edge.to_oid);
+      if(from.lane_id===to.lane_id)assert.equal(edge.points.length,2,'continuous history stays straight');
+    }
+  }
+});
+
+test('diagonal crossings have gaps at actual intersections and routes never pass unrelated stations', () => {
+  const core=require(CORE_PATH);let checked=0;
+  for(const vertical of [true,false]) {
+    const map=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{width:342,vertical});
+    const segmentList=map.edges.flatMap(edge=>edge.points.slice(1).map((b,i)=>({edge,a:edge.points[i],b})));
+    for(const {edge,a,b} of segmentList)for(const n of map.nodes) {
+      if(n.id===edge.from_oid||n.id===edge.to_oid)continue;
+      const cross=(n.x-a.x)*(b.y-a.y)-(n.y-a.y)*(b.x-a.x);
+      const within=n.x>=Math.min(a.x,b.x)&&n.x<=Math.max(a.x,b.x)&&n.y>=Math.min(a.y,b.y)&&n.y<=Math.max(a.y,b.y);
+      assert.ok(Math.abs(cross)>1e-6||!within,'a line must not invent a junction at another commit');
+    }
+    for(let i=0;i<segmentList.length;i++)for(const two of segmentList.slice(i+1)) {
+      const one=segmentList[i];if(one.edge===two.edge)continue;
+      const r={x:one.b.x-one.a.x,y:one.b.y-one.a.y},s={x:two.b.x-two.a.x,y:two.b.y-two.a.y};
+      const d=r.x*s.y-r.y*s.x;if(!d)continue;
+      const q={x:two.a.x-one.a.x,y:two.a.y-one.a.y};
+      const t=(q.x*s.y-q.y*s.x)/d,u=(q.x*r.y-q.y*r.x)/d;if(t<=0||t>=1||u<=0||u>=1)continue;
+      const x=one.a.x+t*r.x,y=one.a.y+t*r.y;
+      assert.ok(map.crossings.some(c=>Math.abs(c.x-x)<1e-6&&Math.abs(c.y-y)<1e-6&&[c.over_id,c.under_id].includes(one.edge.id)&&[c.over_id,c.under_id].includes(two.edge.id)));
+      checked++;
+    }
+    for(const crossing of map.crossings) {
+      const edge=map.edges.find(e=>e.id===crossing.under_id),gap=edge.gaps.find(g=>g.crossing_id===crossing.id);
+      assert.ok(gap&&Math.hypot(gap.points[1].x-gap.points[0].x,gap.points[1].y-gap.points[0].y)>0);
+    }
+  }
+  assert.ok(checked>0,'fixture exercises actual diagonal crossings');
+});
+
+test('a same-lane merge shortcut bypasses intervening commits and refresh order is stable', () => {
+  const core=require(CORE_PATH),graph={commits:[
+    {oid:oid('1'),parents:[],subject:null,authored_at:null},
+    {oid:oid('2'),parents:[oid('1')],subject:null,authored_at:null},
+    {oid:oid('3'),parents:[oid('2'),oid('1')],subject:null,authored_at:null}
+  ],edges:[],refs:[],boundaries:[],complete:true};
+  graph.edges=graph.commits.flatMap(c=>c.parents.map(p=>({id:p+':'+c.oid,from_oid:p,to_oid:c.oid})));
+  const map=core.layoutRouteMap(graph,[],{width:342,vertical:true});
+  const shortcut=map.edges.find(e=>e.from_oid===oid('1')&&e.to_oid===oid('3'));
+  assert.equal(shortcut.points.length,4);
+  assert.ok(shortcut.points[1].x>map.nodes.find(n=>n.id===oid('2')).x);
+  const reordered=core.layoutRouteMap({...graph,commits:[...graph.commits].reverse(),edges:[...graph.edges].reverse()},[],{width:342,vertical:true});
+  assert.deepEqual(reordered.nodes,map.nodes);assert.deepEqual(reordered.edges,map.edges);
+});
+
+test('wide unanchored history remains inside the scrollable route world', () => {
+  const core=require(CORE_PATH),commits=Array.from({length:20},(_,i)=>({oid:(i+1).toString(16).padStart(40,'0'),parents:[],subject:null,authored_at:null}));
+  const graph={commits,edges:[],refs:[],boundaries:[],complete:true};
+  for(const vertical of [true,false]) {
+    const map=core.layoutRouteMap(graph,[],{width:342,vertical});
+    assert.ok(map.nodes.every(n=>n.x+12<=map.width&&n.y+12<=map.height),'all unanchored stations must be reachable');
+  }
+});
 
 test('route map keeps true topology and workspace positions independent of detail dimensions', () => {
   const core = require(CORE_PATH);
@@ -54,11 +137,11 @@ test('compact sidebar packs workspaces without shrinking text or dropping Git st
   const core=require(CORE_PATH);
   for (const width of [390,516]) {
     const map=core.layoutRouteMap(TOPOLOGY.graph,TOPOLOGY.attachments,{width});
-    assert.ok(map.height<1024, 'six fixture workspaces should fit in a shorter readable route');
-    assert.ok(map.attachments.every(a=>a.width>=250 && a.height>=76));
+    assert.ok(map.height<1400, 'fixture keeps a bounded scrollable route');
+    assert.ok(map.attachments.every(a=>a.width>=196 && a.height>=76));
     assert.equal(map.nodes.length, TOPOLOGY.graph.commits.length);
     assert.equal(map.edges.length, TOPOLOGY.graph.edges.length);
-    assert.ok(map.width<=width, 'compact sidebar must fit its container');
+    assert.ok(map.width<=Math.max(width,400), 'small fixture needs at most a small horizontal overflow to preserve track spacing');
   }
 });
 

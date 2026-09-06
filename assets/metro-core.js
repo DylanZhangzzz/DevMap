@@ -807,23 +807,53 @@
       attachments: [], refs: [], boundaries: [], journeys: [] };
   }
 
-  // Route geometry consumes identity only. Passenger/detail expansion is never
-  // an input; labels remain beside their HEAD instead of below a metadata shelf.
+  // Commit geometry consumes identity only. An inline summary reserves space
+  // in the label column; it can move labels/stems but never historical rails.
   function layoutRouteMap(graph, attachments, options = {}) {
     const base = layoutTopology(graph, attachments.map(a => ({...a,width:64,height:32})), options);
     const vertical = options.vertical !== false;
     const textScale=Number.isFinite(options.textScale)?Math.max(1,Math.min(4,options.textScale)):1;
-    const platformHeight=76*textScale,platformGap=platformHeight+16*textScale;
-    const heads = new Set(base.attachments.map(a=>a.head_oid));
-    const keys = base.nodes.filter(n=>heads.has(n.id)||n.transfer||n.kind==='boundary');
-    const count = new Set(keys.map(n=>n.x)).size + 2;
-    const length = Math.min(15000, Math.max(240, count * 128 * textScale));
-    const breadth = Math.max(96, Math.min(160, (options.width || 500) * .24));
-    const projected = projectTopology(base, {width:length,height:Math.max(160,breadth)});
-    const cross = value => 32+(value-32)*(breadth-64)/(Math.max(160,breadth)-64);
-    const point = p => vertical ? {x:cross(p.y),y:p.x+24} : {x:p.x,y:cross(p.y)};
-    const nodes = projected.nodes.map(n=>({...n,...point(n)}));
-    const edges = projected.edges.map(e=>({...e,points:e.points.map(point),gaps:[]}));
+    const platformHeight=76*textScale,gap=16*textScale;
+    // Render topology identities directly, never compress the old label-routing
+    // channels into a viewport. Only the time axis rotates on narrow screens.
+    const pitch=24*textScale, turn=24*textScale;
+    const point = (time,track) => vertical?{x:32+track*pitch,y:time}:{x:time,y:32+track*pitch};
+    const heads=new Set(base.attachments.map(a=>a.head_oid)),times=new Map();let cursor=32,previous=null;
+    for(const node of [...base.nodes].sort((a,b)=>a.rank-b.rank||a.id.localeCompare(b.id))) {
+      if(previous)cursor+=(heads.has(previous.id)||heads.has(node.id)?96:48)*textScale;
+      times.set(node.id,cursor);previous=node;
+    }
+    const laneTracks=new Map(base.lanes.map((lane,i)=>[lane.id,i]));
+    const nodes=base.nodes.map(n=>({...n,...point(times.get(n.id),laneTracks.get(n.lane_id))}));
+    const nodeMap=new Map(nodes.map(n=>[n.id,n]));
+    const tracks=new Map(base.lanes.map(lane=>[lane.id,nodes.filter(n=>n.lane_id===lane.id)]));
+    const occupied=(lane,from,to)=>tracks.get(lane).some(n=>times.get(n.id)>times.get(from.id)&&times.get(n.id)<times.get(to.id));
+    const bypasses=[];
+    const edges=base.edges.map(edge=>{
+      const from=nodeMap.get(edge.from_oid),to=nodeMap.get(edge.to_oid),a=laneTracks.get(from.lane_id),b=laneTracks.get(to.lane_id);
+      const at=n=>({x:n.x,y:n.y});let points;
+      if(a===b&&!occupied(from.lane_id,from,to))points=[at(from),at(to)];
+      else {
+        const departure=edge.lane_id===to.lane_id;
+        const lane=departure?to.lane_id:from.lane_id;
+        if(a!==b&&!occupied(lane,from,to)) {
+          const bend=vertical?{x:departure?to.x:from.x,y:departure?from.y+turn:to.y-turn}:{x:departure?from.x+turn:to.x-turn,y:departure?to.y:from.y};
+          points=[at(from),bend,at(to)];
+        } else {
+          // A bypass must not pass through an unrelated station. Reuse only
+          // channels whose previous interval ended before this one began.
+          let slot=bypasses.findIndex(end=>end<from.rank);if(slot<0)slot=bypasses.length;
+          bypasses[slot]=to.rank;
+          const track=base.lanes.length+slot;
+          const first=point(times.get(from.id),track),last=point(times.get(to.id),track);
+          if(vertical){first.y+=turn;last.y-=turn;}else{first.x+=turn;last.x-=turn;}
+          points=[at(from),first,last,at(to)];
+        }
+      }
+      return {...edge,points,gaps:[]};
+    });
+    const length=Math.max(160,cursor);
+    const breadth=32+Math.max(0,base.lanes.length+bypasses.length-1)*pitch;
     const crossings = railCrossings(edges,nodes);
     const groups = new Map();
     for (const a of base.attachments) {
@@ -831,54 +861,61 @@
       if (!groups.has(key)) groups.set(key,{node,items:[]});
       groups.get(key).items.push(a);
     }
-    const labelWidth = vertical ? Math.max(120, Math.min(320,(options.width || 500)-breadth-24)) : 196;
+    const labelWidth = vertical ? Math.max(196, Math.min(320,(options.width || 500)-breadth-40)) : 240;
     const output = [], placed = [];
     for (const group of [...groups.values()].sort((a,b)=>(a.node?.rank ?? Infinity)-(b.node?.rank ?? Infinity))) {
       const node=group.node;
-      const x=vertical ? breadth+16 : node?.x || 32;
-      let y=vertical ? (node?.y || length+40)-22 : (node?.y || breadth)+28;
-      for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+platformGap && y+platformGap>p.y) y=p.y+platformGap;
-      const rect={x,y,width:labelWidth,height:platformHeight}; placed.push(rect);
-      for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [point(projected.nodes.find(n=>n.id===node.id)),{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
+      const x=vertical ? breadth+32 : node?.x || 32;
+      let y=vertical ? (node?.y || length+40)-22 : breadth+40;
+      const height=platformHeight+(group.items.some(a=>a.worktree_id===options.expandedWorktreeId)?320*textScale:0);
+      for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+p.height+gap && y+height+gap>p.y) y=p.y+p.height+gap;
+      const rect={x,y,width:labelWidth,height}; placed.push(rect);
+      for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [{x:node.x,y:node.y},{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
     }
     const refs=base.refs.map(r=>({...r,...nodes.find(n=>n.id===r.oid),id:r.id,oid:r.oid,width:24,height:24,stem:null}));
-    const width=Math.max(vertical ? options.width || 400 : length,...placed.map(r=>r.x+r.width+8));
+    const width=Math.max(vertical?options.width||400:length+24,vertical?breadth+24:0,...placed.map(r=>r.x+r.width+8));
     const height=Math.max(vertical ? length+64 : breadth+64,...placed.map(r=>r.y+r.height+24));
     return {...base,nodes,edges,crossings,refs,attachments:output,boundaries:[],obstacles:placed,width,height,orientation:vertical?'vertical':'horizontal'};
   }
 
-  // Sweep vertical channels across horizontal rails. Gaps erase only the named
-  // under-route (SVG mask or split path), never a surface-colored global overlay.
+  // Sweep segment bounds, then intersect actual segments (including diagonals).
+  // A gap belongs only to the under-route; genuine stations remain junctions.
   function railCrossings(edges, nodes) {
     const events = [];
     for (const route of edges) route.points.slice(1).forEach((b, index) => {
       const a = route.points[index];
       if (a.x === b.x && a.y === b.y) return;
       const segment = { route, index, a, b };
-      if (a.y === b.y) {
-        events.push({ x: Math.min(a.x, b.x), kind: 0, segment });
-        events.push({ x: Math.max(a.x, b.x), kind: 2, segment });
-      } else events.push({ x: a.x, kind: 1, segment });
+      events.push({ x: Math.min(a.x, b.x), kind: 0, segment });
+      events.push({ x: Math.max(a.x, b.x), kind: 1, segment });
     });
     events.sort((a, b) => a.x - b.x || a.kind - b.kind);
-    const stations = new Set(nodes.map(n => `${n.x},${n.y}`));
+    const key=p=>p.x.toFixed(6)+","+p.y.toFixed(6);
+    const stations = new Set(nodes.map(key));
     const active = new Set(), seen = new Set(), crossings = [];
     for (const event of events) {
-      const vertical = event.segment;
-      if (event.kind === 0) { active.add(vertical); continue; }
-      if (event.kind === 2) { active.delete(vertical); continue; }
-      for (const horizontal of active) {
-        const y = horizontal.a.y;
-        if (horizontal.route === vertical.route || y < Math.min(vertical.a.y, vertical.b.y)
-          || y > Math.max(vertical.a.y, vertical.b.y) || stations.has(`${event.x},${y}`)) continue;
-        const id = JSON.stringify([horizontal.route.id, vertical.route.id, event.x, y]);
+      const one=event.segment;
+      if(event.kind){active.delete(one);continue;}
+      for (const two of active) {
+        if(one.route===two.route)continue;
+        const rx=one.b.x-one.a.x,ry=one.b.y-one.a.y,sx=two.b.x-two.a.x,sy=two.b.y-two.a.y;
+        const den=rx*sy-ry*sx;if(Math.abs(den)<1e-9)continue;
+        const qx=two.a.x-one.a.x,qy=two.a.y-one.a.y;
+        const t=(qx*sy-qy*sx)/den,u=(qx*ry-qy*rx)/den;
+        if(t<0||t>1||u<0||u>1)continue;
+        const p={x:rx===0?one.a.x:sx===0?two.a.x:one.a.x+t*rx,y:ry===0?one.a.y:sy===0?two.a.y:one.a.y+t*ry};if(stations.has(key(p)))continue;
+        const under=one.a.y===one.b.y?one:two.a.y===two.b.y?two:one.route.id<two.route.id?one:two;
+        const over=under===one?two:one;
+        const id = JSON.stringify([under.route.id,over.route.id,key(p)]);
         if (seen.has(id)) continue;
         seen.add(id);
-        const gap = [{ x: Math.max(Math.min(horizontal.a.x, horizontal.b.x), event.x - 6), y },
-          { x: Math.min(Math.max(horizontal.a.x, horizontal.b.x), event.x + 6), y }];
-        crossings.push({ id, x: event.x, y, over_id: vertical.route.id, under_id: horizontal.route.id, gap });
-        horizontal.route.gaps.push({ crossing_id: id, segment_index: horizontal.index, points: gap });
+        const dx=under.b.x-under.a.x,dy=under.b.y-under.a.y,len=Math.hypot(dx,dy);
+        const distance=Math.hypot(p.x-under.a.x,p.y-under.a.y);
+        const gap=[Math.max(0,distance-6),Math.min(len,distance+6)].map(d=>({x:under.a.x+d*dx/len,y:under.a.y+d*dy/len}));
+        crossings.push({id,...p,over_id:over.route.id,under_id:under.route.id,gap});
+        under.route.gaps.push({crossing_id:id,segment_index:under.index,points:gap});
       }
+      active.add(one);
     }
     return crossings;
   }
