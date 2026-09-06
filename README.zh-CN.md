@@ -1,4 +1,9 @@
-# DevMap
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/devmap-logo-dark.svg">
+    <img src="docs/assets/devmap-logo-light.svg" alt="DevMap" width="300" height="68">
+  </picture>
+</h1>
 
 **看清工作发生在哪里、提交如何连接，以及每个工作区准备合入哪里。**
 

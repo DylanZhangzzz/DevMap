@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="354" height="80" viewBox="0 0 354 80" role="img" aria-labelledby="title desc">
+<title id="title">DevMap</title>
+<desc id="desc">Connected Git commit stations and a custom DevMap wordmark.</desc>
+<g fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M37 27 23 47" stroke="#58a6ff"/><path d="m47 27 14 20" stroke="#f0f6fc"/><circle cx="42" cy="20" r="8" stroke="#f0f6fc"/><circle cx="18" cy="54" r="8" stroke="#58a6ff"/><circle cx="66" cy="54" r="8" stroke="#f0f6fc"/></g>
+<g transform="translate(99 16)" fill="none" stroke="#f0f6fc" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0v44h12c31 0 31-44 0-44Z"/><path d="M43 28h25c0-20-27-20-27 0 0 18 18 21 27 11"/><path d="m80 16 12 27 12-27"/><path d="M119 44V0l18 27 18-27v44"/><circle cx="182" cy="29" r="14"/><path d="M196 15v29"/><circle cx="225" cy="29" r="14"/><path d="M211 15v44"/></g>
+</svg>
+

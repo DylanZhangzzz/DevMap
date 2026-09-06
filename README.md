@@ -1,4 +1,9 @@
-# DevMap
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/devmap-logo-dark.svg">
+    <img src="docs/assets/devmap-logo-light.svg" alt="DevMap" width="300" height="68">
+  </picture>
+</h1>
 
 ![DevMap — Your repo. Your agents. One map. Solid Git history connects parallel worktrees and their tasks; a dashed route shows planned delivery to main.](docs/assets/devmap-readme-hero-en.png)
 
