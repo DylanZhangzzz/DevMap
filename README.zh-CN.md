@@ -54,7 +54,34 @@ Git 刷新不会刷新任务观察时间。缺失、过期或不完整的清单�
 
 ## 快速开始
 
-无需 Rust 的方式见 [npm/npx 与预编译安装说明](docs/installation.md)。仓库已加入五个平台的 GitHub 自动打包、真实 npm 安装测试与标签发布流程；公开包是否可用请以 Releases 的实际产物为准。维护者配置见[自动发布说明](docs/releasing.md)。
+先安装 **Node.js 22+（包含 npm）** 和 **Git**，然后在想查看的仓库目录运行下面这一条命令。**不需要 Rust、不需要编译，也不需要 npm 账号：**
+
+```sh
+npx --yes https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz view --live --source .
+```
+
+打开命令打印的本地私密 URL，并保持进程运行。包内包含 Windows x64、macOS Intel/Apple Silicon、Linux glibc 2.35+ x64/ARM64 程序。这条命令直接从公开 GitHub Release 安装；npm 注册表发布尚未完成，因此暂不提供简短包名命令。
+
+只想查看终端输出时，把最后的 `view --live --source .` 换成 `agents --source . --json`。若要为现有插件安装持久的 `devmap` 命令：
+
+```sh
+npm install --global https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz
+```
+
+直接连接 MCP 的配置如下，将仓库路径替换为自己的实际路径；Windows 可使用 `C:/Projects/my-repo`：
+
+```json
+{
+  "mcpServers": {
+    "devmap": {
+      "command": "npx",
+      "args": ["--yes", "https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz", "mcp", "--source", "/absolute/path/to/repository"]
+    }
+  }
+}
+```
+
+查看 Git 地图不需要 Skill；完整 Agent 任务观察与跳转仍需要宿主接入。更多说明见[安装与原生程序下载](docs/installation.md)、[v0.1.0 发布页](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0)和[自动发布说明](docs/releasing.md)。
 
 ### 从源码构建
 

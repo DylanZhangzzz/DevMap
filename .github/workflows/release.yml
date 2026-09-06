@@ -87,7 +87,7 @@ jobs:
           path: dist
       - name: Assemble complete npm tarball and checksums
         env:
-          PACKAGE_NAME: ${{ vars.DEVMAP_NPM_PACKAGE || 'devmap-local-preview' }}
+          PACKAGE_NAME: ${{ vars.DEVMAP_NPM_PACKAGE || 'devmap-cli' }}
         run: node packaging/release.cjs assemble dist "$PACKAGE_NAME"
       - name: Verify checksums
         working-directory: dist/assets

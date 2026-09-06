@@ -105,6 +105,18 @@ function checksums(assets) {
   fs.writeFileSync(path.join(assets, 'SHA256SUMS'), lines.join('\n') + '\n');
 }
 
+function assemble(dist, name, version) {
+  const outputDir = path.join(dist, 'npm-package');
+  stagePackage({ nativeDir: path.join(dist, 'native'), outputDir, version, name });
+  const assets = path.join(dist, 'assets');
+  const packed = pack(outputDir, assets);
+  // Keep the public GitHub URL independent of the maintainer's npm scope.
+  const download = path.resolve(assets, 'devmap-' + version + '.tgz');
+  if (packed !== download) fs.renameSync(packed, download);
+  checksums(assets);
+  return download;
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2);
   const tag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined;
@@ -113,14 +125,11 @@ function main() {
   else if (command === 'native') console.log(stageNative(args[0], args[1], args[2], version));
   else if (command === 'assemble') {
     const [dist, name] = args;
-    const outputDir = path.join(dist, 'npm-package');
-    stagePackage({ nativeDir: path.join(dist, 'native'), outputDir, version, name });
-    console.log(pack(outputDir, path.join(dist, 'assets')));
-    checksums(path.join(dist, 'assets'));
+    console.log(assemble(dist, name, version));
   } else throw new Error('Usage: node packaging/release.cjs version | native PLATFORM BINARY DIST | assemble DIST PACKAGE_NAME');
 }
 
-module.exports = { validateVersion, cargoVersion, stagePackage, stageNative, pack, checksums, run, npm };
+module.exports = { validateVersion, cargoVersion, stagePackage, stageNative, pack, checksums, assemble, run, npm };
 if (require.main === module) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

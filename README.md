@@ -56,7 +56,34 @@ Git refresh does not refresh task observations. Missing, stale or partial invent
 
 ## Quick start
 
-For a no-Rust installation, see [npm/npx and prebuilt downloads](docs/installation.md). GitHub Actions now defines five-platform packaging, native npm smoke tests, and tag releases; actual public package availability must be confirmed on the Releases page. Maintainers: [automated release setup](docs/releasing.md).
+Install **Node.js 22+ (with npm)** and **Git**, then run this inside the repository you want to inspect. No Rust, compilation or npm account is needed:
+
+```sh
+npx --yes https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz view --live --source .
+```
+
+Open the private local URL printed by the command and keep the process running. The package includes Windows x64, macOS Intel/Apple Silicon and Linux glibc 2.35+ x64/ARM64 binaries. It downloads from the public GitHub Release; a short npm registry command is not yet advertised because registry publication is pending.
+
+For terminal output, replace `view --live --source .` with `agents --source . --json`. To install a persistent `devmap` command for the existing plugin:
+
+```sh
+npm install --global https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz
+```
+
+For a direct MCP connection, replace the repository path below. On Windows, use a path such as `C:/Projects/my-repo`:
+
+```json
+{
+  "mcpServers": {
+    "devmap": {
+      "command": "npx",
+      "args": ["--yes", "https://github.com/DylanZhangzzz/DevMap/releases/download/v0.1.0/devmap-0.1.0.tgz", "mcp", "--source", "/absolute/path/to/repository"]
+    }
+  }
+}
+```
+
+The map can show Git without a Skill. Agent observations and task navigation require host integration. See [installation details and native downloads](docs/installation.md), [release v0.1.0](https://github.com/DylanZhangzzz/DevMap/releases/tag/v0.1.0), and [automated release setup](docs/releasing.md).
 
 ### Build from source
 

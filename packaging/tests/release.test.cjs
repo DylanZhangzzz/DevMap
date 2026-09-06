@@ -57,3 +57,19 @@ test('stages only explicitly selected binaries and keeps executable permissions'
 test('rejects invalid package names before writing output', () => {
   assert.throws(() => release.stagePackage({ name: 'BAD NAME', version: '0.1.0' }), /package name/);
 });
+
+test('release download filename stays stable when npm scope changes', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devmap assemble '));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const [key, filename] of [['win32-x64', 'devmap.exe'], ['darwin-x64', 'devmap'], ['darwin-arm64', 'devmap'], ['linux-x64', 'devmap'], ['linux-arm64', 'devmap']]) {
+    const binary = path.join(dir, 'native', key, filename);
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    fs.writeFileSync(binary, 'package fixture');
+  }
+  const tarball = release.assemble(dir, '@example/different-name', '1.2.3');
+  assert.equal(path.basename(tarball), 'devmap-1.2.3.tgz');
+  assert.deepEqual(fs.readdirSync(path.join(dir, 'assets')).sort(), ['SHA256SUMS', 'devmap-1.2.3.tgz']);
+  const metadata = JSON.parse(fs.readFileSync(path.join(dir, 'npm-package/package.json')));
+  assert.equal(metadata.name, '@example/different-name');
+  assert.match(fs.readFileSync(path.join(dir, 'assets/SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  devmap-1\.2\.3\.tgz\n$/);
+});

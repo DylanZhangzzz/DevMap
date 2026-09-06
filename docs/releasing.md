@@ -16,11 +16,11 @@ Cargo.toml is the only release version source. A tag that differs from its versi
 
 ## First build: no npm account required
 
-Open Actions > Package and release > Run workflow after the workflow is available on the default branch, or open a pull request containing it. Download the `release-assets` artifact after success. Before setting a registry name, its npm tarball uses `devmap-local-preview`; it can be installed from the downloaded file but is not a published package.
+Open Actions > Package and release > Run workflow, push a main/codex branch, or open a pull request. Download the `release-assets` artifact after success. The default package metadata name is `devmap-cli`; this does not itself publish or reserve that npm name. The archive has the stable filename `devmap-VERSION.tgz` even if the npm name changes. Tag releases make that file publicly downloadable and installable by URL without an npm account.
 
 ## Enable npm publication once
 
-Choose an npm package name that you control. Set repository variable `DEVMAP_NPM_PACKAGE` to that exact name, such as your own scoped package. Rebuild so the generated tarball contains that name. GitHub usernames do not prove npm ownership.
+Choose an npm package name that you control. The proposed unscoped name is `devmap-cli`; verify availability immediately before first publication. Set repository variable `DEVMAP_NPM_PACKAGE` to the final exact name. If it differs from `devmap-cli`, rebuild so the tarball contains that name. GitHub usernames do not prove npm ownership. A different npm name does not change the GitHub download URL.
 
 For an initial package, publish that complete tarball from your authenticated npm account (`npm login`, then `npm publish PATH_TO_TARBALL --access public`). If using a prerelease, add `--tag next`. Do not publish the single-platform local smoke package.
 
@@ -33,7 +33,7 @@ In the npm package's trusted publishing settings authorize:
 
 Then set repository variable `DEVMAP_NPM_PUBLISH=true`. Subsequent new version tags publish using OIDC; no long-lived npm token is needed. The workflow uses Node 24, whose bundled npm satisfies the required npm 11.5.1+ / Node 22.14+ floor. Check the logged npm version if changing runners or Node versions.
 
-The first version manually published is already used; the next automated publication must increment Cargo.toml and update Cargo.lock. Do not enable publishing with the preview fallback name. Until this setup is complete, GitHub artifacts still work independently.
+The first version manually published is already used; the next automated publication must increment Cargo.toml and update Cargo.lock. Do not enable publishing before package ownership is established. Until this setup is complete, public GitHub downloads work independently.
 
 Reference: [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
