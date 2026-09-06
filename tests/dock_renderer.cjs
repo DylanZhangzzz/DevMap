@@ -51,7 +51,7 @@ class Element {
   scrollTo(options) { this.scrollLeft = options.left ?? this.scrollLeft; this.scrollTop = options.top ?? this.scrollTop; }
   focus() {}
 }
-function harness({ textScale = 1, mode = 'mcp', nowMs = now } = {}) {
+function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl } = {}) {
   const ids = new Map(); const events = {};
   const clock = { value: nowMs }; const timers = new Map(); let nextTimer = 1;
   class ClockDate extends Date { static now() { return clock.value; } }
@@ -71,7 +71,7 @@ function harness({ textScale = 1, mode = 'mcp', nowMs = now } = {}) {
   script = script.replace('if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();', '');
   const last = script.lastIndexOf('})();');
   script = script.slice(0, last) + 'globalThis.renderer = { acceptSnapshot, renderSnapshot, inspectWorkspace: id => openFullWorkspace(id || lastSnapshot.current_worktree_id), refreshDynamicState: typeof refreshDynamicState === "function" ? refreshDynamicState : () => { throw new Error("refreshDynamicState missing"); }, explorationState: () => ({ selectedWorkspaceId: typeof selectedWorkspaceId === "undefined" ? undefined : selectedWorkspaceId, selectedTaskId: typeof selectedTaskId === "undefined" ? undefined : selectedTaskId, expandedWorkspaces: [...expandedWorkspaces], expandedConversationHistory: [...expandedConversationHistory], viewportPosition: typeof viewportPosition === "undefined" ? undefined : { ...viewportPosition } }) };' + script.slice(last);
-  const context = vm.createContext({ document, window, navigator: {}, console, Date: ClockDate,
+  const context = vm.createContext({ document, window, navigator: {}, console, Date: ClockDate, fetch: fetchImpl,
     setTimeout: cb => { const id = nextTimer++; timers.set(id, cb); return id; }, clearTimeout: id => timers.delete(id),
     requestAnimationFrame: cb => cb(), ResizeObserver: class { observe() {} disconnect() {} } });
   vm.runInContext(script, context);
@@ -1555,4 +1555,19 @@ test('delivery intent is visible without claiming completion or permission', () 
   assert.ok(map.textContent.includes('Login tests pass'));
   value.route_plans[0].delivery.conditions = [];
   assert.equal(ui.acceptSnapshot(value), false);
+});
+
+test('manual browser refresh reports failure honestly and permits retry', async () => {
+  const ui = harness({mode:'browser', fetchImpl:async()=>{throw new Error('offline')}});
+  await ui.ids.get('refresh').listeners.click();
+  assert.match(ui.ids.get('refresh-status').textContent, /Refresh failed/);
+  assert.equal(ui.ids.get('refresh').disabled,false);
+  assert.doesNotMatch(ui.ids.get('refresh-status').textContent,/Git refreshed/);
+});
+test('browser refresh distinguishes Git from Agent observation updates', async () => {
+  const value = snapshot();
+  const ui = harness({mode:'browser',fetchImpl:async()=>({ok:true,json:async()=>value})});
+  await ui.ids.get('refresh').listeners.click();
+  assert.match(ui.ids.get('refresh-status').textContent,/Git refreshed/);
+  assert.match(ui.ids.get('refresh-status').textContent,/Agent locations not updated/);
 });

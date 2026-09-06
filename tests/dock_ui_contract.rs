@@ -121,7 +121,12 @@ fn dock_task_navigation_recovers_when_portable_bridge_does_not_reply() {
 #[test]
 fn dock_refresh_requests_a_fresh_host_task_inventory() {
     let html = dock_html();
-    assert!(html.contains("Refresh all"));
+    assert!(html.contains("Refresh map"));
+    assert!(
+        html.find("id=\"refresh\"").unwrap()
+            < html.find("<details class=\"observation-details\"").unwrap()
+    );
+    assert!(html.contains("Agent locations not updated"));
     assert!(html.contains("Requesting Codex…"));
     assert!(html.contains("sendFollowUpMessage"));
     assert!(html.contains("method: \"ui/message\""));

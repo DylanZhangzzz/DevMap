@@ -32,7 +32,8 @@
     .shell {width:min(1440px, 100%);height:100dvh;margin:0 auto;padding:8px 16px;display:flex;flex-direction:column;}
     #dock-main, .map-frame {flex:1;min-height:0;display:flex;flex-direction:column;}
     .masthead {display:flex;flex:none;align-items:flex-start;justify-content:space-between;gap:12px;margin:0;}
-    .masthead-actions {display:flex;align-items:center;gap:8px;}
+    .masthead-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+    .refresh-status {flex-basis:100%;margin:0;font-size:.75rem;color:var(--muted);text-align:right;}
     .connection, .task-inventory, .subhead, .meta {margin:0;color:var(--muted);font-size:.75rem;}
     .connection {color:var(--success);} .connection.offline {color:var(--warning);}
     .refresh, .control {border:1px solid var(--line-soft);border-radius:6px;background:var(--surface);}
@@ -277,11 +278,12 @@
     <header class="masthead">
       <h1 id="map-title">Repository topology</h1>
       <div class="masthead-actions">
+        <button class="refresh" id="refresh" type="button">Refresh map</button>
+        <p class="refresh-status" id="refresh-status" role="status">Not refreshed yet</p>
         <details class="observation-details"><summary>Observations</summary><p class="connection" id="connection" aria-live="polite">Git · connecting</p><p class="task-inventory" id="task-inventory" aria-live="polite">Tasks · observation unavailable</p>
           <p>DevMap · Rail View</p>
           <p class="subhead" id="revision">Waiting for a valid snapshot</p>
           <p><span id="metric-workspaces">0</span> Workspaces · <span id="metric-tasks">0</span> Linked tasks · <span id="metric-open">0</span> need attention</p>
-          <button class="refresh" id="refresh" type="button">Refresh all</button>
         </details>
       </div>
     </header>
@@ -344,7 +346,7 @@
       // Bound the rendered card, not its task inventory, below the layout dimension cap.
       const MAX_WORKSPACE_HEIGHT = 1024;
       const NAVIGATION_RESPONSE_TIMEOUT_MS = 15000;
-      const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock.";
+      const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock. Verify the calling Agent's actual command working directory and Git worktree root, then include its workingDirectory report. Do not infer other tasks' working directories.";
       const transport = window.parent === window ? "browser" : "mcp";
       const browserQuery = transport === "browser" ? window.location.search : "";
       const pendingRequests = new Map(), pendingNavigationNodes = new Map(), pendingNavigationTimeouts = new Map();
@@ -403,7 +405,7 @@
         lastTaskInventorySync = value.task_inventory_synced_at || null;
         const refreshCompleted = byId("refresh").disabled && lastTaskInventorySync !== requestedTaskInventorySync;
         setOnline();
-        if (refreshCompleted) finishRefresh("Task names resynced");
+        if (refreshCompleted) finishRefresh(value.task_observation?.complete ? "Task inventory updated · check reported Agent locations" : "Task inventory updated · partial coverage · check reported Agent locations");
         if (unavailable.length) showUnavailableSelection(unavailable);
         return true;
       }
@@ -1635,12 +1637,18 @@
       function snapshotFeedback(text) { const feedback = byId("snapshot-feedback"); feedback.hidden = !text; feedback.textContent = text; }
       function finishRefresh(message) {
         clearTimeout(refreshRequestTimer);
-        const refresh = byId("refresh"); refresh.disabled = false; refresh.textContent = "Refresh all";
+        const refresh = byId("refresh"); refresh.disabled = false; refresh.textContent = "Refresh map";
+        byId("refresh-status").textContent = new Date().toLocaleTimeString() + " · " + message;
         announce(message);
       }
       async function gitOnlyRefresh() {
-        if (transport === "mcp") callTool("devmap_read_map", {}); else await fetchSnapshot();
-        finishRefresh("Git refreshed · task names not resynced · Ask Codex: Refresh DevMap");
+        if (transport === "mcp") {
+          callTool("devmap_read_map", {});
+          finishRefresh("Git refresh requested · Agent locations not updated · Ask Codex: Refresh DevMap");
+        } else {
+          const ok = await fetchSnapshot();
+          finishRefresh(ok ? "Git refreshed · task names not resynced · Agent locations not updated · Ask Codex: Refresh DevMap" : "Refresh failed · last valid map retained · retry when connected");
+        }
       }
       async function requestFullRefresh() {
         const refresh = byId("refresh");
@@ -1657,7 +1665,7 @@
             await gitOnlyRefresh(); return;
           }
           announce("Codex refresh requested");
-          refreshRequestTimer = setTimeout(() => finishRefresh("No task changes reported"), 15000);
+          if (refresh.disabled) refreshRequestTimer = setTimeout(() => finishRefresh("Task refresh not confirmed · Agent locations may be outdated"), 15000);
         } catch (_) { await gitOnlyRefresh(); }
       }
       function updateTaskFreshness(value) {
@@ -1709,7 +1717,7 @@
       function setOffline() { const node = byId("connection"); node.className = "connection offline"; const age = lastValidAt ? formatAge(Date.now() - lastValidAt) : "never"; node.textContent = `GIT OFFLINE · last observation ${age}`; scheduleAge(); }
       function formatAge(milliseconds) { if (!Number.isFinite(milliseconds)) return "unknown"; const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`; }
       function scheduleAge() { clearTimeout(ageTimer); if (document.visibilityState === "visible") ageTimer = setTimeout(() => { refreshDynamicState(); if (lastValidAt && Date.now() - lastValidAt > 6000) setOffline(); else scheduleAge(); }, 1000); }
-      async function fetchSnapshot() { try { const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" }); if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot"); } catch (_) { setOffline(); } }
+      async function fetchSnapshot() { try { const response = await fetch(`/api/v1/dock/snapshot${browserQuery}`, { cache: "no-store" }); if (!response.ok || !acceptSnapshot(await response.json())) throw new Error("invalid snapshot"); return true; } catch (_) { setOffline(); return false; } }
       function connectEvents() {
         if (eventStream) eventStream.close(); eventStream = new EventSource(`/api/v1/dock/events${browserQuery}`);
         eventStream.addEventListener("dock", (event) => { try { if (!acceptSnapshot(JSON.parse(event.data))) setOffline(); } catch (_) { setOffline(); } });
