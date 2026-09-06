@@ -58,6 +58,8 @@
     .pan-controls {display:inline-flex;align-items:center;gap:4px;}
     .zoom-controls {display:inline-flex;gap:4px;}
     .zoom-controls button {min-width:44px;text-align:center;font-variant-numeric:tabular-nums;}
+    #map-direction{min-height:44px;font:inherit;color:inherit;cursor:pointer;}
+    #map-direction:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
     .pan-label {color:var(--muted);font-size:.75rem;}
     .branch-index {position:relative;max-width:100%;}
     .branch-index summary {min-height:44px;padding:10px;cursor:pointer;}
@@ -295,6 +297,11 @@
             <button class="control" id="zoom-in" type="button" aria-label="Zoom map in" disabled>+</button>
             <button class="control" id="zoom-fit" type="button" disabled>Full map</button>
           </div>
+          <select class="control" id="map-direction" aria-label="Map direction" title="Auto follows the available width; choose a fixed direction to override it" disabled>
+            <option value="auto">Layout: Auto</option>
+            <option value="vertical">Layout: Vertical</option>
+            <option value="horizontal">Layout: Horizontal</option>
+          </select>
           <button class="control" id="locate-current" type="button" aria-label="Locate map source workspace" title="Locate map source workspace" disabled>Locate</button>
           <details class="map-tools" id="map-tools"><summary id="map-tools-trigger">More</summary><div class="map-tools-panel">
           <div class="pan-controls" role="group" aria-label="Pan repository topology">
@@ -346,7 +353,7 @@
       let lastSnapshot = null, geometryCache = null, selectedObjectId = null, resizeFrame = null;
       let selectedWorkspaceId = null, selectedTaskId = null, viewportPosition = { left: 0, top: 0 };
       let inlineWorkspaceId = null, inlineGroup = false;
-      let mapScale = 1;
+      let mapScale = 1, mapDirection = "auto";
       let overviewListOpen = false;
       let refreshingDetails = false;
       let journeyWorkspaceId = null, journeyFocused = false;
@@ -913,6 +920,7 @@
         filterWorkspaces();
         byId("zoom-reset").textContent=Math.round(mapScale*100)+"%";
         for(const id of ["zoom-in","zoom-out","zoom-reset","zoom-fit"]) byId(id).disabled=!layout;
+        byId("map-direction").disabled=!layout;byId("map-direction").value=mapDirection;
         byId("zoom-in").disabled=!layout||mapScale>=2;
         byId("zoom-out").disabled=!layout||mapScale<=.75;
       }
@@ -1128,13 +1136,14 @@
         byId("map-tools").open = false;
         applyMapScale();
       }
-      function renderSnapshot(value, preserveInlineAnchor=false) {
+      function renderSnapshot(value, preserveSelectionAnchor=false) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
         const previousSummary=surface.querySelector(".workspace-summary"),summaryScroll=previousSummary?.dataset.objectId==="summary:"+inlineWorkspaceId?previousSummary.scrollTop:0;
         const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
         const focusedHistory=surface.metroLayout?.historyRanges?.find(r=>focusedId===r.id||focusedId===r.id+":marker");
         const savedViewport={...viewportPosition}, records=workspaceRecords(value);
-        const oldRect=selectedRect(surface.metroLayout,selectedObjectId);
+        const anchorObjectId=preserveSelectionAnchor&&!selectedRect(surface.metroLayout,selectedObjectId)?"workspace:"+(selectedWorkspaceId||value.route_plans?.find(p=>"plan:"+p.route_id===selectedObjectId)?.worktree_id||journeyWorkspaceId):selectedObjectId;
+        const oldRect=selectedRect(surface.metroLayout,anchorObjectId);
         const offset=oldRect?{x:16+oldRect.x*mapScale-savedViewport.left,y:16+oldRect.y*mapScale-savedViewport.top}:null;
         if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=value.current_worktree_id;journeyFocused=false;expandedHistory.clear();}
         const dimensions=records.map(({lane,facts})=>({worktree_id:lane.worktree_id,head_oid:facts?.head_oid??lane.head,width:196,height:52}));
@@ -1142,7 +1151,7 @@
         if(value.schema_version==="devmap/dock/4") {
           const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
           if(lastSnapshot?.repository_id!==value.repository_id||!records.some(r=>r.lane.worktree_id===inlineWorkspaceId))inlineWorkspaceId=null;
-          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:viewport.clientWidth<=760,textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:mapDirection==="auto"?viewport.clientWidth<=760:mapDirection==="vertical",textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
           options.expandedHistoryCommits=(surface.metroLayout?.historyRanges||[]).filter(r=>expandedHistory.has(r.id)).flatMap(r=>r.commit_ids);
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
@@ -1211,7 +1220,7 @@
         byId("branch-count").textContent = String(layout?.refs.length || 0);
         byId("locate-current").disabled = !records.some(r => r.lane.worktree_id === value.current_worktree_id);
         for (const node of surface.querySelectorAll("[data-object-id]")) if (node.dataset.objectId === selectedObjectId) node.setAttribute("aria-current", "true");
-        const newRect = selectedRect(layout, selectedObjectId);
+        const newRect = selectedRect(layout, anchorObjectId);
         if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
           const current = records.find(r => r.lane.worktree_id === value.current_worktree_id);
           if (current) {
@@ -1219,7 +1228,7 @@
             locateWorkspace(selectedWorkspaceId, value);
           } else fitMap();
         }
-        else if (offset && newRect && (selectedObjectId?.startsWith("history-range:")||selectedObjectId?.startsWith("commit:")||((inlineWorkspaceId||preserveInlineAnchor)&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
+        else if (offset && newRect && (preserveSelectionAnchor||selectedObjectId?.startsWith("history-range:")||selectedObjectId?.startsWith("commit:")||(inlineWorkspaceId&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
         else setViewportPosition({ ...savedViewport, behavior: "instant" });
         const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
         if (focusedId) {
@@ -1775,6 +1784,11 @@
       byId("zoom-in").addEventListener("click", () => setMapScale(mapScale * 1.4));
       byId("zoom-reset").addEventListener("click", () => setMapScale(1));
       byId("zoom-fit").addEventListener("click", fitMap);
+      byId("map-direction").addEventListener("change", () => {
+        const direction=byId("map-direction").value;
+        if(!lastSnapshot||lastSnapshot.schema_version!=="devmap/dock/4"||!["auto","vertical","horizontal"].includes(direction))return;
+        mapDirection=direction;renderSnapshot(lastSnapshot,true);
+      });
       byId("overview-toggle").addEventListener("click", () => { setWorkspaceChooser(!overviewListOpen); if (overviewListOpen) byId("workspace-filter").focus(); });
       byId("workspace-filter").addEventListener("input", filterWorkspaces);
       byId("workspace-search-close").addEventListener("click", () => { setWorkspaceChooser(false); byId("overview-toggle").focus(); });

@@ -103,6 +103,49 @@ function historySnapshot() {
 module.exports = { snapshot, chat, historySnapshot };
 
 if (require.main === module) {
+test('map direction supports manual modes and returns to automatic width adaptation', () => {
+  const ui=harness(),value=historySnapshot();ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map'),viewport=ui.ids.get('topology-viewport'),control=ui.ids.get('map-direction');
+  assert.equal(map.metroLayout.orientation,'vertical');
+  assert.equal(control.disabled,false);
+  map.querySelector('.history-range').listeners.click();
+  ui.inspectWorkspace();
+  const selected=ui.explorationState().selectedWorkspaceId,details=ui.ids.get('selection-details').textContent;
+  ui.ids.get('zoom-in').listeners.click();const scale=map.dataset.scale;
+  const choose=value=>{control.value=value;control.listeners.change();};
+  choose('horizontal');
+  assert.equal(map.metroLayout.orientation,'horizontal');
+  assert.equal(map.querySelectorAll('.route-station').length,12,'direction change keeps history expanded');
+  assert.equal(map.dataset.scale,scale,'direction change preserves zoom');
+  assert.equal(ui.explorationState().selectedWorkspaceId,selected);
+  assert.equal(ui.ids.get('selection-details').textContent,details);
+  ui.acceptSnapshot({...value,observation_revision:10});
+  assert.equal(map.metroLayout.orientation,'horizontal');assert.equal(control.value,'horizontal');
+  choose('vertical');viewport.clientWidth=1200;ui.renderSnapshot(value);
+  assert.equal(map.metroLayout.orientation,'vertical','manual orientation survives resize');
+  choose('auto');assert.equal(map.metroLayout.orientation,'horizontal');
+  viewport.clientWidth=360;ui.renderSnapshot(value);assert.equal(map.metroLayout.orientation,'vertical');
+  assert.equal(JSON.stringify(map.metroLayout.sourceEdges.map(e=>e.id).sort()),JSON.stringify(value.topology.edges.map(e=>e.id).sort()));
+});
+
+test('direction changes anchor task and plan details to their owning workspace', () => {
+  for(const selection of ['task','plan']) {
+    const ui=harness(),value=historySnapshot();value.lanes[0].chats=[chat('orientation','Orientation task')];value.counts.tasks=1;
+    value.route_plans=[{route_id:'route-0123456789abcdef0123456789abcdef',repository_id:value.repository_id,revision:1,worktree_id:value.current_worktree_id,start_commit:value.lanes[0].head,goal:'Deliver work',target_ref:'refs/heads/main',milestones:[],source:'User plan',abandoned:false,updated_at:stamp}];
+    assert.ok(ui.acceptSnapshot(value));const map=ui.ids.get('relationship-map'),viewport=ui.ids.get('topology-viewport');
+    map.querySelector('.history-range').listeners.click();ui.inspectWorkspace();
+    if(selection==='task')ui.ids.get('selection-details').querySelector('.task-node').listeners.click();
+    else ui.ids.get('route-plan-list').querySelector('.route-plan-title').listeners.click();
+    const selected=ui.explorationState().selectedTaskId,details=ui.ids.get('selection-details').textContent;
+    viewport.scrollTop=map.metroLayout.attachments[0].y-32;viewport.scrollLeft=0;viewport.listeners.scroll();
+    const control=ui.ids.get('map-direction');control.value='horizontal';control.listeners.change();
+    const rect=map.metroLayout.attachments[0],screenX=16+rect.x-viewport.scrollLeft;
+    assert.ok(screenX>=0&&screenX<viewport.clientWidth,selection+' workspace stays in view');
+    assert.equal(ui.explorationState().selectedTaskId,selected);
+    assert.equal(ui.ids.get('selection-details').textContent,details);
+  }
+});
+
 test('history summary expands and collapses while preserving refresh state and real parent navigation', () => {
   const ui=harness(),value=historySnapshot();assert.ok(ui.acceptSnapshot(value));
   const map=ui.ids.get('relationship-map'),before=JSON.stringify(value.topology);

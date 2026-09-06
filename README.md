@@ -44,7 +44,7 @@ Forks, merges, workspace HEADs, references and tags, explicit history boundaries
 
 The compact platform shows workspace identity, observed task counts and a short Git state summary. Selecting it opens one inline summary near the map. **View full details** opens the bottom inspector, which can be resized or collapsed. This keeps the initial view compact while retaining access to tasks and detailed facts.
 
-Use **Workspaces** to search by branch or path, **Locate** to return to the map source, and **Focus journey** to emphasize the selected workspace's route. Zoom, full-map navigation and offscreen connection controls help explore larger repositories. Narrow sidebars use a vertical history direction; wider views use a horizontal one.
+Use **Workspaces** to search by branch or path, **Locate** to return to the map source, and **Focus journey** to emphasize the selected workspace's route. Zoom, full-map navigation and offscreen connection controls help explore larger repositories. **Layout** beside the zoom controls offers **Auto**, **Vertical** and **Horizontal**. Auto uses vertical history in narrow sidebars and horizontal history in wider views. Manual choices survive map refreshes and resizing; reloading the page resets to Auto.
 
 ### Tasks and observations
 
