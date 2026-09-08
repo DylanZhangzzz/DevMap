@@ -50,11 +50,11 @@ Files: src/route_plan.rs, src/journal.rs binding portion, new src/store/routes.r
 
 Consumes RepositoryStore. Keeps RoutePlanStore::open/list/list_with_starts/set and read_task_bindings/observe_task_bindings callers unchanged. Use validated active-backend lookup: no active SQL means existing legacy behavior. SQL write opens its own validated writable connection; reads use open_existing. Add explicit read-only legacy snapshot helpers that expose full route input/revisions and binding watermarks without creating locks or recovery writes.
 
-- [ ] First tests activate only disposable stores and assert `first.start_commit == updated.start_commit`, identical request returns original result, changed request conflicts, competing expected_revision has one winner.
-- [ ] Run focused RED checks, then factor domain validation/building from file IO without weakening existing tests.
-- [ ] Implement route records and starts plus binding-history/watermark updates in single transactions; preserve unchanged-association watermark advancement, late observation rejection and partial-list rules.
-- [ ] Compare serialized legacy and SQL outputs from the same imported records and fixed evaluation time; cover removed-worktree abandonment, missing target validation, pending legacy watermark rejection.
-- [ ] Run original route_plan and binding-focused dock_model tests plus new tests; review then commit.
+- [x] First tests activate only disposable stores and assert `first.start_commit == updated.start_commit`, identical request returns original result, changed request conflicts, competing expected_revision has one winner.
+- [x] Run focused RED checks, then factor domain validation/building from file IO without weakening existing tests.
+- [x] Implement route records and starts plus binding-history/watermark updates in single transactions; preserve unchanged-association watermark advancement, late observation rejection and partial-list rules.
+- [x] Compare serialized legacy and SQL outputs from the same imported records and fixed evaluation time; cover removed-worktree abandonment, missing target validation, pending legacy watermark rejection.
+- [x] Run original route_plan and binding-focused dock_model tests plus new tests; review then commit.
 
 ## Task 3: Journal and presence backends
 

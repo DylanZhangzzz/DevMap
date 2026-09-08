@@ -44,3 +44,12 @@ The `DEVMAP_BENCHMARK_COLD`, `DEVMAP_BENCHMARK_WARMUP` and
 hash, raw latencies and response sizes. This does not measure compact internal
 summaries, CPU/RSS, idle behavior or actual host integration, and concurrent
 build load must be excluded from an eventual controlled acceptance run.
+
+The ignored Rust test `performance_fixture` generates a synthetic legacy scale
+corpus through domain APIs. Run
+`cargo test --release --test performance_fixture -- --ignored --nocapture`
+to create the default 20 worktrees, 100 sessions and 100,000 events. It retains
+the disposable source under `target/verification/scale-legacy-*` and prints a
+manifest path. `DEVMAP_SCALE_WORKTREES`, `DEVMAP_SCALE_SESSIONS` and
+`DEVMAP_SCALE_EVENTS` set smaller smoke sizes (events is per session). Corpus
+generation is not performance or real-host evidence.
