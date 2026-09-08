@@ -272,6 +272,87 @@ fn sql_inputs(
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "explicit read-only component profiling of an owned scale fixture; not an acceptance benchmark"]
+    fn profile_owned_scale_query_phases() {
+        fn measure<T>(phase: &str, operation: impl FnOnce() -> T) -> T {
+            eprintln!("{}", serde_json::json!({"phase":phase,"event":"start"}));
+            let start = std::time::Instant::now();
+            let result = operation();
+            eprintln!(
+                "{}",
+                serde_json::json!({"phase":phase,"event":"end","milliseconds":start.elapsed().as_secs_f64()*1000.0})
+            );
+            result
+        }
+        let source = std::fs::canonicalize(
+            std::env::var_os("DEVMAP_PROFILE_SOURCE").expect("explicit owned source"),
+        )
+        .unwrap();
+        let allowed = std::fs::canonicalize(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/verification"),
+        )
+        .unwrap();
+        assert!(source.starts_with(&allowed));
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(source.parent().unwrap().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["scope"], "synthetic_legacy_scale_fixture");
+        assert_eq!(
+            std::fs::canonicalize(manifest["source"].as_str().unwrap()).unwrap(),
+            source
+        );
+        let workspace = measure("source_workspace", || {
+            crate::git::SourceGitInspector::open(&source)
+                .unwrap()
+                .workspace()
+                .unwrap()
+        });
+        let store = measure("readonly_store_open", || {
+            RepositoryStore::open_existing(&workspace).unwrap().unwrap()
+        });
+        assert!(super::super::is_active(store.connection()).unwrap());
+        let original_generation = store.generation().unwrap();
+        let transaction = store.connection().unchecked_transaction().unwrap();
+        measure("legacy_drift_full", || {
+            super::super::migration::check_legacy_drift(&workspace, &transaction).unwrap()
+        });
+        let mut summaries = SummaryCache::new();
+        let inputs = measure("sql_inputs_cold", || {
+            sql_inputs(&transaction, &repository_id(&workspace), &mut summaries).unwrap()
+        });
+        assert_eq!(
+            inputs.presence.records.len() as u64,
+            manifest["sessions"].as_u64().unwrap()
+        );
+        assert!(
+            inputs
+                .journals
+                .values()
+                .all(|summary| summary.integrity == JournalIntegrity::Verified)
+        );
+        let warm = measure("sql_inputs_warm", || {
+            sql_inputs(&transaction, &repository_id(&workspace), &mut summaries).unwrap()
+        });
+        assert_eq!(warm.journals, inputs.journals);
+        transaction.commit().unwrap();
+        let plans = &inputs.routes.as_ref().unwrap().0;
+        let projection = measure("git_projection_collect", || {
+            crate::dock::DockProjectionContext::collect(&workspace, plans).unwrap()
+        });
+        let model = measure("pure_projection", || {
+            projection
+                .project(inputs, time::OffsetDateTime::now_utc(), &[], None, false)
+                .unwrap()
+        });
+        let bytes = measure("json_serialize", || serde_json::to_vec(&model).unwrap());
+        assert_eq!(store.generation().unwrap(), original_generation);
+        eprintln!(
+            "{}",
+            serde_json::json!({"scope":"readonly_scale_components","events":manifest["events"],"sessions":manifest["sessions"],"output_bytes":bytes.len(),"generation":original_generation,"debug_assertions":cfg!(debug_assertions)})
+        );
+    }
+    #[test]
     fn external_same_generation_journal_tamper_invalidates_validated_summary() {
         use crate::events::{
             ActorIdentity, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity,

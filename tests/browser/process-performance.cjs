@@ -37,11 +37,22 @@ function client() {
     async close(){if(child.exitCode!==null)return;const stopped=new Promise(resolve=>child.once('exit',resolve));child.stdin.end();const timer=setTimeout(()=>child.kill(),5000);await stopped;clearTimeout(timer);lines.close();assert.equal(child.exitCode,0,stderr);assert.equal(stderr,'','Unexpected process diagnostics');}};
 }
 function summarize(rows) {const values=rows.map(x=>x.ms).sort((a,b)=>a-b);return {count:rows.length,p50_ms:values[Math.ceil(values.length*0.5)-1],p95_ms:values[Math.ceil(values.length*0.95)-1],max_response_bytes:Math.max(...rows.map(x=>x.bytes)),samples:rows};}
+async function withClient(action) {
+  const c=client();let failure;
+  try {await action(c);} catch(error){failure=error;}
+  try {await c.close();} catch(error){failure=failure?new AggregateError([failure,error],'Benchmark request and cleanup failed'):error;}
+  if(failure)throw failure;
+}
 async function main(){
   const cold=[],hot=[];
-  for(let i=0;i<coldSamples;i++){const start=performance.now(),c=client();try{await c.initialize();const bytes=await c.map();cold.push({ms:performance.now()-start,bytes});}finally{await c.close();}}
-  const c=client();try{await c.initialize();for(let i=0;i<warmup;i++)await c.map();for(let i=0;i<samples;i++){const start=performance.now(),bytes=await c.map();hot.push({ms:performance.now()-start,bytes});}}finally{await c.close();}
+  for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();cold.push({ms:performance.now()-start,bytes});});}
+  await withClient(async c=>{await c.initialize();for(let i=0;i<warmup;i++)await c.map();for(let i=0;i<samples;i++){const start=performance.now(),bytes=await c.map();hot.push({ms:performance.now()-start,bytes});}});
   const report={scope:'native_mcp_full_map_including_git',source:resolved,executable:exe,executable_sha256:crypto.createHash('sha256').update(fs.readFileSync(exe)).digest('hex'),warmup,cold:summarize(cold),hot:summarize(hot),measured_at:new Date().toISOString(),note:'Full map includes Git refresh and IPC, not compact summary. No CPU/RSS/idle or real host measurement. Sample counts below 20 cold and 100 hot are smoke only.'};
   const output=process.env.DEVMAP_BENCHMARK_OUTPUT||path.join(root,'target/verification/process-performance.json');fs.writeFileSync(output,JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 }
-main().catch(error=>{console.error(error);process.exitCode=1;});
+main().catch(error=>{
+  const describe=e=>({name:e.name,message:e.message,errors:e.errors?.map(describe)});
+  const output=process.env.DEVMAP_BENCHMARK_OUTPUT||path.join(root,'target/verification/process-performance.json');
+  fs.writeFileSync(output,JSON.stringify({scope:'native_mcp_full_map_including_git',passed:false,source:resolved,error:describe(error)},null,2));
+  console.error(error);process.exitCode=1;
+});
