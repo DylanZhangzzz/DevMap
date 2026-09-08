@@ -612,3 +612,42 @@ fn comparison_preserves_complete_and_partial_inventory_timestamps() {
         );
     }
 }
+
+#[test]
+fn reassigning_journal_to_another_valid_imported_origin_prevents_activation() {
+    let repo = committed_repo();
+    let linked = support::linked_worktree(repo.path(), "other-origin");
+    let w = workspace(repo.path());
+    let lw = workspace(linked.path());
+    append(&w, "main-session", "main-event");
+    append(&lw, "linked-session", "linked-event");
+    let backup = tempfile::tempdir().unwrap();
+    let snapshot = backup.path().join("frozen");
+    migration::freeze(&w, &snapshot, now()).unwrap();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    let c = database(&w);
+    c.execute("UPDATE journal_sessions SET (worktree_id,incarnation,origin_path)=(SELECT worktree_id,incarnation,origin_path FROM journal_sessions WHERE session_id='linked-session') WHERE session_id='main-session'",[]).unwrap();
+    assert!(
+        c.prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        migration::activate(&w, &snapshot).is_err(),
+        "internally consistent reassignment lost the original session provenance"
+    );
+    assert_eq!(migration::inspect(&w).unwrap().backend, "shadow");
+    assert_eq!(
+        c.query_row(
+            "SELECT count(*) FROM migration_sources WHERE source_path='@activation'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+}

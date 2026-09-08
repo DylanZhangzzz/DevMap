@@ -299,13 +299,21 @@ fn read_records(file: &mut std::fs::File, repository: &str) -> Result<Vec<Record
     file.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     file.take(MAX_JOURNAL_BYTES + 1).read_to_end(&mut bytes)?;
+    parse_frozen_routes(&bytes, repository)
+}
+
+/// Parse the exact captured bytes whose hash was validated by migration.
+pub(crate) fn parse_frozen_routes(
+    bytes: &[u8],
+    repository: &str,
+) -> Result<Vec<Record>, DevMapError> {
     if bytes.len() as u64 > MAX_JOURNAL_BYTES {
         return Err(invalid("route plan journal limit reached"));
     }
     if !bytes.is_empty() && bytes.last() != Some(&b'\n') {
         return Err(invalid("incomplete plan journal; reconciliation required"));
     }
-    parse_records(&bytes, repository)
+    parse_records(bytes, repository)
 }
 pub(crate) fn sql_records(
     c: &rusqlite::Connection,

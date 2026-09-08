@@ -59,7 +59,6 @@ fn read_binding_watermarks(
     repository: &str,
     records: &[TaskBindingObservation],
 ) -> Result<BindingWatermarkMap, DevMapError> {
-    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let path = journal_path.with_file_name("task-binding-watermarks.json");
     let temporary = path.with_extension("pending");
     // A pending update may contain a newer observation than the published file.
@@ -69,15 +68,29 @@ fn read_binding_watermarks(
             "pending task binding watermark; reconciliation required",
         ));
     }
-    let mut watermarks = BindingWatermarkMap::new();
-    if checked_metadata(&path)?.is_some() {
+    let bytes = if checked_metadata(&path)?.is_some() {
         let file = checked_file(&path, false, false)?;
         let mut bytes = Vec::new();
         file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
+        Some(bytes)
+    } else {
+        None
+    };
+    parse_binding_watermarks(bytes.as_deref(), repository, records)
+}
+
+fn parse_binding_watermarks(
+    bytes: Option<&[u8]>,
+    repository: &str,
+    records: &[TaskBindingObservation],
+) -> Result<BindingWatermarkMap, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let mut watermarks = BindingWatermarkMap::new();
+    if let Some(bytes) = bytes {
         if bytes.len() as u64 > MAX_BINDING_BYTES {
             return Err(corruption("task binding watermark limit reached"));
         }
-        let saved: BindingWatermarks = serde_json::from_slice(&bytes)
+        let saved: BindingWatermarks = serde_json::from_slice(bytes)
             .map_err(|_| corruption("invalid task binding watermarks"))?;
         if saved.schema_version != "devmap/task-binding-watermarks/1"
             || saved.repository_id != repository
@@ -168,16 +181,16 @@ fn read_binding_records(
     file.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BINDING_BYTES || (!bytes.is_empty() && bytes.last() != Some(&b'\n'))
-    {
-        return Err(corruption("oversized or incomplete task binding journal"));
-    }
     parse_binding_records(&bytes, repository)
 }
 fn parse_binding_records(
     bytes: &[u8],
     repository: &str,
 ) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    if bytes.len() as u64 > MAX_BINDING_BYTES || (!bytes.is_empty() && bytes.last() != Some(&b'\n'))
+    {
+        return Err(corruption("oversized or incomplete task binding journal"));
+    }
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let mut records = Vec::new();
     let mut latest = BTreeMap::<(String, String), TaskBindingObservation>::new();
@@ -236,6 +249,20 @@ pub(crate) fn read_task_bindings(
 pub(crate) struct BindingSnapshot {
     pub(crate) records: Vec<TaskBindingObservation>,
     pub(crate) watermarks: BindingWatermarkMap,
+}
+/// Parse one already captured journal/watermark byte set without reopening paths.
+/// None means the watermark was absent in that inventory, not an empty file.
+pub(crate) fn parse_frozen_bindings(
+    bytes: &[u8],
+    watermark: Option<&[u8]>,
+    repository: &str,
+) -> Result<BindingSnapshot, DevMapError> {
+    let records = parse_binding_records(bytes, repository)?;
+    let watermarks = parse_binding_watermarks(watermark, repository, &records)?;
+    Ok(BindingSnapshot {
+        records,
+        watermarks,
+    })
 }
 /// Strict migration input: the independent watermark is retained even if no journal exists.
 pub(crate) fn legacy_binding_snapshot(
@@ -1612,6 +1639,16 @@ mod binding_snapshot_tests {
         let snapshot = legacy_binding_snapshot(&w).unwrap();
         assert!(snapshot.records.is_empty());
         assert_eq!(snapshot.watermarks.len(), 1);
+        let captured = parse_frozen_bindings(&[], Some(&bytes), &saved.repository_id).unwrap();
+        assert_eq!(captured.records, snapshot.records);
+        assert_eq!(captured.watermarks, snapshot.watermarks);
+        assert!(
+            parse_frozen_bindings(&[], None, &saved.repository_id)
+                .unwrap()
+                .watermarks
+                .is_empty()
+        );
+        assert!(parse_frozen_bindings(&[], Some(&[]), &saved.repository_id).is_err());
         assert_eq!(std::fs::read(&p).unwrap(), bytes);
         assert!(!common.join("devmap/task-bindings.jsonl").exists());
         std::fs::write(p.with_extension("pending"), b"pending").unwrap();

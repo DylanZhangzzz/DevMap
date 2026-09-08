@@ -123,6 +123,11 @@ struct Parsed {
     journals: Vec<journal::FrozenJournalSnapshot>,
     presence: Vec<presence::PresenceRecord>,
 }
+type CapturedFiles = BTreeMap<(usize, String), Vec<u8>>;
+struct CapturedSnapshot {
+    manifest: FrozenManifest,
+    files: CapturedFiles,
+}
 
 /// Read-only state inspection; unknown schema and corruption are errors, never recreation.
 pub fn inspect(workspace: &SourceWorkspace) -> Result<StorageReport, DevMapError> {
@@ -171,6 +176,7 @@ pub fn freeze(
         )?;
         safe::ensure_directory(destination)?;
         let destination = safe::checked_canonical_directory(destination)?;
+        let mut captured = CapturedFiles::new();
         for item in &manifest.files {
             let original = manifest.origins[item.origin]
                 .git_dir
@@ -189,6 +195,7 @@ pub fn freeze(
                 return Err(fail("legacy source drift during freeze"));
             }
             write_new(&target, &bytes)?;
+            captured.insert((item.origin, item.relative.clone()), bytes);
         }
         // Empty origins must exist for strict sibling watermark readers.
         for index in 0..manifest.origins.len() {
@@ -201,7 +208,7 @@ pub fn freeze(
                 safe::ensure_directory(&path)?;
             }
         }
-        let parsed = parse(&destination, &manifest)?;
+        let parsed = parse(&manifest, &captured)?;
         assign_counts(&mut manifest, &parsed);
         revalidate(workspace, &manifest)?;
         write_new(
@@ -217,8 +224,8 @@ pub fn import_shadow(
     workspace: &SourceWorkspace,
     snapshot: &Path,
 ) -> Result<StorageReport, DevMapError> {
-    let manifest = load_snapshot(workspace, snapshot)?;
-    let parsed = parse(snapshot, &manifest)?;
+    let CapturedSnapshot { manifest, files } = load_snapshot(workspace, snapshot)?;
+    let parsed = parse(&manifest, &files)?;
     validate_counts(&manifest, &parsed)?;
     let mut store = RepositoryStore::open(workspace)?;
     store.transaction(|tx| {
@@ -277,8 +284,8 @@ pub fn activate(
     workspace: &SourceWorkspace,
     snapshot: &Path,
 ) -> Result<StorageReport, DevMapError> {
-    let manifest = load_snapshot(workspace, snapshot)?;
-    let parsed = parse(snapshot, &manifest)?;
+    let CapturedSnapshot { manifest, files } = load_snapshot(workspace, snapshot)?;
+    let parsed = parse(&manifest, &files)?;
     validate_counts(&manifest, &parsed)?;
     let context =
         crate::dock::DockProjectionContext::collect(workspace, &latest_routes(&parsed.routes).0)?;
@@ -353,8 +360,8 @@ pub fn compare_snapshot_with_inventory(
     inventory_observed_at: Option<String>,
     complete: bool,
 ) -> Result<SnapshotComparison, DevMapError> {
-    let manifest = load_snapshot(workspace, snapshot)?;
-    let parsed = parse(snapshot, &manifest)?;
+    let CapturedSnapshot { manifest, files } = load_snapshot(workspace, snapshot)?;
+    let parsed = parse(&manifest, &files)?;
     validate_counts(&manifest, &parsed)?;
     let context =
         crate::dock::DockProjectionContext::collect(workspace, &latest_routes(&parsed.routes).0)?;
@@ -856,7 +863,7 @@ fn revalidate(w: &SourceWorkspace, manifest: &FrozenManifest) -> Result<(), DevM
     }
     Ok(())
 }
-fn load_snapshot(w: &SourceWorkspace, root: &Path) -> Result<FrozenManifest, DevMapError> {
+fn load_snapshot(w: &SourceWorkspace, root: &Path) -> Result<CapturedSnapshot, DevMapError> {
     outside_admin(w, root)?;
     let manifest: FrozenManifest = serde_json::from_slice(&read(&root.join("manifest.json"))?)?;
     if manifest.format != "devmap-frozen-legacy/1"
@@ -867,6 +874,14 @@ fn load_snapshot(w: &SourceWorkspace, root: &Path) -> Result<FrozenManifest, Dev
             "frozen snapshot original repository identity mismatch",
         ));
     }
+    if manifest.files.len() > MAX_FILES
+        || manifest.directories.len() > MAX_FILES
+        || manifest.origins.len() > 256
+    {
+        return Err(fail("frozen snapshot inventory resource limit"));
+    }
+    let mut captured = CapturedFiles::new();
+    let mut total_bytes = 0u64;
     let mut seen = BTreeSet::new();
     for f in &manifest.files {
         if f.origin >= manifest.origins.len()
@@ -881,10 +896,15 @@ fn load_snapshot(w: &SourceWorkspace, root: &Path) -> Result<FrozenManifest, Dev
             &f.relative,
             manifest.origins[f.origin].git_dir == manifest.common_dir,
         )?;
+        if f.bytes > MAX_BYTES.saturating_sub(total_bytes) {
+            return Err(fail("frozen snapshot aggregate byte limit"));
+        }
         let bytes = read(&frozen_path(root, f))?;
         if bytes.len() as u64 != f.bytes || sha256_hex(&bytes) != f.sha256 {
             return Err(fail("frozen snapshot hash mismatch"));
         }
+        total_bytes += bytes.len() as u64;
+        captured.insert((f.origin, f.relative.clone()), bytes);
     }
     let mut expected_files = manifest
         .files
@@ -907,7 +927,10 @@ fn load_snapshot(w: &SourceWorkspace, root: &Path) -> Result<FrozenManifest, Dev
             "frozen snapshot contains missing or unlisted artifacts",
         ));
     }
-    Ok(manifest)
+    Ok(CapturedSnapshot {
+        manifest,
+        files: captured,
+    })
 }
 fn snapshot_inventory(
     root: &Path,
@@ -947,20 +970,24 @@ fn validate_counts(m: &FrozenManifest, p: &Parsed) -> Result<(), DevMapError> {
     }
     Ok(())
 }
-fn parse(root: &Path, m: &FrozenManifest) -> Result<Parsed, DevMapError> {
+fn parse(m: &FrozenManifest, captured: &CapturedFiles) -> Result<Parsed, DevMapError> {
     let common = m
         .origins
         .iter()
         .position(|o| o.git_dir == m.common_dir)
         .ok_or_else(|| fail("common origin missing"))?;
-    let route = root.join(common.to_string()).join("route-plans.jsonl");
-    let routes = if route.exists() {
-        route_plan::legacy_snapshot_at(&route, &m.repository_id)?
-    } else {
-        Vec::new()
+    let bytes = |origin: usize, relative: &str| {
+        captured
+            .get(&(origin, relative.to_owned()))
+            .map(Vec::as_slice)
     };
-    let bindings = journal::legacy_binding_snapshot_at(
-        &root.join(common.to_string()).join("task-bindings.jsonl"),
+    let routes = route_plan::parse_frozen_routes(
+        bytes(common, "route-plans.jsonl").unwrap_or_default(),
+        &m.repository_id,
+    )?;
+    let bindings = journal::parse_frozen_bindings(
+        bytes(common, "task-bindings.jsonl").unwrap_or_default(),
+        bytes(common, "task-binding-watermarks.json"),
         &m.repository_id,
     )?;
     let mut sessions: BTreeMap<(usize, String), BTreeMap<String, Vec<u8>>> = BTreeMap::new();
@@ -971,12 +998,14 @@ fn parse(root: &Path, m: &FrozenManifest) -> Result<Parsed, DevMapError> {
     }
     let mut presence = Vec::new();
     for f in &m.files {
+        let captured_bytes =
+            bytes(f.origin, &f.relative).ok_or_else(|| fail("verified frozen bytes missing"))?;
         let parts: Vec<_> = f.relative.split('/').collect();
         if let ["sessions", id, name] = parts.as_slice() {
             sessions
                 .entry((f.origin, (*id).into()))
                 .or_default()
-                .insert((*name).into(), read(&frozen_path(root, f))?);
+                .insert((*name).into(), captured_bytes.to_vec());
         }
         if let ["presence", "v1", name] = parts.as_slice()
             && let Some(id) = name.strip_suffix(".json")
@@ -984,7 +1013,7 @@ fn parse(root: &Path, m: &FrozenManifest) -> Result<Parsed, DevMapError> {
             presence.push(presence::parse_frozen_presence(
                 &m.repository_id,
                 id,
-                &read(&frozen_path(root, f))?,
+                captured_bytes,
             )?);
         }
     }
@@ -1170,6 +1199,29 @@ fn compare_domains(c: &Connection, m: &FrozenManifest, p: &Parsed) -> Result<(),
         return Err(fail("journal session inventory mismatch"));
     }
     for j in &p.journals {
+        let registration: Option<(String,String,String)> = c.query_row(
+            "SELECT worktree_id,incarnation,origin_path FROM journal_sessions WHERE session_id=?1",
+            [&j.session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+        ).optional()?;
+        let expected_registration = if j.journal_present {
+            let origin = m
+                .origins
+                .iter()
+                .find(|o| o.git_dir == j.origin_path)
+                .ok_or_else(|| fail("unknown frozen journal origin"))?;
+            Some((
+                origin.worktree_id.clone(),
+                origin.incarnation.clone(),
+                origin.git_dir.to_string_lossy().into_owned(),
+            ))
+        } else {
+            None
+        };
+        if registration != expected_registration {
+            return Err(fail(
+                "journal session registration differs from frozen origin",
+            ));
+        }
         if journal::sql_records(c, &j.session_id)? != j.records {
             return Err(fail("journal record/hash comparison failed"));
         }
@@ -1321,4 +1373,209 @@ pub(crate) fn dispatch(
         stdout: format!("{}\n", serde_json::to_string_pretty(&result)?),
         exit_code: 0,
     })
+}
+
+#[cfg(test)]
+mod verified_capture_tests {
+    use super::*;
+    use crate::events::{
+        ActorIdentity, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity, SessionContext,
+    };
+
+    fn source() -> (tempfile::TempDir, SourceWorkspace) {
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init"],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "fixture",
+            ],
+        ] {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let w = SourceGitInspector::open(dir.path())
+            .unwrap()
+            .workspace()
+            .unwrap();
+        (dir, w)
+    }
+
+    #[test]
+    fn validated_snapshot_never_reopens_replaced_domain_files() {
+        let (_source, w) = source();
+        let now = OffsetDateTime::parse("2026-09-08T10:00:00Z", &Rfc3339).unwrap();
+        let event = EventEnvelope::new(
+            EVENT_SCHEMA_VERSION,
+            "verified",
+            EventType::CaptureGap,
+            1,
+            "2026-09-08T10:00:00Z",
+            HostIdentity::new("host", "1").unwrap(),
+            ActorIdentity::new("actor", None).unwrap(),
+            SessionContext::new("s", None, "fixture", None, None, None).unwrap(),
+            serde_json::json!({"reason":"verified"}),
+        )
+        .unwrap();
+        let record = journal::JournalStore::open(&w, "s")
+            .unwrap()
+            .append(event)
+            .unwrap();
+        presence::PresenceStore::open(&w)
+            .unwrap()
+            .observe(presence::PresenceSignal::AcceptedRecords(&[record]), now)
+            .unwrap();
+        let worktree = WorktreeScanner::scan(&w).unwrap()[0].worktree_id.clone();
+        route_plan::RoutePlanStore::open(&w)
+            .unwrap()
+            .set(route_plan::PlanInput {
+                delivery: Default::default(),
+                request_id: "request".into(),
+                route_id: None,
+                expected_revision: 0,
+                worktree_id: worktree.clone(),
+                goal: "verified".into(),
+                target_ref: None,
+                milestones: vec![],
+                source: "user".into(),
+                abandoned: false,
+            })
+            .unwrap();
+        journal::observe_task_bindings(
+            &w,
+            &[("host".into(), "task".into(), worktree)],
+            "2026-09-08T10:00:10Z",
+        )
+        .unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let root = destination.path().join("snapshot");
+        freeze(&w, &root, now).unwrap();
+        let captured = load_snapshot(&w, &root).unwrap();
+        let expected = parse(&captured.manifest, &captured.files).unwrap();
+        // Deterministic interleaving: validation has completed, then another writer
+        // replaces every domain with syntactically valid same-record-count data.
+        for file in &captured.manifest.files {
+            if file.outcome != "domain" {
+                continue;
+            }
+            let path = frozen_path(&root, file);
+            let bytes = fs::read(&path).unwrap();
+            let newline = bytes.last() == Some(&b'\n');
+            let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            match file.relative.as_str() {
+                "route-plans.jsonl" => {
+                    value["input"]["goal"] = "tampered".into();
+                    value["plan"]["goal"] = "tampered".into();
+                }
+                "task-bindings.jsonl" => value["observed_at"] = "2026-09-08T10:00:11Z".into(),
+                "task-binding-watermarks.json" => {
+                    value["observations"][0][2] = "2026-09-08T10:00:21Z".into()
+                }
+                name if name.ends_with("events.ndjson") => {
+                    value["event"]["payload"]["reason"] = "tampered".into();
+                    value.as_object_mut().unwrap().remove("sha256");
+                    let hash = sha256_hex(&crate::canonical::canonical_json(&value).unwrap());
+                    value["sha256"] = hash.into();
+                }
+                _ => value["actor_id"] = "other".into(),
+            }
+            let mut changed = crate::canonical::canonical_json(&value).unwrap();
+            if newline {
+                changed.push(b'\n');
+            }
+            fs::write(path, changed).unwrap();
+        }
+        let mut changed_manifest = serde_json::to_value(&captured.manifest).unwrap();
+        changed_manifest["evaluated_at"] = "2026-09-09T10:00:00Z".into();
+        fs::write(
+            root.join("manifest.json"),
+            serde_json::to_vec(&changed_manifest).unwrap(),
+        )
+        .unwrap();
+        let actual = parse(&captured.manifest, &captured.files).unwrap();
+        assert_eq!(
+            serde_json::to_value(&actual.routes).unwrap(),
+            serde_json::to_value(&expected.routes).unwrap()
+        );
+        assert_eq!(actual.bindings.records, expected.bindings.records);
+        assert_eq!(actual.bindings.watermarks, expected.bindings.watermarks);
+        assert_eq!(actual.journals[0].records, expected.journals[0].records);
+        assert_eq!(actual.presence, expected.presence);
+        assert_eq!(captured.manifest.evaluated_at, "2026-09-08T10:00:00Z");
+        let changed_bytes = captured
+            .manifest
+            .files
+            .iter()
+            .map(|f| {
+                (
+                    (f.origin, f.relative.clone()),
+                    fs::read(frozen_path(&root, f)).unwrap(),
+                )
+            })
+            .collect();
+        let changed = parse(&captured.manifest, &changed_bytes).unwrap();
+        assert_eq!(actual.routes.len(), changed.routes.len());
+        assert_ne!(
+            serde_json::to_value(&actual.routes).unwrap(),
+            serde_json::to_value(&changed.routes).unwrap()
+        );
+        assert_ne!(actual.bindings.records, changed.bindings.records);
+        assert_ne!(actual.bindings.watermarks, changed.bindings.watermarks);
+        assert_ne!(actual.journals[0].records, changed.journals[0].records);
+        assert_ne!(actual.presence, changed.presence);
+    }
+
+    #[test]
+    fn captured_missing_watermark_stays_missing_after_later_file_creation() {
+        let (_source, w) = source();
+        let worktree = WorktreeScanner::scan(&w).unwrap()[0].worktree_id.clone();
+        journal::observe_task_bindings(
+            &w,
+            &[("host".into(), "task".into(), worktree)],
+            "2026-09-08T10:00:10Z",
+        )
+        .unwrap();
+        fs::remove_file(w.git_common_dir.join("devmap/task-binding-watermarks.json")).unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let root = destination.path().join("snapshot");
+        freeze(&w, &root, OffsetDateTime::now_utc()).unwrap();
+        let captured = load_snapshot(&w, &root).unwrap();
+        let common = captured
+            .manifest
+            .origins
+            .iter()
+            .position(|o| o.git_dir == captured.manifest.common_dir)
+            .unwrap();
+        let orphan = serde_json::json!({"schema_version":"devmap/task-binding-watermarks/1","repository_id":captured.manifest.repository_id,"observations":[["host","task","2026-09-08T10:00:20Z"]]});
+        fs::write(
+            root.join(common.to_string())
+                .join("task-binding-watermarks.json"),
+            serde_json::to_vec(&orphan).unwrap(),
+        )
+        .unwrap();
+        let parsed = parse(&captured.manifest, &captured.files).unwrap();
+        assert_eq!(
+            parsed.bindings.watermarks[&("host".into(), "task".into())],
+            "2026-09-08T10:00:10Z"
+        );
+        assert!(
+            load_snapshot(&w, &root).is_err(),
+            "a newly inventoried unlisted watermark must still fail closed"
+        );
+    }
 }
