@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod application;
 pub mod canonical;
 pub mod capture;
 pub mod cli;

@@ -1,5 +1,6 @@
 //! Repository-local transactional storage. Creating a store does not activate it.
 pub mod migration;
+pub(crate) mod snapshot;
 use crate::{error::DevMapError, fs_security, git::SourceWorkspace, worktrees};
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::{

@@ -621,6 +621,13 @@ pub fn summarize_existing_sessions(
         }
         Ok(None) => {}
     }
+    summarize_legacy_sessions(workspace, session_ids)
+}
+
+pub(crate) fn summarize_legacy_sessions(
+    workspace: &SourceWorkspace,
+    session_ids: &BTreeSet<String>,
+) -> BTreeMap<String, JournalSummary> {
     let git_dirs = summary_git_directories(workspace);
     session_ids
         .iter()

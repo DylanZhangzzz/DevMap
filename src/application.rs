@@ -1,0 +1,426 @@
+//! Shared repository observations with client-owned presentation state.
+use crate::{
+    dock::{self, DockProjectionContext, DockReadModel, ObservedTask, TaskLifecycle},
+    error::DevMapError,
+    git::SourceWorkspace,
+    store::snapshot::InputReader,
+};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+/// Survives owner replacement in the proxy. Inventory time is never a query time.
+pub struct ClientView {
+    workspace: SourceWorkspace,
+    tasks: Vec<ObservedTask>,
+    observed_at: Option<OffsetDateTime>,
+    complete: bool,
+    revision: u64,
+    observation_revision: u64,
+    content_hash: Option<String>,
+    snapshot: Option<DockReadModel>,
+}
+impl ClientView {
+    pub fn new(workspace: SourceWorkspace) -> Self {
+        Self {
+            workspace,
+            tasks: vec![],
+            observed_at: None,
+            complete: false,
+            revision: 0,
+            observation_revision: 0,
+            content_hash: None,
+            snapshot: None,
+        }
+    }
+    pub fn workspace(&self) -> &SourceWorkspace {
+        &self.workspace
+    }
+    pub fn observed_tasks(&self) -> &[ObservedTask] {
+        &self.tasks
+    }
+    pub fn inventory_observed_at(&self) -> Option<OffsetDateTime> {
+        self.observed_at
+    }
+    pub fn inventory_complete(&self) -> bool {
+        self.complete
+    }
+    pub fn snapshot(&self) -> Option<&DockReadModel> {
+        self.snapshot.as_ref()
+    }
+    pub fn query_input(&self) -> Result<ClientQuery, DevMapError> {
+        Ok(ClientQuery {
+            tasks: self.tasks.clone(),
+            inventory_observed_at: self.observed_at.map(|t| t.format(&Rfc3339)).transpose()?,
+            complete: self.complete,
+            previous_heads: dock::previous_heads(self.snapshot.as_ref()),
+        })
+    }
+    /// Installs the accepted inventory response while keeping local presentation counters.
+    pub fn apply_inventory(&mut self, input: ClientQuery) -> Result<(), DevMapError> {
+        input.validate()?;
+        let observed_at = input
+            .inventory_observed_at
+            .as_deref()
+            .map(|t| {
+                OffsetDateTime::parse(t, &Rfc3339)
+                    .map_err(|_| DevMapError::InvalidDomain("inventory observation time"))
+            })
+            .transpose()?;
+        if self.observed_at > observed_at {
+            return Ok(());
+        }
+        self.tasks = input.tasks;
+        self.observed_at = observed_at;
+        self.complete = input.complete;
+        Ok(())
+    }
+    /// Called in the surviving proxy, never in the repository owner after IPC.
+    pub fn apply_projection(
+        &mut self,
+        mut result: ApplicationSnapshot,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
+        if result.model.repository_id != crate::worktrees::repository_id(&self.workspace) {
+            return Err(DevMapError::InvalidDomain("projection repository mismatch"));
+        }
+        if !result.model.lanes.iter().any(|lane| {
+            lane.is_current
+                && result.model.current_worktree_id == lane.worktree_id
+                && dock::same_workspace_path(&lane.workspace_path, &self.workspace.root)
+        }) {
+            return Err(DevMapError::InvalidDomain("projection workspace mismatch"));
+        }
+        result.model = dock::finalize_revisions(
+            result.model,
+            &mut self.revision,
+            &mut self.observation_revision,
+            &mut self.content_hash,
+        )?;
+        self.snapshot = Some(result.model.clone());
+        Ok(result)
+    }
+}
+
+/// Bounded transport input. Source workspace comes separately from authenticated Hello.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientQuery {
+    pub tasks: Vec<ObservedTask>,
+    pub inventory_observed_at: Option<String>,
+    pub complete: bool,
+    pub previous_heads: Vec<dock::PreviousHead>,
+}
+impl ClientQuery {
+    fn validate(&self) -> Result<(), DevMapError> {
+        if self.tasks.len() > 2048
+            || self.previous_heads.len() > 256
+            || serde_json::to_vec(self)?.len() > 2 * 1024 * 1024
+        {
+            return Err(DevMapError::InvalidDomain("query input limit"));
+        }
+        if self
+            .inventory_observed_at
+            .as_ref()
+            .is_some_and(|t| timestamp(t).is_none())
+        {
+            return Err(DevMapError::InvalidDomain("inventory observation time"));
+        }
+        let mut tasks = std::collections::BTreeSet::new();
+        for task in &self.tasks {
+            if task.session_id.is_empty()
+                || task.session_id.len() > 256
+                || !tasks.insert(&task.session_id)
+            {
+                return Err(DevMapError::InvalidDomain("codex_tasks.id"));
+            }
+            if let Some(report) = &task.working_directory
+                && (report.source != "agent_report"
+                    || timestamp(&report.observed_at).is_none()
+                    || !std::path::Path::new(&report.path).is_absolute())
+            {
+                return Err(DevMapError::InvalidDomain("codex_tasks.workingDirectory"));
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for h in &self.previous_heads {
+            if !seen.insert(&h.worktree_id)
+                || h.worktree_id.len() > 256
+                || h.worktree_id.is_empty()
+                || h.worktree_id.chars().any(char::is_control)
+                || !(h.head.is_empty()
+                    || (matches!(h.head.len(), 40 | 64)
+                        && h.head.bytes().all(|b| b.is_ascii_hexdigit())))
+            {
+                return Err(DevMapError::InvalidDomain("previous workspace head"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApplicationSnapshot {
+    pub model: DockReadModel,
+    pub store_generation: Option<u64>,
+    pub store_inputs_observed_at: Option<String>,
+    pub git_observed_at: String,
+    pub git_cycle: u64,
+}
+
+pub struct RepositoryApplication {
+    workspace: SourceWorkspace,
+    common_dir: PathBuf,
+    storage: InputReader,
+    git: Option<DockProjectionContext>,
+    git_at: Option<OffsetDateTime>,
+    collected: Option<Instant>,
+    git_max_age: Duration,
+    cycle: u64,
+    dirty: bool,
+    targets: Vec<String>,
+    ancestry: BTreeMap<(String, String), Option<dock::HistoryWarning>>,
+}
+impl RepositoryApplication {
+    pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
+        Ok(Self {
+            workspace: workspace.clone(),
+            common_dir: crate::fs_security::checked_canonical_directory(&workspace.git_common_dir)?,
+            storage: InputReader::new(),
+            git: None,
+            git_at: None,
+            collected: None,
+            git_max_age: Duration::from_secs(2),
+            cycle: 0,
+            dirty: true,
+            targets: vec![],
+            ancestry: BTreeMap::new(),
+        })
+    }
+    /// Explicit freshness bound; default two seconds, never above one minute.
+    pub fn with_git_max_age(mut self, age: Duration) -> Result<Self, DevMapError> {
+        if age.is_zero() || age > Duration::from_secs(60) {
+            return Err(DevMapError::InvalidDomain("Git freshness bound"));
+        }
+        self.git_max_age = age;
+        Ok(self)
+    }
+    pub fn change_hint(&mut self) {
+        self.dirty = true;
+    }
+    /// Forces the next query to revalidate storage and reconcile Git. No threads.
+    pub fn reconcile(&mut self) {
+        self.dirty = true;
+        self.storage.invalidate();
+        self.ancestry.clear();
+    }
+    fn validate_client(&self, view: &ClientView) -> Result<(), DevMapError> {
+        if crate::fs_security::checked_canonical_directory(&view.workspace.git_common_dir)?
+            != self.common_dir
+        {
+            return Err(DevMapError::InvalidDomain("client repository mismatch"));
+        }
+        let actual =
+            crate::git::SourceGitInspector::open(&view.workspace.root)?.workspace_allow_unborn()?;
+        if crate::fs_security::checked_canonical_directory(&actual.git_common_dir)?
+            != self.common_dir
+            || crate::fs_security::checked_canonical_directory(&actual.git_dir)?
+                != crate::fs_security::checked_canonical_directory(&view.workspace.git_dir)?
+        {
+            return Err(DevMapError::InvalidDomain(
+                "client workspace identity mismatch",
+            ));
+        }
+        Ok(())
+    }
+    pub fn query(
+        &mut self,
+        view: &mut ClientView,
+        now: OffsetDateTime,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
+        let result = self.project(&view.workspace, &view.query_input()?, now)?;
+        view.apply_projection(result)
+    }
+    pub fn project(
+        &mut self,
+        workspace: &SourceWorkspace,
+        query: &ClientQuery,
+        now: OffsetDateTime,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
+        query.validate()?;
+        self.validate_client(&ClientView::new(workspace.clone()))?;
+        let (generation, inputs) = self.storage.read(&self.workspace)?;
+        let plans = inputs
+            .routes
+            .as_ref()
+            .map(|(plans, _)| plans.as_slice())
+            .unwrap_or(&[]);
+        let mut targets = plans
+            .iter()
+            .filter_map(|p| p.target_ref.clone())
+            .collect::<Vec<_>>();
+        targets.sort();
+        targets.dedup();
+        if self.dirty
+            || self
+                .collected
+                .is_none_or(|t| t.elapsed() >= self.git_max_age)
+            || targets != self.targets
+        {
+            let git = match DockProjectionContext::collect(&self.workspace, plans) {
+                Err(DevMapError::InvalidDomain("Git changed during collection")) => {
+                    DockProjectionContext::collect(&self.workspace, plans)?
+                }
+                result => result?,
+            };
+            self.ancestry.clear();
+            self.git = Some(git);
+            self.git_at = Some(OffsetDateTime::now_utc());
+            self.collected = Some(Instant::now());
+            self.cycle += 1;
+            self.targets = targets;
+            self.dirty = false;
+        }
+        let mut next = self.git.as_ref().unwrap().project_for(
+            workspace,
+            inputs,
+            now,
+            &query.tasks,
+            query.inventory_observed_at.clone(),
+            query.complete,
+        )?;
+        dock::apply_history(&mut next, &query.previous_heads, |old, next| {
+            let key = (old.to_owned(), next.to_owned());
+            if let Some(cached) = self.ancestry.get(&key) {
+                return Ok(*cached);
+            }
+            let result = dock::ancestry(workspace, old, next)?;
+            if self.ancestry.len() >= 1024 {
+                self.ancestry.clear();
+            }
+            self.ancestry.insert(key, result);
+            Ok(result)
+        })?;
+        Ok(ApplicationSnapshot {
+            model: next,
+            store_generation: generation,
+            store_inputs_observed_at: self
+                .storage
+                .inputs_observed_at()
+                .map(|t| t.format(&Rfc3339))
+                .transpose()?,
+            git_observed_at: self.git_at.unwrap().format(&Rfc3339)?,
+            git_cycle: self.cycle,
+        })
+    }
+
+    /// IPC write seam: accepts bounded prior inventory only, never a hydrated map.
+    pub fn accept_inventory_query(
+        &mut self,
+        workspace: &SourceWorkspace,
+        prior: ClientQuery,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+    ) -> Result<ClientQuery, DevMapError> {
+        let mut view = ClientView::new(workspace.clone());
+        view.apply_inventory(prior)?;
+        self.accept_inventory(&mut view, tasks, complete, observed_at)?;
+        view.query_input()
+    }
+    /// Only this explicit acceptance operation writes binding observations. Older
+    /// inventories cannot roll the client watermark back; partial reports merge.
+    pub fn accept_inventory(
+        &mut self,
+        view: &mut ClientView,
+        mut tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+    ) -> Result<(), DevMapError> {
+        self.validate_client(view)?;
+        ClientQuery {
+            tasks: tasks.clone(),
+            inventory_observed_at: Some(observed_at.format(&Rfc3339)?),
+            complete,
+            previous_heads: vec![],
+        }
+        .validate()?;
+        tasks.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        if tasks.windows(2).any(|p| p[0].session_id == p[1].session_id) {
+            return Err(DevMapError::InvalidDomain("codex_tasks.id"));
+        }
+        let worktrees = crate::worktrees::WorktreeScanner::scan(&view.workspace)?;
+        for task in &tasks {
+            if let Some(report) = &task.working_directory {
+                let stamp = OffsetDateTime::parse(&report.observed_at, &Rfc3339).map_err(|_| {
+                    DevMapError::InvalidDomain("codex_tasks.workingDirectory.observedAt")
+                })?;
+                if report.source != "agent_report"
+                    || stamp > observed_at + time::Duration::seconds(30)
+                    || !std::path::Path::new(&report.path).is_absolute()
+                    || !worktrees
+                        .iter()
+                        .any(|w| dock::same_workspace_path(&report.path, &w.root))
+                {
+                    return Err(DevMapError::InvalidDomain("codex_tasks.workingDirectory"));
+                }
+            }
+        }
+        if view.observed_at.is_some_and(|t| observed_at < t) {
+            return Ok(());
+        }
+        for task in &mut tasks {
+            if let Some(old) = view
+                .tasks
+                .iter()
+                .find(|old| old.session_id == task.session_id)
+            {
+                let incoming_report = task.working_directory.clone();
+                if timestamp(&task.updated_at) < timestamp(&old.updated_at) {
+                    *task = old.clone();
+                    task.working_directory = incoming_report;
+                }
+                if let Some(report) = &old.working_directory
+                    && task.working_directory.as_ref().is_none_or(|new| {
+                        timestamp(&new.observed_at) < timestamp(&report.observed_at)
+                    })
+                {
+                    task.working_directory = Some(report.clone());
+                }
+            }
+        }
+        let associations = tasks
+            .iter()
+            .filter(|t| t.lifecycle == TaskLifecycle::Present)
+            .filter_map(|t| {
+                worktrees
+                    .iter()
+                    .find(|w| dock::same_workspace_path(&t.workspace_path, &w.root))
+                    .map(|w| (t.host.clone(), t.session_id.clone(), w.worktree_id.clone()))
+            })
+            .collect::<Vec<_>>();
+        crate::journal::observe_task_bindings(
+            &view.workspace,
+            &associations,
+            &observed_at.format(&Rfc3339)?,
+        )?;
+        if !complete {
+            for old in &view.tasks {
+                if !tasks.iter().any(|t| t.session_id == old.session_id) {
+                    tasks.push(old.clone());
+                }
+            }
+        }
+        tasks.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        view.tasks = tasks;
+        view.complete = complete;
+        view.observed_at = Some(observed_at);
+        // Generation invalidates domain cache automatically; no Git re-scan needed.
+        Ok(())
+    }
+}
+fn timestamp(text: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(text, &Rfc3339).ok()
+}

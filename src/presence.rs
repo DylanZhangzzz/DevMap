@@ -156,6 +156,12 @@ impl PresenceStore {
         if crate::store::active_existing(workspace)?.is_some() {
             return Self::from_root(workspace, workspace.git_common_dir.clone()).map(Some);
         }
+        Self::open_existing_legacy(workspace)
+    }
+
+    pub(crate) fn open_existing_legacy(
+        workspace: &SourceWorkspace,
+    ) -> Result<Option<Self>, DevMapError> {
         let root = workspace.git_common_dir.join("devmap/presence/v1");
         match checked_metadata(&root)? {
             None => Ok(None),
@@ -251,6 +257,10 @@ impl PresenceStore {
             }
             Ok(None) => {}
         }
+        self.load_all_legacy()
+    }
+
+    pub(crate) fn load_all_legacy(&self) -> PresenceLoadReport {
         let mut report = PresenceLoadReport {
             records: Vec::new(),
             warnings: Vec::new(),
@@ -844,50 +854,53 @@ impl PresenceStore {
             .transpose()
     }
     fn load_all_sql(&self, c: &rusqlite::Connection) -> PresenceLoadReport {
-        let mut report = PresenceLoadReport {
-            records: vec![],
-            warnings: vec![],
-            truncated: false,
-        };
-        let result = (|| -> Result<(), DevMapError> {
-            let mut stmt = c.prepare(
+        load_all_sql(c, &self.repository_id)
+    }
+}
+
+pub(crate) fn load_all_sql(c: &rusqlite::Connection, repository_id: &str) -> PresenceLoadReport {
+    let mut report = PresenceLoadReport {
+        records: vec![],
+        warnings: vec![],
+        truncated: false,
+    };
+    let result = (|| -> Result<(), DevMapError> {
+        let mut stmt = c.prepare(
                 "SELECT session_id,CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END FROM presence_records ORDER BY session_id LIMIT ?1",
             )?;
-            let mut rows = stmt.query(rusqlite::params![
-                (MAX_PRESENCE_RECORDS + 1) as i64,
-                MAX_PRESENCE_BYTES as i64
-            ])?;
-            let mut count = 0;
-            while let Some(row) = rows.next()? {
-                if count == MAX_PRESENCE_RECORDS {
-                    report.truncated = true;
-                    break;
-                }
-                count += 1;
-                let id: String = row.get(0)?;
-                let json: Option<String> = row.get(1)?;
-                match json
-                    .ok_or_else(|| invalid("presence exceeds byte limit"))
-                    .and_then(|json| {
-                        parse_frozen_presence(&self.repository_id, &id, json.as_bytes())
-                    }) {
-                    Ok(r) => report.records.push(r),
-                    Err(_) => report.warnings.push(PresenceWarning {
-                        code: "presence_record_invalid",
-                        subject_id: Some(id),
-                    }),
-                }
+        let mut rows = stmt.query(rusqlite::params![
+            (MAX_PRESENCE_RECORDS + 1) as i64,
+            MAX_PRESENCE_BYTES as i64
+        ])?;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            if count == MAX_PRESENCE_RECORDS {
+                report.truncated = true;
+                break;
             }
-            Ok(())
-        })();
-        if result.is_err() {
-            report.warnings.push(PresenceWarning {
-                code: "presence_unreadable",
-                subject_id: None,
-            });
+            count += 1;
+            let id: String = row.get(0)?;
+            let json: Option<String> = row.get(1)?;
+            match json
+                .ok_or_else(|| invalid("presence exceeds byte limit"))
+                .and_then(|json| parse_frozen_presence(repository_id, &id, json.as_bytes()))
+            {
+                Ok(r) => report.records.push(r),
+                Err(_) => report.warnings.push(PresenceWarning {
+                    code: "presence_record_invalid",
+                    subject_id: Some(id),
+                }),
+            }
         }
-        report
+        Ok(())
+    })();
+    if result.is_err() {
+        report.warnings.push(PresenceWarning {
+            code: "presence_unreadable",
+            subject_id: None,
+        });
     }
+    report
 }
 
 /// Parses saved canonical bytes using the original repository identity and filename session.

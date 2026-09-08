@@ -747,7 +747,7 @@ impl DockReadModel {
     }
 }
 
-type DockRoutePlans = (
+pub(crate) type DockRoutePlans = (
     Vec<crate::route_plan::RoutePlan>,
     BTreeMap<String, (String, String)>,
 );
@@ -758,6 +758,25 @@ pub(crate) struct DockStorageInputs {
     pub journals: BTreeMap<String, JournalSummary>,
     pub routes: Result<DockRoutePlans, DevMapError>,
     pub bindings: Result<Vec<crate::journal::TaskBindingObservation>, DevMapError>,
+}
+
+impl Clone for DockStorageInputs {
+    fn clone(&self) -> Self {
+        Self {
+            presence: self.presence.clone(),
+            journals: self.journals.clone(),
+            routes: self
+                .routes
+                .as_ref()
+                .cloned()
+                .map_err(|e| DevMapError::Store(e.to_string())),
+            bindings: self
+                .bindings
+                .as_ref()
+                .cloned()
+                .map_err(|e| DevMapError::Store(e.to_string())),
+        }
+    }
 }
 
 /// Git observations collected once before a migration write transaction.
@@ -774,6 +793,7 @@ impl DockProjectionContext {
         plans: &[crate::route_plan::RoutePlan],
     ) -> Result<Self, DevMapError> {
         let worktrees = WorktreeScanner::scan(workspace)?;
+        let before = topology_cache_key(workspace, &worktrees)?;
         let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
         let relationships = GitRelationshipResolver::resolve(workspace, &worktrees)?;
         let mut targets = BTreeMap::new();
@@ -788,6 +808,12 @@ impl DockProjectionContext {
                     .success();
                 targets.insert(target.clone(), exists);
             }
+        }
+        let after_worktrees = WorktreeScanner::scan(workspace)?;
+        if worktrees != after_worktrees
+            || before != topology_cache_key(workspace, &after_worktrees)?
+        {
+            return Err(DevMapError::InvalidDomain("Git changed during collection"));
         }
         Ok(Self {
             workspace: workspace.clone(),
@@ -808,9 +834,32 @@ impl DockProjectionContext {
         inventory_observed_at: Option<String>,
         complete: bool,
     ) -> Result<DockReadModel, DevMapError> {
-        let mut next = DockReducer::new(NoRoutes).reduce_with_inputs(
+        self.project_for(
             &self.workspace,
-            self.worktrees.clone(),
+            inputs,
+            now,
+            tasks,
+            inventory_observed_at,
+            complete,
+        )
+    }
+
+    pub(crate) fn project_for(
+        &self,
+        workspace: &SourceWorkspace,
+        inputs: DockStorageInputs,
+        now: OffsetDateTime,
+        tasks: &[ObservedTask],
+        inventory_observed_at: Option<String>,
+        complete: bool,
+    ) -> Result<DockReadModel, DevMapError> {
+        let mut worktrees = self.worktrees.clone();
+        for wt in &mut worktrees {
+            wt.is_current = same_workspace_path(&workspace.root.to_string_lossy(), &wt.root);
+        }
+        let mut next = DockReducer::new(NoRoutes).reduce_with_inputs(
+            workspace,
+            worktrees,
             inputs.presence,
             inputs.journals,
             now,
@@ -1145,66 +1194,14 @@ impl DockService {
                 .status
                 .success())
         })?;
-        if let Some(previous) = &self.snapshot {
-            for lane in &next.lanes {
-                let Some(old) = previous
-                    .lanes
-                    .iter()
-                    .find(|old| old.worktree_id == lane.worktree_id)
-                else {
-                    continue;
-                };
-                if old.head == lane.head {
-                    next.warnings.extend(
-                        previous
-                            .warnings
-                            .iter()
-                            .filter(|w| {
-                                w.subject_id.as_deref() == Some(lane.worktree_id.as_str())
-                                    && matches!(
-                                        w.code.as_str(),
-                                        "workspace_history_changed"
-                                            | "workspace_history_unverified"
-                                    )
-                            })
-                            .cloned(),
-                    );
-                } else if !old.head.is_empty() && !lane.head.is_empty() {
-                    let status = std::process::Command::new("git")
-                        .arg("-C")
-                        .arg(&self.workspace.root)
-                        .args(["merge-base", "--is-ancestor", &old.head, &lane.head])
-                        .output()?
-                        .status;
-                    if !status.success() {
-                        next.warnings.push(DockWarning {
-                            code: if status.code() == Some(1) {
-                                "workspace_history_changed"
-                            } else {
-                                "workspace_history_unverified"
-                            }
-                            .into(),
-                            subject_id: Some(lane.worktree_id.clone()),
-                        });
-                    }
-                }
-            }
-        }
-        next = bound_model(next)?;
-        let content_hash = next.content_hash()?;
-        if self.content_hash.as_deref() != Some(&content_hash) {
-            self.revision = self
-                .revision
-                .checked_add(1)
-                .ok_or(DevMapError::DockRevisionOverflow)?;
-            self.content_hash = Some(content_hash);
-        }
-        self.observation_revision = self
-            .observation_revision
-            .checked_add(1)
-            .ok_or(DevMapError::DockRevisionOverflow)?;
-        next.revision = self.revision.max(1);
-        next.observation_revision = self.observation_revision;
+        next = finalize_projection(
+            &self.workspace,
+            self.snapshot.as_ref(),
+            next,
+            &mut self.revision,
+            &mut self.observation_revision,
+            &mut self.content_hash,
+        )?;
         self.snapshot = Some(next);
         Ok(self.snapshot())
     }
@@ -1226,6 +1223,132 @@ impl DockService {
     pub fn task_inventory_observed_at(&self) -> Option<&str> {
         self.task_inventory_synced_at.as_deref()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviousHead {
+    pub worktree_id: String,
+    pub head: String,
+    pub warning: Option<HistoryWarning>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryWarning {
+    Changed,
+    Unverified,
+}
+impl HistoryWarning {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Changed => "workspace_history_changed",
+            Self::Unverified => "workspace_history_unverified",
+        }
+    }
+}
+pub(crate) fn previous_heads(model: Option<&DockReadModel>) -> Vec<PreviousHead> {
+    model
+        .map(|m| {
+            m.lanes
+                .iter()
+                .map(|lane| PreviousHead {
+                    worktree_id: lane.worktree_id.clone(),
+                    head: lane.head.clone(),
+                    warning: m.warnings.iter().find_map(|w| {
+                        if w.subject_id.as_deref() != Some(&lane.worktree_id) {
+                            return None;
+                        }
+                        match w.code.as_str() {
+                            "workspace_history_changed" => Some(HistoryWarning::Changed),
+                            "workspace_history_unverified" => Some(HistoryWarning::Unverified),
+                            _ => None,
+                        }
+                    }),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+pub(crate) fn ancestry(
+    workspace: &SourceWorkspace,
+    old: &str,
+    next: &str,
+) -> Result<Option<HistoryWarning>, DevMapError> {
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&workspace.root)
+        .args(["merge-base", "--is-ancestor", old, next])
+        .output()?
+        .status;
+    Ok(if status.success() {
+        None
+    } else if status.code() == Some(1) {
+        Some(HistoryWarning::Changed)
+    } else {
+        Some(HistoryWarning::Unverified)
+    })
+}
+pub(crate) fn apply_history(
+    next: &mut DockReadModel,
+    previous: &[PreviousHead],
+    mut ancestor: impl FnMut(&str, &str) -> Result<Option<HistoryWarning>, DevMapError>,
+) -> Result<(), DevMapError> {
+    for lane in &next.lanes {
+        let Some(old) = previous
+            .iter()
+            .find(|old| old.worktree_id == lane.worktree_id)
+        else {
+            continue;
+        };
+        let warning = if old.head == lane.head {
+            old.warning
+        } else if !old.head.is_empty() && !lane.head.is_empty() {
+            ancestor(&old.head, &lane.head)?
+        } else {
+            None
+        };
+        if let Some(warning) = warning {
+            next.warnings.push(DockWarning {
+                code: warning.code().into(),
+                subject_id: Some(lane.worktree_id.clone()),
+            });
+        }
+    }
+    Ok(())
+}
+pub(crate) fn finalize_projection(
+    workspace: &SourceWorkspace,
+    previous: Option<&DockReadModel>,
+    mut next: DockReadModel,
+    revision: &mut u64,
+    observation_revision: &mut u64,
+    content_hash: &mut Option<String>,
+) -> Result<DockReadModel, DevMapError> {
+    apply_history(&mut next, &previous_heads(previous), |old, next| {
+        ancestry(workspace, old, next)
+    })?;
+    finalize_revisions(next, revision, observation_revision, content_hash)
+}
+pub(crate) fn finalize_revisions(
+    mut next: DockReadModel,
+    revision: &mut u64,
+    observation_revision: &mut u64,
+    content_hash: &mut Option<String>,
+) -> Result<DockReadModel, DevMapError> {
+    next = bound_model(next)?;
+    let next_hash = next.content_hash()?;
+    if content_hash.as_deref() != Some(&next_hash) {
+        *revision = revision
+            .checked_add(1)
+            .ok_or(DevMapError::DockRevisionOverflow)?;
+        *content_hash = Some(next_hash);
+    }
+    *observation_revision = observation_revision
+        .checked_add(1)
+        .ok_or(DevMapError::DockRevisionOverflow)?;
+    next.revision = (*revision).max(1);
+    next.observation_revision = *observation_revision;
+    Ok(next)
 }
 
 fn topology_cache_key(
@@ -1365,7 +1488,7 @@ fn chat_from_observed_task(task: &ObservedTask) -> DockChat {
     }
 }
 
-fn same_workspace_path(observed: &str, workspace: &Path) -> bool {
+pub(crate) fn same_workspace_path(observed: &str, workspace: &Path) -> bool {
     let observed = std::fs::canonicalize(observed).unwrap_or_else(|_| observed.into());
     let workspace = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
     if cfg!(windows) {
