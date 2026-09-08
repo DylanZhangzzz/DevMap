@@ -73,3 +73,13 @@ verification diagnoses drift, and verifies both stores and the frozen snapshot
 remain intact. This fixture is intentionally divergent afterward; generate a
 new fixture for a later migration run. Both tests refuse sources outside this
 checkout's disposable `target/verification` tree and stay ignored by default.
+
+`windows-process-resources.py --pid PID --exe COPIED_CANDIDATE --output REPORT`
+observes a verified candidate executable under this checkout's `target` directory
+for 600 seconds by default. It retains a Windows process handle so PID reuse
+cannot silently change the target. It records CPU as a percentage of one core,
+sampled RSS, lifetime peak RSS, private bytes and whether the owner exited.
+The script never starts or stops a process. `--self-test --seconds 1 --interval 0.2`
+checks the observer itself; this is not candidate resource acceptance. A report
+with an exited owner explicitly distinguishes zero post-exit RSS from the
+resident owner's consumption. Use a new output path under `target/verification`.
