@@ -24,3 +24,12 @@ is **only a frontend gate**. To compare backend output, provide both
 `DEVMAP_BASELINE_SNAPSHOT` and `DEVMAP_CANDIDATE_SNAPSHOT` JSON paths. Migration,
 domain semantics, live host transport and performance require their separate
 acceptance checks; the fixture pass does not establish them.
+
+`DEVMAP_BASELINE_EXE=<verified binary> node tests/browser/create-legacy-fixture.cjs`
+creates a separate repository and linked worktree under `target/verification`.
+It verifies the baseline executable hash and uses real MCP processes to write
+route revisions, bindings and events in the old format. It saves the complete
+request/response exchanges, inventory, snapshot and source locations. The
+script never runs the binary against the working repository. These disposable
+sources are available for the later migration test; generating them alone is
+not a migration pass.
