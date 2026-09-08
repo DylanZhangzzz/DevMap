@@ -79,19 +79,25 @@ passing small migration fixture.
 
 ## Shared-runtime review checkpoint
 
-Application commit `56c927a` is not approved yet. Independent source review found
+Independent review of application commit `56c927a` found
 that partial inventory merges can exceed the accepted query limits after binding
 writes, and that shared relationship observations can incorrectly reuse the
-owner worktree's `devmap.developmentTarget` for another worktree. Both require
-focused regressions and fixes. The separately reviewed `d9c71bb` wire seam was
-approved; this does not approve the unfinished application integration.
+owner worktree's `devmap.developmentTarget` for another worktree. Both were
+reproduced by tests against the old implementation, fixed in `7d10c4a`, and
+independently approved. Application tests passed 9/9, including preservation of
+the IPC caller's previous heads. The separately reviewed `d9c71bb` wire seam was
+also approved; this does not approve the unfinished proxy integration.
 
 Transport review fixes remove detached identity workers and correct the rejected
-Hello test oracle. The current working patch still needs full ancestor permission
-validation and owner-lock retention through reactor teardown. Ten process tests
-passed before the final startup guard; later unit/clippy checks passed, but the
-final combined link failed because C: was full. Do not count that failed run as
-validation of the final patch.
+Hello test oracle. Commit `02ea27d` also adds full ancestor permission validation
+and owner-lock retention through reactor teardown. The unsafe-grandparent case
+was reproduced against the old implementation. Final focused verification passed:
+11 process tests, 7 runtime unit cases (including two helper fixtures), 3 snapshot
+tests, and scoped Clippy with warnings denied. Independent transport re-review
+approved both fixes. Additional affected compatibility suites passed: 3 wire,
+10 Git relationship and 17 migration tests, recorded in
+`target/verification/task5-reviewed-compatibility.log`. A prior combined link
+failed because C: was full; that run is not validation evidence.
 
 Builds stopped when C: had no space. Generated files, fixtures and uncommitted
 changes were preserved. Space later recovered to about 1 GB on C: and 3 GB on D:;
