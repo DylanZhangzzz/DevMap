@@ -19,7 +19,7 @@
 - Legacy remains authoritative until explicit validated activation. Shadow imports operate on immutable copies; no persistent dual writer. Context Git stays legacy-only.
 - Retain current journal retry equivalence (ignores generated sequence and occurred_at); retries return original accepted records. Worktree scope and session identity remain explicit.
 - Every accepted command returns only after commit. Binding history and independent watermarks commit together. New confirmed data forbids rollback to an older legacy snapshot.
-- Read-only user paths must not silently create or repair storage. Query generation and evaluation time are separate.
+- Read-only user paths must not silently create a main database, change schema, or repair domain records. SQLite-managed WAL/SHM locking bookkeeping for an existing database is permitted; a live mutable store must never use immutable mode. Query generation and evaluation time are separate.
 
 ## Task 0: Fix baseline and record gates
 
@@ -27,8 +27,8 @@ Files: runtime-baseline.json; target/verification/baseline-*; this plan and its 
 
 - [x] Create worktree from main and identify installed binary/source by complete embedded assets and matching binary SHA256.
 - [x] Copy only verified assets/dock.html, assets/metro-core.js, src/dock_asset.rs and their two tests from source worktree; leave original untouched.
-- [ ] Inspect clean-main baseline test completion and rerun overlay UI contracts and JS tests; record counts and commands.
-- [ ] Commit isolated baseline/spec overlay; capture resource hashes for later byte equality.
+- [x] Inspect clean-main baseline test completion and rerun overlay UI contracts and JS tests: 286 Rust baseline, 199 JavaScript and 13 overlay UI contracts passed.
+- [x] Commit isolated baseline/spec overlay (520683a); capture resource hashes for later byte equality.
 
 ## Task 1: Transactional repository store
 
