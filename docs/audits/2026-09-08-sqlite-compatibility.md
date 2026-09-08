@@ -104,3 +104,67 @@ changes were preserved. Space later recovered to about 1 GB on C: and 3 GB on D:
 subsequent verification uses a separate D: target with incremental compilation
 and debug symbols disabled. This changes the local verification environment,
 not the durability, compatibility or final performance acceptance criteria.
+
+Commit `5070f14` adds reviewed Query/AcceptInventory transport and a serial
+application executor. Every physical frame remains at most 16 KiB. Complete
+requests and frozen responses have separate aggregate bounds, offsets and
+digests; admission reserves capacity before upload. Running and queued jobs
+retain their reservations after client disconnect, and shutdown holds the owner
+lock until executor completion. The 48 MiB aggregate reservation is a design
+budget, not a measured RSS result.
+
+Final focused verification passed 10 runtime cases (including two helper
+fixtures), 5 query process tests and 11 transport process tests. Clippy initially
+reported a large enum variant; boxing the snapshot resolved it, and Clippy,
+typed duplex and actual process round-trip checks then passed. Evidence is in
+`target/verification/task5-query-*-final.log`, `task5-query-clippy-boxed.log`,
+`task5-query-duplex-boxed.log`, and `task5-query-roundtrip-boxed.log`.
+Independent review approved this bounded slice. Public MCP/viewer routing,
+mutations, reconnection, browser restart and final performance acceptance remain
+separate gates. Blocking application Git/filesystem work still needs finite
+operation limits; a transport deadline alone does not cancel that work.
+
+## Public query integration and immutable domain commands
+
+Commit `4d40a2d` introduces closed prepared mutation commands. Capture identity,
+payload, receipt time and historical Git observation are fixed before dispatch;
+native hook identifiers and batch normalization retain the existing rules.
+Mutation-domain tests passed 7/7, existing capture tests 9/9 and hook tests 13/13.
+Independent review approved this domain seam. These are domain retry tests;
+production mutation IPC and abandoned-response recovery are separate work.
+
+The executable's MCP and live Viewer now explicitly select the shared backend.
+Embedded library constructors explicitly use the same RepositoryApplication
+directly. Shared errors never silently fall back. MCP and Viewer retain one
+ClientView, avoiding repeated inventory acceptance and pairing each SSE body
+with its observation id under the same lock. Explicit supplied inventories
+replace the visible subset, including an empty list; completeness remains a
+coverage statement. Older or invalid input does not erase the retained view.
+
+Focused verification passed 18 MCP compatibility tests, 6 Viewer tests, 11 map
+tests and 5 proxy tests, including failed-refresh cache handling. Root also
+corrected two application compatibility issues: missing registered directories
+cannot establish execution location, and cached public Git facts retain their
+actual observation time. Both had genuine failing regressions. Application
+checks passed 9/10 initially; the remaining target-comparison oracle included
+independent collectors' timestamps. Its corrected semantic comparison passed
+separately, while exact retained Git time remains independently asserted.
+Scoped Clippy and formatting checks passed. Logs are under
+`target/verification/task5-proxy-app-final.log`,
+`task5-target-comparison-time-fix.log`, and `task5-domain-proxy-clippy.log`.
+
+The actual browser restart gate passed with an activated disposable SQLite
+repository and six explicitly present fixture tasks. A persistent MCP process
+and real Chromium HTTP/SSE page survived termination of the owned core and
+authenticated a replacement. Task rows, original inventory time, expansion,
+selection, 140% zoom and scroll were retained. Evidence:
+`target/verification/shared-browser-r62msC/report.json` and
+`task5-browser-restart-sqlite-final.log`. This tests state retention, not pixel
+parity; the earlier frozen pixel gate is separate. Relative age labels advance
+with real time and are not compared as frozen text. The original direct binary
+failed the replacement gate, confirming the test detects missing shared routing.
+
+Independent query proxy review approved this scope. Actual shared mutation
+routing, safe first-write activation, legacy cutover coordination, bounded Git
+operations, final large-repository resource budgets and final real-host checks
+remain open. No installed runtime or live repository data was migrated here.

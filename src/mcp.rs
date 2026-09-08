@@ -1,6 +1,7 @@
 use std::io::{BufRead, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -8,16 +9,15 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
 use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
-use crate::dock::{DockReadModel, DockService, ObservedTask};
+use crate::dock::{DockReadModel, ObservedTask};
 use crate::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 use crate::error::DevMapError;
 use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
 use crate::presence::PresenceStatus;
-use crate::viewer::{
-    ViewerHandle, ViewerRuntime, start_live_viewer, start_live_viewer_with_task_inventory,
-};
+use crate::proxy::{ProxyMode, QueryProxy, SharedQueryProxy};
+use crate::viewer::{ViewerHandle, ViewerRuntime, start_live_viewer_with_proxy};
 
 pub const DOCK_DATA_TOOL: &str = "devmap_dock_snapshot";
 pub const DOCK_RENDER_TOOL: &str = "devmap_open_dock";
@@ -54,7 +54,8 @@ pub struct TransportAudit {
 
 pub struct McpRuntime {
     workspace: SourceWorkspace,
-    dock: Option<DockService>,
+    dock: Option<SharedQueryProxy>,
+    proxy_mode: ProxyMode,
     browser_dock: Option<BrowserDock>,
     audit: TransportAudit,
     legacy_initialized: bool,
@@ -67,13 +68,32 @@ struct BrowserDock {
 
 impl McpRuntime {
     pub fn open(source: &Path) -> Result<Self, DevMapError> {
+        Self::open_with_mode(source, ProxyMode::Direct)
+    }
+
+    pub fn open_shared(source: &Path) -> Result<Self, DevMapError> {
+        Self::open_with_mode(source, ProxyMode::Shared)
+    }
+
+    fn open_with_mode(source: &Path, proxy_mode: ProxyMode) -> Result<Self, DevMapError> {
         Ok(Self {
             workspace: SourceGitInspector::open(source)?.workspace_allow_unborn()?,
             dock: None,
+            proxy_mode,
             browser_dock: None,
             audit: TransportAudit::default(),
             legacy_initialized: false,
         })
+    }
+
+    fn ensure_dock(&mut self) -> Result<SharedQueryProxy, DevMapError> {
+        if self.dock.is_none() {
+            self.dock = Some(Arc::new(Mutex::new(QueryProxy::open(
+                &self.workspace.root,
+                self.proxy_mode,
+            )?)));
+        }
+        Ok(Arc::clone(self.dock.as_ref().expect("proxy initialized")))
     }
 
     pub fn handle(&mut self, message: &Value) -> Option<Value> {
@@ -88,12 +108,27 @@ impl McpRuntime {
 
 pub fn serve_mcp(
     source: &Path,
+    reader: impl BufRead,
+    writer: impl Write,
+) -> Result<(), DevMapError> {
+    serve_runtime(McpRuntime::open(source)?, reader, writer)
+}
+
+pub fn serve_mcp_shared(
+    source: &Path,
+    reader: impl BufRead,
+    writer: impl Write,
+) -> Result<(), DevMapError> {
+    serve_runtime(McpRuntime::open_shared(source)?, reader, writer)
+}
+
+fn serve_runtime(
+    mut runtime: McpRuntime,
     mut reader: impl BufRead,
     mut writer: impl Write,
 ) -> Result<(), DevMapError> {
     // Workspace identity is stable for the lifetime of this stdio process. Resolving it once
     // avoids spawning multiple Git commands for every semantic capture.
-    let mut runtime = McpRuntime::open(source)?;
     loop {
         let response = match read_bounded_line(&mut reader)? {
             None => break,
@@ -713,20 +748,21 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
             Ok(tasks) => tasks,
             Err(error) => return json_rpc_result(id, tool_error(error)),
         };
-        if runtime.dock.is_none() {
-            match DockService::open(&runtime.workspace.root) {
-                Ok(service) => runtime.dock = Some(service),
-                Err(error) => return json_rpc_result(id, tool_error(error)),
-            }
-        }
+        let proxy = match runtime.ensure_dock() {
+            Ok(proxy) => proxy,
+            Err(error) => return json_rpc_result(id, tool_error(error)),
+        };
         if let Some(inventory) = observed_tasks
             && let Err(error) = replace_dock_inventory(runtime, inventory)
         {
             return json_rpc_result(id, tool_error(error));
         }
-        let dock = runtime.dock.as_mut().expect("Dock was initialized above");
-        return match dock.refresh(OffsetDateTime::now_utc()) {
-            Ok(model) => json_rpc_result(id, dock_tool_result(model, name == DOCK_RENDER_TOOL)),
+        let refreshed = proxy
+            .lock()
+            .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))
+            .and_then(|mut dock| dock.refresh(OffsetDateTime::now_utc()).cloned());
+        return match refreshed {
+            Ok(model) => json_rpc_result(id, dock_tool_result(&model, name == DOCK_RENDER_TOOL)),
             Err(error) => json_rpc_result(id, tool_error(error)),
         };
     }
@@ -895,23 +931,17 @@ fn replace_dock_inventory(
     runtime: &mut McpRuntime,
     inventory: ObservedTaskInventory,
 ) -> Result<u64, DevMapError> {
-    let now = OffsetDateTime::now_utc();
-    let dock = runtime.dock.as_mut().expect("Dock was initialized above");
-    let revision = dock
-        .replace_observed_tasks_with_completeness(inventory.tasks.clone(), inventory.complete, now)?
-        .revision;
-    if let Some(browser) = runtime
-        .browser_dock
-        .as_ref()
-        .filter(|dock| dock.runtime.is_running())
-    {
-        browser.runtime.replace_observed_tasks_with_completeness(
+    let proxy = runtime.ensure_dock()?;
+    let mut dock = proxy
+        .lock()
+        .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
+    Ok(dock
+        .accept_inventory(
             inventory.tasks,
             inventory.complete,
-            now,
-        )?;
-    }
-    Ok(revision)
+            OffsetDateTime::now_utc(),
+        )?
+        .revision)
 }
 
 fn start_or_reuse_browser_dock(
@@ -927,10 +957,11 @@ fn start_or_reuse_browser_dock(
             replace_dock_inventory(runtime, inventory)?
         } else {
             runtime
-                .dock
-                .as_ref()
-                .map(|service| service.snapshot().revision)
-                .unwrap_or(1)
+                .ensure_dock()?
+                .lock()
+                .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?
+                .snapshot()
+                .revision
         };
         return Ok((
             runtime
@@ -945,48 +976,25 @@ fn start_or_reuse_browser_dock(
     }
     runtime.browser_dock = None;
 
-    if runtime.dock.is_none() {
-        runtime.dock = Some(DockService::open(&runtime.workspace.root)?);
-    }
-    let dock = runtime
-        .dock
-        .as_mut()
-        .expect("Dock was initialized or returned an error above");
-    let revision = match observed_tasks {
-        Some(inventory) => {
-            dock.replace_observed_tasks_with_completeness(
-                inventory.tasks,
-                inventory.complete,
-                OffsetDateTime::now_utc(),
-            )?
-            .revision
+    let proxy = runtime.ensure_dock()?;
+    let revision = {
+        let mut dock = proxy
+            .lock()
+            .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
+        match observed_tasks {
+            Some(inventory) => {
+                dock.accept_inventory(
+                    inventory.tasks,
+                    inventory.complete,
+                    OffsetDateTime::now_utc(),
+                )?
+                .revision
+            }
+            None => dock.refresh(OffsetDateTime::now_utc())?.revision,
         }
-        None => dock.refresh(OffsetDateTime::now_utc())?.revision,
     };
-    let tasks = dock.observed_tasks().to_vec();
-    let inventory_complete = dock.task_inventory_complete();
-    let inventory_observed_at = dock
-        .task_inventory_observed_at()
-        .map(|value| {
-            OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
-                DevMapError::Viewer(format!(
-                    "invalid retained task observation timestamp: {error}"
-                ))
-            })
-        })
-        .transpose()?;
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-    let (handle, viewer_runtime) = if let Some(observed_at) = inventory_observed_at {
-        start_live_viewer_with_task_inventory(
-            &runtime.workspace.root,
-            bind,
-            tasks,
-            inventory_complete,
-            observed_at,
-        )?
-    } else {
-        start_live_viewer(&runtime.workspace.root, bind)?
-    };
+    let (handle, viewer_runtime) = start_live_viewer_with_proxy(proxy, bind)?;
     let url = handle.url();
     runtime.browser_dock = Some(BrowserDock {
         handle,

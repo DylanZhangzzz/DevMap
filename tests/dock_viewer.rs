@@ -59,12 +59,10 @@ fn viewer_applies_renamed_and_cleared_task_inventory() {
     let original: Value =
         serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
     let original_revision = original["revision"].as_u64().unwrap();
+    let renamed_at = OffsetDateTime::now_utc();
 
     runtime
-        .replace_observed_tasks(
-            vec![observed_task(repo.path(), "New title")],
-            OffsetDateTime::parse("2026-09-03T10:02:00Z", &Rfc3339).unwrap(),
-        )
+        .replace_observed_tasks(vec![observed_task(repo.path(), "New title")], renamed_at)
         .unwrap();
     let renamed: Value =
         serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
@@ -75,10 +73,7 @@ fn viewer_applies_renamed_and_cleared_task_inventory() {
     );
 
     runtime
-        .replace_observed_tasks(
-            Vec::new(),
-            OffsetDateTime::parse("2026-09-03T10:03:00Z", &Rfc3339).unwrap(),
-        )
+        .replace_observed_tasks(Vec::new(), OffsetDateTime::now_utc())
         .unwrap();
     let cleared: Value =
         serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
@@ -108,11 +103,13 @@ fn sse_delivers_fresh_observation_with_an_unchanged_structural_revision() {
         serde_json::from_str(body(&request(handle.address, "GET", &snapshot_path))).unwrap();
     let structural_revision = first["revision"].as_u64().unwrap();
     let observation_revision = first["observation_revision"].as_u64().unwrap();
+    let next_observed_at = OffsetDateTime::now_utc();
+    let next_observed_text = next_observed_at.format(&Rfc3339).unwrap();
 
     runtime
         .replace_observed_tasks(
             vec![observed_task(repo.path(), "Stable task")],
-            OffsetDateTime::parse("2026-09-03T10:04:00Z", &Rfc3339).unwrap(),
+            next_observed_at,
         )
         .unwrap();
     let events = request(
@@ -131,12 +128,9 @@ fn sse_delivers_fresh_observation_with_an_unchanged_structural_revision() {
 
     assert_eq!(event["revision"], structural_revision);
     assert!(event["observation_revision"].as_u64().unwrap() > observation_revision);
+    assert_eq!(event["task_observation"]["observed_at"], next_observed_text);
     assert_eq!(
-        event["task_observation"]["observed_at"],
-        "2026-09-03T10:04:00Z"
-    );
-    assert_eq!(
-        event["workspace_facts"][0]["task_observed_at"], "2026-09-03T10:04:00Z",
+        event["workspace_facts"][0]["task_observed_at"], next_observed_text,
         "the task-observation source, not a structural change or task activity time, drives inventory freshness"
     );
     assert_eq!(

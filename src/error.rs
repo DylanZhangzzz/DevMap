@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Error)]
 pub enum DevMapError {
+    #[error(transparent)]
+    Runtime(#[from] crate::runtime::RuntimeCallError),
     #[error("repository store: {0}")]
     Store(String),
     #[error("SQLite: {0}")]

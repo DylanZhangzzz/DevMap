@@ -11,9 +11,10 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::CommandOutput;
 use crate::canonical::canonical_json;
-use crate::dock::{DockService, ObservedTask};
+use crate::dock::ObservedTask;
 use crate::dock_asset::dock_html;
 use crate::error::DevMapError;
+use crate::proxy::{QueryProxy, SharedQueryProxy};
 
 const REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -33,25 +34,19 @@ pub struct ViewerRuntime {
 }
 
 struct ViewerState {
-    dock: DockService,
-    last_refresh: Instant,
+    dock: SharedQueryProxy,
 }
 
 impl ViewerState {
-    fn snapshot(&mut self) -> Result<Vec<u8>, DevMapError> {
-        if self.last_refresh.elapsed() >= REFRESH_INTERVAL {
-            self.dock.refresh(OffsetDateTime::now_utc())?;
-            self.last_refresh = Instant::now();
-        }
-        canonical_json(self.dock.snapshot())
-    }
-
-    fn revision(&self) -> u64 {
-        self.dock.snapshot().revision
-    }
-
-    fn observation_revision(&self) -> u64 {
-        self.dock.snapshot().observation_revision
+    fn snapshot(&mut self) -> Result<(Vec<u8>, u64), DevMapError> {
+        let mut dock = self
+            .dock
+            .lock()
+            .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
+        let model = dock.refresh_if_due(REFRESH_INTERVAL)?;
+        // Serialize the body and its SSE id from the same projection while the
+        // shared lock excludes an intervening MCP refresh.
+        Ok((canonical_json(model)?, model.observation_revision))
     }
 }
 
@@ -78,15 +73,15 @@ impl ViewerRuntime {
         complete: bool,
         now: OffsetDateTime,
     ) -> Result<u64, DevMapError> {
-        let mut state = self
+        let state = self
             .state
             .lock()
             .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
-        state
+        let mut dock = state
             .dock
-            .replace_observed_tasks_with_completeness(tasks, complete, now)?;
-        state.last_refresh = Instant::now();
-        Ok(state.revision())
+            .lock()
+            .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
+        Ok(dock.accept_inventory(tasks, complete, now)?.revision)
     }
 
     fn wait(mut self) -> Result<(), DevMapError> {
@@ -150,18 +145,14 @@ pub fn start_live_viewer_with_tasks(
     )
 }
 
-pub(crate) fn start_live_viewer_with_task_inventory(
+pub fn start_live_viewer_shared(
     source: &Path,
     bind: SocketAddr,
-    observed_tasks: Vec<ObservedTask>,
-    inventory_complete: bool,
-    inventory_observed_at: OffsetDateTime,
 ) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
-    start_live_viewer_runtime(
-        source,
-        bind,
-        Some((observed_tasks, inventory_complete, inventory_observed_at)),
-    )
+    if !bind.ip().is_loopback() {
+        return Err(DevMapError::NonLoopbackViewerBind(bind));
+    }
+    start_live_viewer_with_proxy(Arc::new(Mutex::new(QueryProxy::open_shared(source)?)), bind)
 }
 
 fn start_live_viewer_runtime(
@@ -172,14 +163,19 @@ fn start_live_viewer_runtime(
     if !bind.ip().is_loopback() {
         return Err(DevMapError::NonLoopbackViewerBind(bind));
     }
-    let mut dock = DockService::open(source)?;
+    let mut dock = QueryProxy::open_direct(source)?;
     if let Some((observed_tasks, inventory_complete, observed_at)) = observed_inventory {
-        dock.replace_observed_tasks_preserving_timestamp(
-            observed_tasks,
-            inventory_complete,
-            observed_at,
-            OffsetDateTime::now_utc(),
-        )?;
+        dock.accept_inventory(observed_tasks, inventory_complete, observed_at)?;
+    }
+    start_live_viewer_with_proxy(Arc::new(Mutex::new(dock)), bind)
+}
+
+pub fn start_live_viewer_with_proxy(
+    dock: SharedQueryProxy,
+    bind: SocketAddr,
+) -> Result<(ViewerHandle, ViewerRuntime), DevMapError> {
+    if !bind.ip().is_loopback() {
+        return Err(DevMapError::NonLoopbackViewerBind(bind));
     }
     let server =
         Arc::new(Server::http(bind).map_err(|error| DevMapError::Viewer(error.to_string()))?);
@@ -194,10 +190,7 @@ fn start_live_viewer_runtime(
     let running = Arc::new(AtomicBool::new(true));
     let worker_running = Arc::clone(&running);
     let worker_token = token.clone();
-    let state = Arc::new(Mutex::new(ViewerState {
-        dock,
-        last_refresh: Instant::now(),
-    }));
+    let state = Arc::new(Mutex::new(ViewerState { dock }));
     let worker_state = Arc::clone(&state);
     let worker = thread::Builder::new()
         .name("devmap-live-viewer".into())
@@ -223,6 +216,16 @@ fn start_live_viewer_runtime(
 pub fn run_live(source: &Path) -> Result<CommandOutput, DevMapError> {
     let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
     let (handle, runtime) = start_live_viewer(source, bind)?;
+    run_viewer(handle, runtime)
+}
+
+pub fn run_live_shared(source: &Path) -> Result<CommandOutput, DevMapError> {
+    let bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+    let (handle, runtime) = start_live_viewer_shared(source, bind)?;
+    run_viewer(handle, runtime)
+}
+
+fn run_viewer(handle: ViewerHandle, runtime: ViewerRuntime) -> Result<CommandOutput, DevMapError> {
     println!("{}", handle.url());
     runtime.wait()?;
     Ok(CommandOutput {
@@ -311,7 +314,7 @@ fn respond(
                 .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?
                 .snapshot()
             {
-                Ok(body) => body,
+                Ok((body, _)) => body,
                 Err(_) => {
                     return send(
                         request,
@@ -328,7 +331,7 @@ fn respond(
             let mut state = state
                 .lock()
                 .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?;
-            let snapshot = match state.snapshot() {
+            let (snapshot, observation_revision) = match state.snapshot() {
                 Ok(snapshot) => snapshot,
                 Err(_) => {
                     drop(state);
@@ -340,7 +343,6 @@ fn respond(
                     );
                 }
             };
-            let observation_revision = state.observation_revision();
             let body = if after.is_none_or(|value| observation_revision > value) {
                 let json = String::from_utf8(snapshot)
                     .map_err(|_| DevMapError::Viewer("Dock snapshot is not UTF-8".into()))?;

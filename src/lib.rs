@@ -19,6 +19,7 @@ pub mod journal;
 pub mod mcp;
 pub mod mutation;
 pub mod presence;
+pub mod proxy;
 pub mod route_plan;
 pub mod runtime;
 pub mod store;
@@ -55,7 +56,7 @@ where
         Command::Status(args) => commands::status(args),
         Command::Agents(args) => dock::agents(args),
         Command::View(args) => match args.live {
-            true => viewer::run_live(&args.source),
+            true => viewer::run_live_shared(&args.source),
             false => Err(DevMapError::UnsupportedCommand("canonical topology viewer")),
         },
         Command::Adapter { command } => dispatch_adapter(command),
@@ -63,7 +64,7 @@ where
         Command::Mcp(args) => {
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
-            mcp::serve_mcp(&args.source, stdin.lock(), stdout.lock())?;
+            mcp::serve_mcp_shared(&args.source, stdin.lock(), stdout.lock())?;
             Ok(CommandOutput {
                 stdout: String::new(),
                 exit_code: 0,
