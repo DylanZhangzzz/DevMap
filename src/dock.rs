@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -27,7 +27,53 @@ use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 pub const DOCK_SCHEMA_VERSION: &str = "devmap/dock/4";
 pub const MAX_DOCK_MODEL_BYTES: usize = 768 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+// A type alias avoids Serde implicitly borrowing `&str` from an IPC frame.
+// Field-specific decoders below return supported static constants instead.
+type DockContractTag = &'static str;
+
+// Preserve the public static-string model while decoding only supported wire
+// contracts. Never intern or leak arbitrary strings supplied by a peer.
+mod wire_tags {
+    use serde::{Deserialize, Deserializer, de::Error};
+    fn one_of<'de, D: Deserializer<'de>>(
+        d: D,
+        values: &'static [&'static str],
+    ) -> Result<&'static str, D::Error> {
+        let value = String::deserialize(d)?;
+        values
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == value)
+            .ok_or_else(|| D::Error::custom("unsupported dock wire contract tag"))
+    }
+    pub(super) fn schema<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(d, &[super::DOCK_SCHEMA_VERSION])
+    }
+    pub(super) fn facts<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(d, &["devmap/workspace-facts/1"])
+    }
+    pub(super) fn scope<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(d, &["unarchived_chats"])
+    }
+    pub(super) fn context<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(d, &["source_workspace"])
+    }
+    pub(super) fn origin<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(d, &["unknown", "plan_start", "common_ancestor"])
+    }
+    pub(super) fn association<'de, D: Deserializer<'de>>(d: D) -> Result<&'static str, D::Error> {
+        one_of(
+            d,
+            &[
+                "presence_worktree_id",
+                "codex_task_cwd",
+                "agent_reported_working_directory",
+            ],
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskLifecycle {
     Present,
@@ -36,7 +82,7 @@ pub enum TaskLifecycle {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PassengerSummary {
     pub observed_count: usize,
     pub state: String,
@@ -44,7 +90,7 @@ pub struct PassengerSummary {
     pub cleanup_review: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockEntry {
     pub worktree_id: String,
     pub display_path: String,
@@ -65,7 +111,7 @@ pub struct DockEntry {
     pub capture_incomplete: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockSubagent {
     pub id: String,
     pub display_name: String,
@@ -73,7 +119,7 @@ pub struct DockSubagent {
     pub observed_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockChat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_directory: Option<WorkingDirectoryObservation>,
@@ -97,10 +143,11 @@ pub struct DockChat {
     pub blocker_count: u32,
     pub gap_count: u32,
     pub capture_incomplete: bool,
-    pub association_source: &'static str,
+    #[serde(deserialize_with = "wire_tags::association")]
+    pub association_source: DockContractTag,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservedTask {
     pub working_directory: Option<WorkingDirectoryObservation>,
     pub subagents: Option<Vec<DockSubagent>>,
@@ -114,7 +161,7 @@ pub struct ObservedTask {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkingDirectoryObservation {
     pub path: String,
     pub observed_at: String,
@@ -137,7 +184,7 @@ impl ObservedTask {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockLane {
     pub worktree_id: String,
     pub workspace_path: String,
@@ -148,7 +195,7 @@ pub struct DockLane {
     pub chats: Vec<DockChat>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BranchGroup {
     pub target_branch: String,
     pub terminal: bool,
@@ -156,24 +203,26 @@ pub struct BranchGroup {
     pub lanes: Vec<DockLane>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriterEvidence {
     pub task_id: String,
     pub observed_at: String,
     pub source: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceIdentity {
     pub branch_ref: Option<String>,
     pub workspace_path: String,
     pub is_current_workspace: bool,
-    pub current_context_source: &'static str,
+    #[serde(deserialize_with = "wire_tags::context")]
+    pub current_context_source: DockContractTag,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OriginEvidence {
-    pub kind: &'static str,
+    #[serde(deserialize_with = "wire_tags::origin")]
+    pub kind: DockContractTag,
     pub oid: Option<String>,
     pub source: Option<String>,
     /// Event time, never the time an existing workspace was first enumerated.
@@ -193,16 +242,17 @@ impl OriginEvidence {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceOrigin {
     pub recorded_creation: OriginEvidence,
     pub plan_starts: Vec<OriginEvidence>,
     pub common_ancestor: OriginEvidence,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceFacts {
-    pub facts_schema_version: &'static str,
+    #[serde(deserialize_with = "wire_tags::facts")]
+    pub facts_schema_version: DockContractTag,
     pub identity: WorkspaceIdentity,
     pub origin: WorkspaceOrigin,
     pub bindings: Vec<crate::journal::TaskBindingObservation>,
@@ -223,23 +273,25 @@ pub struct WorkspaceFacts {
     pub writer_evidence: Vec<WriterEvidence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskObservation {
-    pub scope: &'static str,
+    #[serde(deserialize_with = "wire_tags::scope")]
+    pub scope: DockContractTag,
     pub observed_at: Option<String>,
     pub complete: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockCounts {
     pub workspaces: usize,
     pub tasks: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockReadModel {
     pub route_plans: Vec<crate::route_plan::RoutePlan>,
-    pub schema_version: &'static str,
+    #[serde(deserialize_with = "wire_tags::schema")]
+    pub schema_version: DockContractTag,
     pub repository_id: String,
     pub revision: u64,
     pub observation_revision: u64,
@@ -261,7 +313,7 @@ pub struct DockReadModel {
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockWarning {
     pub code: String,
     pub subject_id: Option<String>,

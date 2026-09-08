@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::{Command, Output};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::DevMapError;
 use crate::git::SourceWorkspace;
@@ -13,7 +13,7 @@ const MAX_FORK_TAGS: usize = 32;
 const MAX_FORK_TAG_BYTES: usize = 256;
 const MAX_FORK_SUBJECT_BYTES: usize = 512;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetSource {
     Config,
@@ -24,14 +24,14 @@ pub enum TargetSource {
     LocalMaster,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevelopmentTarget {
     pub name: String,
     pub ref_name: String,
     pub source: TargetSource,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntegrationBranch {
     pub name: String,
     pub ref_name: String,
@@ -40,7 +40,7 @@ pub struct IntegrationBranch {
     pub source: TargetSource,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkPoint {
     pub target_branch: String,
     pub commit: String,
@@ -50,7 +50,7 @@ pub struct ForkPoint {
     pub distance_to_target: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitRelationship {
     pub base_target: Option<String>,
     pub merge_target: Option<String>,

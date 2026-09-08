@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::DevMapError;
 use crate::git::SourceWorkspace;
@@ -13,7 +13,7 @@ const MAX_COMMITS: usize = 2_048;
 const MAX_REFS: usize = 256;
 const ENRICHMENT_CHUNK: usize = 128;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyCommit {
     pub oid: String,
     pub parents: Vec<String>,
@@ -21,7 +21,7 @@ pub struct TopologyCommit {
     pub subject: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyRef {
     pub ref_name: String,
     pub display_name: String,
@@ -29,21 +29,21 @@ pub struct TopologyRef {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyEdge {
     pub id: String,
     pub from_oid: String,
     pub to_oid: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyBoundary {
     pub id: String,
     pub oid: String,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyGraph {
     pub commits: Vec<TopologyCommit>,
     pub refs: Vec<TopologyRef>,
