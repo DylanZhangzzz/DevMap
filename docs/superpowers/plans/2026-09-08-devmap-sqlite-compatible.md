@@ -74,11 +74,11 @@ Files: src/store/migration.rs, CLI storage subcommands and dispatcher, tests/sql
 
 Produces explicit migration APIs and CLI surfaced through `devmap storage` (inspect, migrate, verify, backup; final arguments fixed in task before implementation). Migration reads strict frozen legacy snapshots, tracks source hashes/provenance and record counts, writes a shadow store, compares all input contracts, then activates only after evidence validates. Direct JournalStore::replay is forbidden for snapshot import because it mutates files. Runtime auto-setup may create a fresh SQL store for a genuinely empty repository; existing legacy data requires safe startup freeze/backup verification before activation.
 
-- [ ] Tests first: mixed common-dir/per-worktree sessions, newer unchanged binding watermark, original IDs/revisions, repeat import, truncated journal, pending intent/watermark, unsupported objects, source drift, partial import failure.
-- [ ] Import transactionally from validated snapshots; Context objects remain accessible in original legacy source, explicitly recorded legacy-only. Do not delete source files.
-- [ ] Verify old/new reducer inputs and DockReadModel under fixed time; preserve exact schema, sorting and warnings. Build a durable activation record and reject old schema/new data downgrades.
-- [ ] Test backup while WAL active, restore, activation interruption and retry; do not replace open SQLite handles on Windows. Refuse rollback after new writes unless lossless reverse export has been verified.
-- [ ] Run migration + existing read-only and map suites; review then commit. No production repository migration during tests.
+- [x] Tests first: mixed common-dir/per-worktree sessions, newer unchanged binding watermark, original IDs/revisions, repeat import, truncated journal, pending intent/watermark, unsupported objects, source drift, partial import failure.
+- [x] Import transactionally from validated snapshots; Context objects remain accessible in original legacy source, explicitly recorded legacy-only. Do not delete source files.
+- [x] Verify old/new reducer inputs and DockReadModel under fixed time; preserve exact schema, sorting and warnings. Build a durable activation record and reject old schema/new data downgrades.
+- [x] Test backup while WAL active, restore, activation interruption and retry; do not replace open SQLite handles on Windows. Refuse rollback after new writes unless lossless reverse export has been verified.
+- [x] Run migration + existing read-only and map suites; review then commit. No production repository migration during tests.
 
 ## Task 5: Shared runtime and user-invisible startup
 

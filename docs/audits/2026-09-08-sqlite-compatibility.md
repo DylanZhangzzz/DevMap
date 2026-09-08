@@ -25,7 +25,7 @@ The fixture harness refuses a different executable and passes a disposable
 | Repository SQLite store | Transaction, WAL/FULL, identity/schema, integrity, backup and concurrent readers | Task1 independently approved |
 | Route and binding semantics | Original starts, request identity, CAS, binding history and independent watermarks | Task2 independently approved |
 | Journal and presence | Atomic acceptance/projection, retry, gaps, leases, hashes, retirement/registry identity | Task3 independently approved, including retirement fix |
-| Migration | 16 migration tests and 37 related SQL tests; strict frozen sources, activation fence and drift checks | Independent review requires two fixes: per-session original registration verification and parsing the exact hash-verified byte set |
+| Migration | 16 migration tests and 37 related SQL tests; strict frozen sources, activation fence and drift checks | Task4 and both review fixes independently approved (`984f781` + `fab0af3`); 38 focused fix checks passed |
 | Real old-format input | Frozen executable creates routes, bindings and journals across two worktrees | Passed; native process fixture, not an observed Codex host lifecycle |
 | Complete model parity | Original saved native map, frozen legacy projection and SQL projection compared | Passed at one evaluation time with original task inventory metadata; only two process-local refresh counters normalized |
 | Browser parity | 24 comparisons across 1280, 560 and 360 pixel widths, details, zoom/pan and accepted refresh | Passed for migrated snapshot pair; actual shared-owner restart remains pending |
