@@ -37,3 +37,16 @@ CREATE TABLE migration_sources (
  source_path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, record_count INTEGER NOT NULL CHECK(record_count>=0),
  outcome TEXT NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json))
 ) STRICT;
+CREATE TABLE presence_projection (
+ session_id TEXT PRIMARY KEY REFERENCES journal_sessions(session_id),
+ covered_sequence INTEGER NOT NULL CHECK(covered_sequence>=0),
+ covered_sha256 TEXT,
+ baseline_source TEXT NOT NULL CHECK(baseline_source IN ('capture','legacy_import'))
+) STRICT;
+CREATE TABLE journal_heads (
+ session_id TEXT PRIMARY KEY REFERENCES journal_sessions(session_id),
+ record_count INTEGER NOT NULL CHECK(record_count>=0),
+ last_sha256 TEXT,
+ byte_length INTEGER NOT NULL CHECK(byte_length>=0),
+ CHECK((record_count=0 AND last_sha256 IS NULL) OR (record_count>0 AND length(last_sha256)=64))
+) STRICT;

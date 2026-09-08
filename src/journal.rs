@@ -550,6 +550,50 @@ pub fn summarize_existing_sessions(
     workspace: &SourceWorkspace,
     session_ids: &BTreeSet<String>,
 ) -> BTreeMap<String, JournalSummary> {
+    match crate::store::active_existing(workspace) {
+        Ok(Some(store)) => {
+            let result = (|| -> Result<_, DevMapError> {
+                store.connection().execute_batch("BEGIN")?;
+                Ok(session_ids
+                    .iter()
+                    .map(|id| {
+                        let summary =
+                            match sql_session_exists(store.connection(), id).and_then(|exists| {
+                                if exists {
+                                    sql_records(store.connection(), id).map(Some)
+                                } else {
+                                    Ok(None)
+                                }
+                            }) {
+                                Ok(Some(records)) => JournalSummary {
+                                    session_id: id.clone(),
+                                    records: records.len() as u64,
+                                    last_sequence: records.last().map(|r| r.sequence),
+                                    last_sha256: records.last().map(|r| r.sha256.clone()),
+                                    integrity: JournalIntegrity::Verified,
+                                },
+                                Ok(None) => empty_summary(id, JournalIntegrity::Missing),
+                                Err(_) => empty_summary(id, JournalIntegrity::Corrupt),
+                            };
+                        (id.clone(), summary)
+                    })
+                    .collect())
+            })();
+            return result.unwrap_or_else(|_| {
+                session_ids
+                    .iter()
+                    .map(|id| (id.clone(), empty_summary(id, JournalIntegrity::Corrupt)))
+                    .collect()
+            });
+        }
+        Err(_) => {
+            return session_ids
+                .iter()
+                .map(|id| (id.clone(), empty_summary(id, JournalIntegrity::Corrupt)))
+                .collect();
+        }
+        Ok(None) => {}
+    }
     let git_dirs = summary_git_directories(workspace);
     session_ids
         .iter()
@@ -653,6 +697,8 @@ fn summarize_existing_session(git_dirs: &[PathBuf], session_id: &str) -> Journal
 
 #[derive(Debug, Clone)]
 pub struct JournalStore {
+    workspace: SourceWorkspace,
+    project_capture: bool,
     root: PathBuf,
     session_id: String,
     root_identity: FileIdentity,
@@ -692,6 +738,17 @@ impl JournalStore {
             return Err(corruption("session ID must be a non-empty path component"));
         }
 
+        if crate::store::active_existing(workspace)?.is_some() {
+            let identity = checked_directory_identity(&workspace.git_dir)?;
+            return Ok(Self {
+                workspace: workspace.clone(),
+                project_capture: false,
+                root: workspace.git_dir.clone(),
+                session_id: session_id.to_owned(),
+                root_identity: identity.clone(),
+                session_identity: identity,
+            });
+        }
         let session_root =
             ensure_directory_chain(&workspace.git_dir, &["devmap", "sessions", session_id])?;
         let root = session_root
@@ -701,6 +758,8 @@ impl JournalStore {
         let root_identity = checked_directory_identity(&root)?;
         let session_identity = checked_directory_identity(&session_root)?;
         Ok(Self {
+            workspace: workspace.clone(),
+            project_capture: false,
             root,
             session_id: session_id.to_owned(),
             root_identity,
@@ -718,6 +777,78 @@ impl JournalStore {
     }
 
     pub fn append_batch_with<F>(&self, build: F) -> Result<Vec<JournalRecord>, DevMapError>
+    where
+        F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
+    {
+        if self.project_capture {
+            return self.append_capture_batch_with(time::OffsetDateTime::now_utc(), build);
+        }
+        crate::store::domain_write(&self.workspace, |tx| {
+            if let Some(tx) = tx {
+                return self.append_sql(tx, build);
+            }
+            self.append_legacy(build)
+        })
+    }
+
+    /// Opt application capture into journal plus presence acceptance. Direct stores retain journal-only behavior.
+    pub fn with_presence_projection(mut self) -> Self {
+        self.project_capture = true;
+        self
+    }
+
+    /// SQL acceptance is atomic. Legacy acceptance retains its historical best-effort projection.
+    pub fn append_capture_batch_with<F>(
+        &self,
+        now: time::OffsetDateTime,
+        build: F,
+    ) -> Result<Vec<JournalRecord>, DevMapError>
+    where
+        F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
+    {
+        crate::store::domain_write(&self.workspace, |tx| {
+            if let Some(tx) = tx {
+                let before: i64 = tx.query_row(
+                    "SELECT generation FROM store_meta WHERE singleton=1",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let records = self.append_sql(tx, build)?;
+                let (_, changed) = crate::presence::PresenceStore::for_projection(&self.workspace)?
+                    .observe_sql(
+                        tx,
+                        crate::presence::PresenceSignal::AcceptedRecords(&records),
+                        now,
+                    )?;
+                let after: i64 = tx.query_row(
+                    "SELECT generation FROM store_meta WHERE singleton=1",
+                    [],
+                    |r| r.get(0),
+                )?;
+                if changed && before == after {
+                    tx.execute(
+                        "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+                        [],
+                    )?;
+                }
+                return Ok(records);
+            }
+            let records = self.append_legacy(build)?;
+            if let Err(error) =
+                crate::presence::PresenceStore::open(&self.workspace).and_then(|store| {
+                    store.observe_legacy(
+                        crate::presence::PresenceSignal::AcceptedRecords(&records),
+                        now,
+                    )
+                })
+            {
+                eprintln!("devmap: presence update skipped: {error}");
+            }
+            Ok(records)
+        })
+    }
+
+    fn append_legacy<F>(&self, build: F) -> Result<Vec<JournalRecord>, DevMapError>
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
@@ -796,6 +927,21 @@ impl JournalStore {
     }
 
     pub fn replay(&self) -> Result<Vec<JournalRecord>, DevMapError> {
+        if let Some(store) = crate::store::active_existing(&self.workspace)? {
+            store.connection().execute_batch("BEGIN")?;
+            self.validate_sql_origin(store.connection())?;
+            return sql_records(store.connection(), &self.session_id);
+        }
+        crate::store::domain_write(&self.workspace, |tx| {
+            if let Some(tx) = tx {
+                self.validate_sql_origin(tx)?;
+                return sql_records(tx, &self.session_id);
+            }
+            self.replay_legacy()
+        })
+    }
+
+    fn replay_legacy(&self) -> Result<Vec<JournalRecord>, DevMapError> {
         let _lock = self.acquire_append_lock()?;
         self.recover_intent_locked()?;
         let records = self.replay_locked()?;
@@ -826,7 +972,7 @@ impl JournalStore {
         if !existed {
             sync_directory(&self.session_path())?;
         }
-        file.lock_exclusive()?;
+        crate::store::lock_domain_file(&file)?;
         Ok(JournalAppendLock { file })
     }
 
@@ -1472,4 +1618,295 @@ mod binding_snapshot_tests {
         assert!(legacy_binding_snapshot(&w).is_err());
         assert!(p.with_extension("pending").exists());
     }
+}
+
+impl JournalStore {
+    fn sql_origin(&self) -> Result<(String, String, String), DevMapError> {
+        let current = crate::worktrees::WorktreeScanner::scan(&self.workspace)?
+            .into_iter()
+            .find(|r| r.is_current)
+            .ok_or_else(|| corruption("current worktree missing"))?;
+        let incarnation = worktree_incarnation(&self.workspace)?;
+        let origin = crate::fs_security::checked_canonical_directory(&self.workspace.git_dir)?
+            .to_string_lossy()
+            .into_owned();
+        Ok((current.worktree_id, incarnation, origin))
+    }
+    fn validate_sql_origin(&self, c: &rusqlite::Connection) -> Result<(), DevMapError> {
+        use rusqlite::OptionalExtension;
+        let saved: Option<(String, String, String)> = c.query_row(
+            "SELECT worktree_id,incarnation,origin_path FROM journal_sessions WHERE session_id=?1",[&self.session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+        if saved.is_some_and(|saved| self.sql_origin().map_or(true, |origin| saved != origin)) {
+            return Err(corruption(
+                "session origin or worktree incarnation mismatch",
+            ));
+        }
+        Ok(())
+    }
+    fn append_sql<F>(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        build: F,
+    ) -> Result<Vec<JournalRecord>, DevMapError>
+    where
+        F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
+    {
+        self.validate_sql_origin(tx)?;
+        let retired:i64=tx.query_row("SELECT count(*) FROM journal_sessions s JOIN worktree_registry w ON s.worktree_id=w.worktree_id AND s.incarnation=w.incarnation WHERE s.session_id=?1 AND w.retired_at IS NOT NULL",[&self.session_id],|r|r.get(0))?;
+        if retired != 0 {
+            return Err(corruption("retired worktree incarnation cannot append"));
+        }
+        let existing = sql_records(tx, &self.session_id)?;
+        let events = build(existing.len() as u64 + 1)?;
+        if events.is_empty() {
+            return Err(corruption("journal batch must contain at least one event"));
+        }
+        self.validate_event_sessions(&events)?;
+        let matching = events
+            .iter()
+            .map(|event| {
+                existing
+                    .iter()
+                    .find(|r| r.event.event_id() == event.event_id())
+            })
+            .collect::<Vec<_>>();
+        if matching.iter().all(|r| r.is_some()) {
+            let records = matching
+                .into_iter()
+                .map(|r| r.unwrap().clone())
+                .collect::<Vec<_>>();
+            if records
+                .iter()
+                .zip(&events)
+                .all(|(r, e)| equivalent_retry(&r.event, e))
+            {
+                return Ok(records);
+            }
+            return Err(corruption("an event ID was reused for different content"));
+        }
+        if matching.iter().any(|r| r.is_some()) {
+            return Err(corruption(
+                "a retried journal batch is only partially present",
+            ));
+        }
+        if existing.len() + events.len() > MAX_SESSION_RECORDS {
+            return Err(DevMapError::ResourceLimit {
+                resource: "journal session records",
+                limit: MAX_SESSION_RECORDS,
+            });
+        }
+        let old_bytes = encode_records(&existing)?.len();
+        let records = prepare_records(existing, events)?;
+        if old_bytes + encode_records(&records)?.len() > MAX_JOURNAL_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "journal",
+                limit: MAX_JOURNAL_BYTES,
+            });
+        }
+        let (worktree, incarnation, origin) = self.sql_origin()?;
+        tx.execute("INSERT OR IGNORE INTO worktree_registry(worktree_id,incarnation,git_dir,workspace_path) VALUES(?1,?2,?3,?4)",rusqlite::params![worktree,incarnation,origin,self.workspace.root.to_string_lossy()])?;
+        tx.execute("INSERT OR IGNORE INTO journal_sessions(session_id,worktree_id,incarnation,origin_path) VALUES(?1,?2,?3,?4)",rusqlite::params![self.session_id,worktree,incarnation,origin])?;
+        for r in &records {
+            let bytes = canonical_json(r)?;
+            tx.execute("INSERT INTO journal_records(session_id,sequence,event_id,record_json,byte_length) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![self.session_id,r.sequence as i64,r.event.event_id(),String::from_utf8(bytes.clone()).map_err(|_|corruption("invalid utf8"))?,bytes.len() as i64])?;
+        }
+        let last = records.last().expect("non-empty validated batch");
+        tx.execute("INSERT INTO journal_heads(session_id,record_count,last_sha256,byte_length) VALUES(?1,?2,?3,?4) ON CONFLICT(session_id) DO UPDATE SET record_count=excluded.record_count,last_sha256=excluded.last_sha256,byte_length=excluded.byte_length",rusqlite::params![self.session_id,last.sequence as i64,last.sha256,(old_bytes+encode_records(&records)?.len()) as i64])?;
+        tx.execute(
+            "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+            [],
+        )?;
+        Ok(records)
+    }
+}
+
+fn sql_session_exists(c: &rusqlite::Connection, id: &str) -> Result<bool, DevMapError> {
+    use rusqlite::OptionalExtension;
+    struct Registration {
+        worktree: String,
+        incarnation: String,
+        origin: String,
+        git_dir: Option<String>,
+    }
+    let saved = c.query_row(
+        "SELECT s.worktree_id,s.incarnation,s.origin_path,w.git_dir FROM journal_sessions s LEFT JOIN worktree_registry w ON s.worktree_id=w.worktree_id AND s.incarnation=w.incarnation WHERE session_id=?1",
+        [id],
+        |r| Ok(Registration { worktree:r.get(0)?, incarnation:r.get(1)?, origin:r.get(2)?, git_dir:r.get(3)? }),
+    ).optional()?;
+    if let Some(Registration {
+        worktree,
+        incarnation,
+        origin,
+        git_dir,
+    }) = saved
+    {
+        if worktree.is_empty()
+            || incarnation.is_empty()
+            || origin.is_empty()
+            || git_dir.as_deref() != Some(origin.as_str())
+        {
+            return Err(corruption("invalid session registration"));
+        }
+        let repository: String = c.query_row(
+            "SELECT repository_id FROM store_meta WHERE singleton=1",
+            [],
+            |r| r.get(0),
+        )?;
+        let normalized = origin.replace('\\', "/");
+        let normalized = if cfg!(windows) {
+            normalized.to_lowercase()
+        } else {
+            normalized
+        };
+        if worktree
+            != format!(
+                "wt-{}",
+                sha256_hex(format!("{repository}\0{normalized}").as_bytes())
+            )
+        {
+            return Err(corruption("session worktree identity mismatch"));
+        }
+        Ok(true)
+    } else {
+        let n: i64 = c.query_row(
+            "SELECT (SELECT count(*) FROM journal_records WHERE session_id=?1)+(SELECT count(*) FROM journal_heads WHERE session_id=?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        if n != 0 {
+            return Err(corruption("unregistered journal records"));
+        }
+        Ok(false)
+    }
+}
+
+pub(crate) fn sql_records(
+    c: &rusqlite::Connection,
+    id: &str,
+) -> Result<Vec<JournalRecord>, DevMapError> {
+    let registered = sql_session_exists(c, id)?;
+    let mut stmt = c.prepare(
+        "SELECT sequence,event_id,CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END,byte_length FROM journal_records WHERE session_id=?1 ORDER BY sequence")?;
+    let mut rows = stmt.query(rusqlite::params![id, MAX_RECORD_BYTES as i64])?;
+    let mut bytes = Vec::new();
+    let mut count = 0;
+    while let Some(row) = rows.next()? {
+        let sequence: i64 = row.get(0)?;
+        let event_id: String = row.get(1)?;
+        let json: String = row.get(2)?;
+        let size: i64 = row.get(3)?;
+        if json.len() as i64 != size {
+            return Err(corruption("journal byte length mismatch"));
+        }
+        let record = parse_record(json.as_bytes(), count + 1)?;
+        if record.sequence as i64 != sequence
+            || record.event.event_id() != event_id
+            || record.event.context().session_id() != id
+        {
+            return Err(corruption("journal row identity mismatch"));
+        }
+        bytes.extend_from_slice(json.as_bytes());
+        bytes.push(b'\n');
+        count += 1;
+        if bytes.len() > MAX_JOURNAL_BYTES || count > MAX_SESSION_RECORDS {
+            return Err(corruption("journal resource limit exceeded"));
+        }
+    }
+    let records = parse_frozen_journal(id, &bytes)?;
+    if registered {
+        let (saved_count, saved_hash, saved_bytes): (i64, Option<String>, i64) = c.query_row(
+            "SELECT record_count,last_sha256,byte_length FROM journal_heads WHERE session_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        if saved_count != records.len() as i64
+            || saved_hash != records.last().map(|r| r.sha256.clone())
+            || saved_bytes != bytes.len() as i64
+        {
+            return Err(corruption("journal accepted extent mismatch"));
+        }
+    }
+    Ok(records)
+}
+
+/// Strict parser for frozen bytes. Never opens, repairs or locks the source.
+pub fn parse_frozen_journal(
+    session_id: &str,
+    bytes: &[u8],
+) -> Result<Vec<JournalRecord>, DevMapError> {
+    if !is_normal_session_component(session_id) || bytes.len() > MAX_JOURNAL_BYTES {
+        return Err(corruption("invalid frozen journal identity or size"));
+    }
+    let (records, complete) = parse_complete_records(bytes)?;
+    if complete != bytes.len() || records.len() > MAX_SESSION_RECORDS {
+        return Err(corruption("frozen journal incomplete or oversized tail"));
+    }
+    if records
+        .iter()
+        .any(|r| r.event.context().session_id() != session_id)
+    {
+        return Err(corruption("frozen journal session mismatch"));
+    }
+    Ok(records)
+}
+
+/// Physical workspace plus Git administration identity; directory contents/mtime are not identity.
+pub(crate) fn worktree_incarnation(workspace: &SourceWorkspace) -> Result<String, DevMapError> {
+    Ok(format!(
+        "{}|{}",
+        checked_directory_identity(&workspace.git_dir)?.stable_text(),
+        checked_directory_identity(&workspace.root)?.stable_text()
+    ))
+}
+
+/// One inventoried immutable session directory. origin_path is the ORIGINAL Git directory,
+/// not the directory holding its backup. Include every file, including pending artifacts.
+#[derive(Debug, Clone)]
+pub struct FrozenJournalSource {
+    pub session_id: String,
+    pub origin_path: PathBuf,
+    pub files: BTreeMap<String, Vec<u8>>,
+}
+#[derive(Debug, Clone)]
+pub struct FrozenJournalSnapshot {
+    pub session_id: String,
+    pub origin_path: PathBuf,
+    pub journal_present: bool,
+    pub records: Vec<JournalRecord>,
+}
+/// Parses an already frozen inventory with no filesystem access or source repair.
+pub fn parse_frozen_journal_sources(
+    sources: &[FrozenJournalSource],
+) -> Result<Vec<FrozenJournalSnapshot>, DevMapError> {
+    let mut seen = HashSet::new();
+    let mut snapshots = Vec::new();
+    for source in sources {
+        if !seen.insert(source.session_id.clone()) {
+            return Err(corruption("duplicate frozen session origin"));
+        }
+        if !source.origin_path.is_absolute() || !is_normal_session_component(&source.session_id) {
+            return Err(corruption("invalid frozen session source identity"));
+        }
+        for (name, bytes) in &source.files {
+            if !matches!(
+                name.as_str(),
+                "events.ndjson" | "events.index" | "events.lock"
+            ) {
+                return Err(corruption("pending or unsupported frozen journal artifact"));
+            }
+            if bytes.len() > MAX_JOURNAL_BYTES {
+                return Err(corruption("frozen journal artifact exceeds limit"));
+            }
+        }
+        let journal = source.files.get("events.ndjson");
+        let records =
+            parse_frozen_journal(&source.session_id, journal.map_or(&[][..], Vec::as_slice))?;
+        snapshots.push(FrozenJournalSnapshot {
+            session_id: source.session_id.clone(),
+            origin_path: source.origin_path.clone(),
+            journal_present: journal.is_some(),
+            records,
+        });
+    }
+    Ok(snapshots)
 }

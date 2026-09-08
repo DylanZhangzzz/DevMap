@@ -14,7 +14,7 @@ use crate::error::DevMapError;
 use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
 use crate::git::{SourceGitInspector, SourceWorkspace};
 use crate::journal::JournalStore;
-use crate::presence::{PresenceSignal, PresenceStatus, PresenceStore};
+use crate::presence::PresenceStatus;
 use crate::viewer::{
     ViewerHandle, ViewerRuntime, start_live_viewer, start_live_viewer_with_task_inventory,
 };
@@ -1213,7 +1213,7 @@ fn call_tool(
     }
 
     let common = CommonCaptureArgs::parse(arguments, name)?;
-    let journal = JournalStore::open(workspace, &common.session_id)?;
+    let journal = JournalStore::open(workspace, &common.session_id)?.with_presence_projection();
     let kernel = CaptureKernel::new(
         journal,
         host_capabilities(crate::cli::AdapterHost::GenericMcp),
@@ -1265,16 +1265,6 @@ fn call_tool(
         )?,
         _ => unreachable!("tool names were checked before dispatch"),
     };
-    if let Err(error) = PresenceStore::open(workspace).and_then(|store| {
-        store
-            .observe(
-                PresenceSignal::AcceptedRecords(std::slice::from_ref(&record)),
-                OffsetDateTime::now_utc(),
-            )
-            .map(|_| ())
-    }) {
-        eprintln!("devmap: presence update skipped: {error}");
-    }
     Ok(json!({"sha256": record.sha256}))
 }
 

@@ -2,7 +2,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
@@ -134,6 +133,7 @@ pub struct PresenceWarning {
 
 #[derive(Debug, Clone)]
 pub struct PresenceStore {
+    workspace: SourceWorkspace,
     root: PathBuf,
     root_identity: FileIdentity,
     repository_id: String,
@@ -144,12 +144,18 @@ pub struct PresenceStore {
 
 impl PresenceStore {
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
+        if crate::store::active_existing(workspace)?.is_some() {
+            return Self::from_root(workspace, workspace.git_common_dir.clone());
+        }
         let root =
             ensure_directory_chain(&workspace.git_common_dir, &["devmap", "presence", "v1"])?;
         Self::from_root(workspace, root)
     }
 
     pub fn open_existing(workspace: &SourceWorkspace) -> Result<Option<Self>, DevMapError> {
+        if crate::store::active_existing(workspace)?.is_some() {
+            return Self::from_root(workspace, workspace.git_common_dir.clone()).map(Some);
+        }
         let root = workspace.git_common_dir.join("devmap/presence/v1");
         match checked_metadata(&root)? {
             None => Ok(None),
@@ -164,6 +170,7 @@ impl PresenceStore {
             .find(|row| row.is_current)
             .ok_or_else(|| invalid("current worktree is missing from Git inventory"))?;
         Ok(Self {
+            workspace: workspace.clone(),
             root_identity: checked_directory_identity(&root)?,
             root,
             repository_id: repository_id(workspace),
@@ -174,6 +181,26 @@ impl PresenceStore {
     }
 
     pub fn observe(
+        &self,
+        signal: PresenceSignal<'_>,
+        now: OffsetDateTime,
+    ) -> Result<PresenceRecord, DevMapError> {
+        crate::store::domain_write(&self.workspace, |tx| {
+            if let Some(tx) = tx {
+                let (record, changed) = self.observe_sql(tx, signal, now)?;
+                if changed {
+                    tx.execute(
+                        "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+                        [],
+                    )?;
+                }
+                return Ok(record);
+            }
+            self.observe_legacy(signal, now)
+        })
+    }
+
+    pub(crate) fn observe_legacy(
         &self,
         signal: PresenceSignal<'_>,
         now: OffsetDateTime,
@@ -190,7 +217,9 @@ impl PresenceStore {
         check_session_component(session_id)?;
         let _lock = self.acquire_record_lock(session_id)?;
         let record = match signal {
-            PresenceSignal::AcceptedRecords(records) => self.project_records(records, now)?,
+            PresenceSignal::AcceptedRecords(records) => {
+                self.project_records(records, now, self.load_one(session_id)?)?
+            }
             PresenceSignal::ExplicitWaiting {
                 session_id,
                 activity_id,
@@ -199,13 +228,7 @@ impl PresenceStore {
                 let mut record = self
                     .load_one(session_id)?
                     .ok_or_else(|| DevMapError::MissingPresence(session_id.to_owned()))?;
-                record.status = PresenceStatus::Waiting;
-                record.status_source = StatusSource::HostExplicit;
-                record.confidence = Confidence::Observed;
-                record.last_event_at = format_time(now)?;
-                record.lease_expires_at =
-                    Some(format_time(now + Duration::seconds(DEFAULT_LEASE_SECONDS))?);
-                record.current_activity_id = activity_id.map(str::to_owned);
+                set_explicit_waiting(&mut record, activity_id, now)?;
                 record
             }
         };
@@ -214,6 +237,20 @@ impl PresenceStore {
     }
 
     pub fn load_all(&self) -> PresenceLoadReport {
+        match crate::store::active_existing(&self.workspace) {
+            Ok(Some(store)) => return self.load_all_sql(store.connection()),
+            Err(_) => {
+                return PresenceLoadReport {
+                    records: vec![],
+                    warnings: vec![PresenceWarning {
+                        code: "presence_unreadable",
+                        subject_id: None,
+                    }],
+                    truncated: false,
+                };
+            }
+            Ok(None) => {}
+        }
         let mut report = PresenceLoadReport {
             records: Vec::new(),
             warnings: Vec::new(),
@@ -285,6 +322,7 @@ impl PresenceStore {
         &self,
         records: &[JournalRecord],
         now: OffsetDateTime,
+        previous: Option<PresenceRecord>,
     ) -> Result<PresenceRecord, DevMapError> {
         let first = records
             .first()
@@ -297,7 +335,6 @@ impl PresenceStore {
         {
             return Err(invalid("accepted records span multiple sessions"));
         }
-        let previous = self.load_one(session_id)?;
         let mut status = previous.as_ref().map(|record| record.status);
         let mut gap_count = previous.as_ref().map_or(0, |record| record.gap_count);
         let blocker_count = previous.as_ref().map_or(0, |record| record.blocker_count);
@@ -354,7 +391,11 @@ impl PresenceStore {
                 .map(str::to_owned)
                 .unwrap_or_else(|| self.head.clone()),
             status,
-            status_source: StatusSource::CaptureEvent,
+            status_source: if status == PresenceStatus::Waiting {
+                StatusSource::HostExplicit
+            } else {
+                StatusSource::CaptureEvent
+            },
             confidence: Confidence::Observed,
             capture_grade,
             last_event_at: last.event.occurred_at().to_owned(),
@@ -384,7 +425,7 @@ impl PresenceStore {
         if !existed {
             sync_directory(&self.root)?;
         }
-        lock.lock_exclusive()?;
+        crate::store::lock_domain_file(&lock)?;
         self.validate_root()?;
         Ok(lock)
     }
@@ -680,4 +721,203 @@ fn atomic_replace(source: &Path, destination: &Path) -> Result<(), DevMapError> 
 
 fn invalid(message: impl Into<String>) -> DevMapError {
     DevMapError::InvalidPresence(message.into())
+}
+
+impl PresenceStore {
+    pub(crate) fn for_projection(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
+        Self::from_root(workspace, workspace.git_common_dir.clone())
+    }
+    pub(crate) fn observe_sql(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        signal: PresenceSignal<'_>,
+        now: OffsetDateTime,
+    ) -> Result<(PresenceRecord, bool), DevMapError> {
+        use rusqlite::OptionalExtension;
+        let id = match &signal {
+            PresenceSignal::AcceptedRecords(records) => records
+                .first()
+                .ok_or_else(|| invalid("empty projection"))?
+                .event
+                .context()
+                .session_id(),
+            PresenceSignal::ExplicitWaiting { session_id, .. } => session_id,
+        };
+        check_session_component(id)?;
+        let origin: (String, String) = tx.query_row(
+            "SELECT worktree_id,incarnation FROM journal_sessions WHERE session_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if origin.0 != self.worktree_id
+            || origin.1 != crate::journal::worktree_incarnation(&self.workspace)?
+        {
+            return Err(invalid("presence session origin mismatch"));
+        }
+        let accepted = crate::journal::sql_records(tx, id)?;
+        let previous = self.load_one_sql(tx, id)?;
+        let projection_advanced = matches!(&signal, PresenceSignal::AcceptedRecords(_));
+        let record = match signal {
+            PresenceSignal::AcceptedRecords(records) => {
+                let cursor:Option<(i64,Option<String>)>=tx.query_row("SELECT covered_sequence,covered_sha256 FROM presence_projection WHERE session_id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+                let covered = cursor.as_ref().map_or(0, |v| v.0);
+                if let Some((sequence, hash)) = &cursor {
+                    if *sequence > 0 {
+                        let saved:String=tx.query_row("SELECT record_json FROM journal_records WHERE session_id=?1 AND sequence=?2",rusqlite::params![id,sequence],|r|r.get(0))?;
+                        let saved: JournalRecord = serde_json::from_str(&saved)?;
+                        if Some(&saved.sha256) != hash.as_ref() {
+                            return Err(invalid("projection cursor hash mismatch"));
+                        }
+                    }
+                    if previous.is_none() {
+                        return Err(invalid("projection cursor has no presence"));
+                    }
+                }
+                let mut fresh = Vec::new();
+                for record in records {
+                    if record.event.context().session_id() != id || record.sequence == 0 {
+                        return Err(invalid("projection records must belong to one session"));
+                    }
+                    let saved:String=tx.query_row("SELECT record_json FROM journal_records WHERE session_id=?1 AND sequence=?2",rusqlite::params![id,record.sequence as i64],|r|r.get(0))?;
+                    if saved.as_bytes() != canonical_json(record)? {
+                        return Err(invalid("projection record differs from accepted journal"));
+                    }
+                    if accepted.get(record.sequence as usize - 1) != Some(record) {
+                        return Err(invalid("invalid accepted projection record"));
+                    }
+                    if record.sequence as i64 > covered {
+                        fresh.push(record.clone());
+                    }
+                }
+                if fresh.is_empty() {
+                    return previous
+                        .map(|r| (r, false))
+                        .ok_or_else(|| invalid("duplicate projection missing presence"));
+                }
+                fresh.sort_by_key(|record| record.sequence);
+                fresh.dedup_by_key(|record| record.sequence);
+                let projected = self.project_records(&fresh, now, previous)?;
+                let last = fresh.last().unwrap();
+                tx.execute("INSERT INTO presence_projection(session_id,covered_sequence,covered_sha256,baseline_source) VALUES(?1,?2,?3,'capture') ON CONFLICT(session_id) DO UPDATE SET covered_sequence=excluded.covered_sequence,covered_sha256=excluded.covered_sha256",rusqlite::params![id,last.sequence as i64,last.sha256])?;
+                projected
+            }
+            PresenceSignal::ExplicitWaiting { activity_id, .. } => {
+                let mut record =
+                    previous.ok_or_else(|| DevMapError::MissingPresence(id.to_owned()))?;
+                set_explicit_waiting(&mut record, activity_id, now)?;
+                record
+            }
+        };
+        validate_record(&record, Some(&self.repository_id))?;
+        let bytes = canonical_json(&record)?;
+        if bytes.len() > MAX_PRESENCE_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "Presence record",
+                limit: MAX_PRESENCE_BYTES,
+            });
+        }
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END FROM presence_records WHERE session_id=?1",
+                rusqlite::params![id,MAX_PRESENCE_BYTES as i64],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let changed = projection_advanced || old.as_ref().is_none_or(|v| v.as_bytes() != bytes);
+        tx.execute("INSERT INTO presence_records(session_id,record_json) VALUES(?1,?2) ON CONFLICT(session_id) DO UPDATE SET record_json=excluded.record_json",rusqlite::params![id,String::from_utf8(bytes).map_err(|_|invalid("invalid utf8"))?])?;
+        Ok((record, changed))
+    }
+    fn load_one_sql(
+        &self,
+        c: &rusqlite::Connection,
+        id: &str,
+    ) -> Result<Option<PresenceRecord>, DevMapError> {
+        use rusqlite::OptionalExtension;
+        let json: Option<String> = c
+            .query_row(
+                "SELECT CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END FROM presence_records WHERE session_id=?1",
+                rusqlite::params![id,MAX_PRESENCE_BYTES as i64],
+                |r| r.get(0),
+            )
+            .optional()?;
+        json.map(|json| parse_frozen_presence(&self.repository_id, id, json.as_bytes()))
+            .transpose()
+    }
+    fn load_all_sql(&self, c: &rusqlite::Connection) -> PresenceLoadReport {
+        let mut report = PresenceLoadReport {
+            records: vec![],
+            warnings: vec![],
+            truncated: false,
+        };
+        let result = (|| -> Result<(), DevMapError> {
+            let mut stmt = c.prepare(
+                "SELECT session_id,CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END FROM presence_records ORDER BY session_id LIMIT ?1",
+            )?;
+            let mut rows = stmt.query(rusqlite::params![
+                (MAX_PRESENCE_RECORDS + 1) as i64,
+                MAX_PRESENCE_BYTES as i64
+            ])?;
+            let mut count = 0;
+            while let Some(row) = rows.next()? {
+                if count == MAX_PRESENCE_RECORDS {
+                    report.truncated = true;
+                    break;
+                }
+                count += 1;
+                let id: String = row.get(0)?;
+                let json: Option<String> = row.get(1)?;
+                match json
+                    .ok_or_else(|| invalid("presence exceeds byte limit"))
+                    .and_then(|json| {
+                        parse_frozen_presence(&self.repository_id, &id, json.as_bytes())
+                    }) {
+                    Ok(r) => report.records.push(r),
+                    Err(_) => report.warnings.push(PresenceWarning {
+                        code: "presence_record_invalid",
+                        subject_id: Some(id),
+                    }),
+                }
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            report.warnings.push(PresenceWarning {
+                code: "presence_unreadable",
+                subject_id: None,
+            });
+        }
+        report
+    }
+}
+
+/// Parses saved canonical bytes using the original repository identity and filename session.
+/// The caller owns frozen-source inventory and pending-file detection.
+pub fn parse_frozen_presence(
+    repository_id: &str,
+    session_id: &str,
+    bytes: &[u8],
+) -> Result<PresenceRecord, DevMapError> {
+    if bytes.len() > MAX_PRESENCE_BYTES {
+        return Err(invalid("presence exceeds byte limit"));
+    }
+    let record: PresenceRecord = serde_json::from_slice(bytes)?;
+    validate_record(&record, Some(repository_id))?;
+    if record.session_id != session_id || canonical_json(&record)? != bytes {
+        return Err(invalid("presence identity or canonical JSON mismatch"));
+    }
+    Ok(record)
+}
+
+fn set_explicit_waiting(
+    record: &mut PresenceRecord,
+    activity_id: Option<&str>,
+    now: OffsetDateTime,
+) -> Result<(), DevMapError> {
+    record.status = PresenceStatus::Waiting;
+    record.status_source = StatusSource::HostExplicit;
+    record.confidence = Confidence::Observed;
+    record.last_event_at = format_time(now)?;
+    record.lease_expires_at = Some(format_time(now + Duration::seconds(DEFAULT_LEASE_SECONDS))?);
+    record.current_activity_id = activity_id.map(str::to_owned);
+    Ok(())
 }
