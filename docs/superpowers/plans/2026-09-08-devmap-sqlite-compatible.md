@@ -38,11 +38,11 @@ Produces RepositoryStore with public `open(&SourceWorkspace) -> Result<Self, Dev
 
 Schema carries store_meta (version/repository/common-dir/generation/backend state default shadow), journal_sessions, journal_records (session_id/sequence/event_id/record_json/byte_length), route_records (route_id/revision/request_id/input_json/plan_json), presence_records, binding_records, binding_watermarks, migration_sources and worktree_registry. Add constraints and indexes for real identity/CAS/query keys; JSON holds existing validated payloads. Domain validation remains above this layer; do not expose arbitrary SQL over CLI or MCP.
 
-- [ ] Write failing real-store tests for missing read-only open, shared linked-worktree database, WAL/FULL, restart persistence, foreign repository identity, unknown schema and backup rejection of an existing destination.
-- [ ] Run `cargo test --test sqlite_store` and save the RED evidence.
-- [ ] Implement minimal store, schema creation under transaction, version/identity checks before changing existing DB, safe file/sidecar checks using existing fs_security, finite busy timeout, consistent backup to new destination.
-- [ ] Add transaction rollback/contention/integrity and active-WAL backup restore checks; run `cargo test --test sqlite_store` plus store unit tests. Example behavior: failed transaction must leave generation unchanged; a second connection sees only committed rows.
-- [ ] Parent reviews public interface and tests; commit task-only paths after fixes.
+- [x] Write failing real-store tests for missing read-only open, shared linked-worktree database, WAL/FULL, restart persistence, foreign repository identity, unknown schema and backup rejection of an existing destination.
+- [x] Run `cargo test --test sqlite_store` and save the RED evidence.
+- [x] Implement minimal store, schema creation under transaction, version/identity checks before changing existing DB, safe file/sidecar checks using existing fs_security, finite busy timeout, consistent backup to new destination.
+- [x] Add transaction rollback/contention/integrity and active-WAL backup restore checks; run `cargo test --test sqlite_store` plus store unit tests. Example behavior: failed transaction must leave generation unchanged; a second connection sees only committed rows.
+- [x] Parent reviews public interface and tests; commit task-only paths after fixes.
 
 ## Task 2: Route and task binding backends
 

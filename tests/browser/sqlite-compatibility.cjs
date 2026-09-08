@@ -11,7 +11,7 @@ const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 
 const root = path.resolve(__dirname, '../..');
-const output = path.join(root, 'target/verification/sqlite-browser');
+const output = process.env.DEVMAP_BROWSER_OUTPUT || path.join(root, 'target/verification/sqlite-browser');
 const modules = process.env.CODEX_DOC_MODULES || 'C:/Users/user/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
 const { chromium } = require(path.join(modules, 'playwright'));
 const { PNG } = require(path.join(modules, 'pngjs'));
@@ -55,7 +55,8 @@ async function main() {
   const baselineSnapshot = process.env.DEVMAP_BASELINE_SNAPSHOT ? JSON.parse(fs.readFileSync(process.env.DEVMAP_BASELINE_SNAPSHOT,'utf8')) : fixture();
   const candidateSnapshot = process.env.DEVMAP_CANDIDATE_SNAPSHOT ? JSON.parse(fs.readFileSync(process.env.DEVMAP_CANDIDATE_SNAPSHOT,'utf8')) : structuredClone(baselineSnapshot);
   assert.equal(Boolean(process.env.DEVMAP_BASELINE_SNAPSHOT),Boolean(process.env.DEVMAP_CANDIDATE_SNAPSHOT),'Provide both backend snapshots or neither');
-  const scope = process.env.DEVMAP_BASELINE_SNAPSHOT ? 'backend_snapshot_pair' : 'frontend_frozen_fixture';
+  const sameSnapshotPath = process.env.DEVMAP_BASELINE_SNAPSHOT && path.resolve(process.env.DEVMAP_BASELINE_SNAPSHOT)===path.resolve(process.env.DEVMAP_CANDIDATE_SNAPSHOT);
+  const scope = sameSnapshotPath ? 'same_snapshot_control' : process.env.DEVMAP_BASELINE_SNAPSHOT ? 'backend_snapshot_pair' : 'frontend_frozen_fixture';
   let servedHtml, snapshot;
   const streams = new Set();
   const server = http.createServer((req,res)=>{
@@ -148,6 +149,7 @@ async function main() {
     const changed=Buffer.from(example.data);changed[0]^=255;
     assert.ok(pixelmatch(example.data,changed,null,example.width,example.height,{threshold:0.01,includeAA:true})>0);
     const evidence={scope,reference_commit:baselineRef,resource_sha256:sha256(baselineHtml),fixed_time:stamp,
+      baseline_snapshot_file:process.env.DEVMAP_BASELINE_SNAPSHOT||null,candidate_snapshot_file:process.env.DEVMAP_CANDIDATE_SNAPSHOT||null,
       excluded_pixels:0,clock_frozen:true,build_metadata_fixed:true,animations_disabled:true,max_allowed_channel_delta:2,negative_control:'pass',reports,
       note:'Fixture rendering is not evidence that the SQLite backend or a real host lifecycle has passed. Backend/migration gates are separate.'};
     fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(evidence,null,2));
