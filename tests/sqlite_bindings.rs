@@ -111,6 +111,18 @@ fn binding_import_preserves_serialized_history_and_independent_watermark() {
     c.execute_batch("CREATE TRIGGER reject_watermark BEFORE UPDATE ON binding_watermarks BEGIN SELECT RAISE(ABORT,'injected failure'); END;").unwrap();
     s.replace_observed_tasks(vec![task(repo.path())], now + time::Duration::seconds(12))
         .unwrap();
+    assert!(
+        s.snapshot()
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "task_binding_history_unavailable")
+    );
+    assert!(
+        s.snapshot()
+            .workspace_facts
+            .iter()
+            .all(|facts| !facts.bindings_complete)
+    );
     assert_eq!(db.generation().unwrap(), 0);
     assert_eq!(
         c.query_row("SELECT COUNT(*) FROM binding_records", [], |r| r
