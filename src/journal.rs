@@ -1633,10 +1633,18 @@ impl JournalStore {
         Ok((current.worktree_id, incarnation, origin))
     }
     fn validate_sql_origin(&self, c: &rusqlite::Connection) -> Result<(), DevMapError> {
+        self.validate_sql_origin_at(c, &self.sql_origin()?)
+    }
+
+    fn validate_sql_origin_at(
+        &self,
+        c: &rusqlite::Connection,
+        origin: &(String, String, String),
+    ) -> Result<(), DevMapError> {
         use rusqlite::OptionalExtension;
         let saved: Option<(String, String, String)> = c.query_row(
             "SELECT worktree_id,incarnation,origin_path FROM journal_sessions WHERE session_id=?1",[&self.session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-        if saved.is_some_and(|saved| self.sql_origin().map_or(true, |origin| saved != origin)) {
+        if saved.is_some_and(|saved| &saved != origin) {
             return Err(corruption(
                 "session origin or worktree incarnation mismatch",
             ));
@@ -1651,10 +1659,25 @@ impl JournalStore {
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
-        self.validate_sql_origin(tx)?;
-        let retired:i64=tx.query_row("SELECT count(*) FROM journal_sessions s JOIN worktree_registry w ON s.worktree_id=w.worktree_id AND s.incarnation=w.incarnation WHERE s.session_id=?1 AND w.retired_at IS NOT NULL",[&self.session_id],|r|r.get(0))?;
-        if retired != 0 {
-            return Err(corruption("retired worktree incarnation cannot append"));
+        use rusqlite::OptionalExtension;
+        let current_origin = self.sql_origin()?;
+        self.validate_sql_origin_at(tx, &current_origin)?;
+        // Registry identity is authoritative even before this session is registered.
+        // Validate it under the acceptance transaction before invoking the builder.
+        let registry: Option<(String, String, Option<String>)> = tx.query_row(
+            "SELECT git_dir,workspace_path,retired_at FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
+            rusqlite::params![current_origin.0, current_origin.1],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        if let Some((git_dir, workspace_path, retired_at)) = registry {
+            if git_dir != current_origin.2
+                || workspace_path != self.workspace.root.to_string_lossy()
+            {
+                return Err(corruption("worktree registry origin mismatch"));
+            }
+            if retired_at.is_some() {
+                return Err(corruption("retired worktree incarnation cannot append"));
+            }
         }
         let existing = sql_records(tx, &self.session_id)?;
         let events = build(existing.len() as u64 + 1)?;
@@ -1703,7 +1726,7 @@ impl JournalStore {
                 limit: MAX_JOURNAL_BYTES,
             });
         }
-        let (worktree, incarnation, origin) = self.sql_origin()?;
+        let (worktree, incarnation, origin) = current_origin;
         tx.execute("INSERT OR IGNORE INTO worktree_registry(worktree_id,incarnation,git_dir,workspace_path) VALUES(?1,?2,?3,?4)",rusqlite::params![worktree,incarnation,origin,self.workspace.root.to_string_lossy()])?;
         tx.execute("INSERT OR IGNORE INTO journal_sessions(session_id,worktree_id,incarnation,origin_path) VALUES(?1,?2,?3,?4)",rusqlite::params![self.session_id,worktree,incarnation,origin])?;
         for r in &records {

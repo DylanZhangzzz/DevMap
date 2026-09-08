@@ -299,3 +299,100 @@ fn retired_incarnation_refuses_new_acceptance() {
         1
     );
 }
+
+fn acceptance_state(c: &rusqlite::Connection) -> (i64, String, String, i64, i64, i64) {
+    c.query_row(
+        "SELECT generation,
+         (SELECT coalesce(group_concat(record_json,''),'') FROM journal_records),
+         (SELECT coalesce(group_concat(record_json,''),'') FROM presence_records),
+         (SELECT count(*) FROM journal_sessions),
+         (SELECT count(*) FROM journal_heads),
+         (SELECT count(*) FROM presence_projection)
+         FROM store_meta WHERE singleton=1",
+        [],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        },
+    )
+    .unwrap()
+}
+
+fn new_session_event(sequence: u64) -> EventEnvelope {
+    let mut value =
+        serde_json::to_value(event(sequence, "new-event", "2026-09-08T11:00:00Z")).unwrap();
+    value["context"]["session_id"] = json!("new-session");
+    serde_json::from_value(value).unwrap()
+}
+
+#[test]
+fn retired_registry_refuses_new_session_capture_before_build() {
+    let (_d, w) = setup();
+    JournalStore::open(&w, "s")
+        .unwrap()
+        .append_capture_batch_with(time::OffsetDateTime::now_utc(), |n| {
+            Ok(vec![event(n, "first", "2026-09-08T10:00:00Z")])
+        })
+        .unwrap();
+    let store = RepositoryStore::open_existing(&w).unwrap().unwrap();
+    let c = rusqlite::Connection::open(store.path()).unwrap();
+    c.execute(
+        "UPDATE worktree_registry SET retired_at='2026-09-08T11:00:00Z'",
+        [],
+    )
+    .unwrap();
+    let before = acceptance_state(&c);
+    let built = std::cell::Cell::new(false);
+    let result = JournalStore::open(&w, "new-session")
+        .unwrap()
+        .append_capture_batch_with(time::OffsetDateTime::now_utc(), |n| {
+            built.set(true);
+            Ok(vec![new_session_event(n)])
+        });
+    assert!(
+        result.is_err(),
+        "new session must not bypass a retired incarnation"
+    );
+    assert!(
+        !built.get(),
+        "registry must be validated before building events"
+    );
+    assert_eq!(acceptance_state(&c), before);
+}
+
+#[test]
+fn inconsistent_registry_refuses_new_session_before_build() {
+    for mutation in [
+        "UPDATE worktree_registry SET git_dir='wrong-origin'",
+        "UPDATE worktree_registry SET workspace_path='wrong-workspace'",
+    ] {
+        let (_d, w) = setup();
+        JournalStore::open(&w, "s")
+            .unwrap()
+            .append(event(1, "first", "2026-09-08T10:00:00Z"))
+            .unwrap();
+        let store = RepositoryStore::open_existing(&w).unwrap().unwrap();
+        let c = rusqlite::Connection::open(store.path()).unwrap();
+        c.execute(mutation, []).unwrap();
+        let before = acceptance_state(&c);
+        let built = std::cell::Cell::new(false);
+        let result = JournalStore::open(&w, "new-session")
+            .unwrap()
+            .append_batch_with(|n| {
+                built.set(true);
+                Ok(vec![new_session_event(n)])
+            });
+        assert!(result.is_err(), "registry mismatch must reject: {mutation}");
+        assert!(
+            !built.get(),
+            "registry must be validated before building events"
+        );
+        assert_eq!(acceptance_state(&c), before);
+    }
+}
