@@ -44,7 +44,7 @@ pub struct TaskBindingObservation {
     pub event_at: Option<String>,
 }
 
-type BindingWatermarkMap = BTreeMap<(String, String), String>;
+pub(crate) type BindingWatermarkMap = BTreeMap<(String, String), String>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -165,7 +165,6 @@ fn read_binding_records(
     file: &mut File,
     repository: &str,
 ) -> Result<Vec<TaskBindingObservation>, DevMapError> {
-    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     file.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
@@ -173,6 +172,13 @@ fn read_binding_records(
     {
         return Err(corruption("oversized or incomplete task binding journal"));
     }
+    parse_binding_records(&bytes, repository)
+}
+fn parse_binding_records(
+    bytes: &[u8],
+    repository: &str,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let mut records = Vec::new();
     let mut latest = BTreeMap::<(String, String), TaskBindingObservation>::new();
     for line in bytes.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
@@ -216,15 +222,147 @@ fn read_binding_records(
 pub(crate) fn read_task_bindings(
     workspace: &SourceWorkspace,
 ) -> Result<Vec<TaskBindingObservation>, DevMapError> {
-    let Some(path) = binding_path(workspace, false)? else {
-        return Ok(Vec::new());
-    };
-    let mut file = checked_file(&path, false, false)?;
-    FileExt::lock_shared(&file)?;
+    if let Some(store) = crate::store::active_existing(workspace)? {
+        return sql_binding_snapshot(
+            store.connection(),
+            &crate::worktrees::repository_id(workspace),
+        )
+        .map(|s| s.records);
+    }
+    legacy_binding_snapshot(workspace).map(|s| s.records)
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BindingSnapshot {
+    pub(crate) records: Vec<TaskBindingObservation>,
+    pub(crate) watermarks: BindingWatermarkMap,
+}
+/// Strict migration input: the independent watermark is retained even if no journal exists.
+pub(crate) fn legacy_binding_snapshot(
+    workspace: &SourceWorkspace,
+) -> Result<BindingSnapshot, DevMapError> {
     let repository = crate::worktrees::repository_id(workspace);
-    let records = read_binding_records(&mut file, &repository)?;
-    read_binding_watermarks(&path, &repository, &records)?;
-    Ok(records)
+    let path = crate::fs_security::checked_canonical_directory(&workspace.git_common_dir)?
+        .join("devmap/task-bindings.jsonl");
+    // Validate the legacy directory even when only watermark metadata exists.
+    binding_path(workspace, false)?;
+    legacy_binding_snapshot_at(&path, &repository)
+}
+/// Read a frozen journal and sibling watermark copy using its original identity.
+pub(crate) fn legacy_binding_snapshot_at(
+    path: &Path,
+    repository: &str,
+) -> Result<BindingSnapshot, DevMapError> {
+    if checked_metadata(path)?.is_some() {
+        let mut file = checked_file(path, false, false)?;
+        FileExt::lock_shared(&file)?;
+        let records = read_binding_records(&mut file, repository)?;
+        let watermarks = read_binding_watermarks(path, repository, &records)?;
+        return Ok(BindingSnapshot {
+            records,
+            watermarks,
+        });
+    }
+    let records = Vec::new();
+    let watermarks = read_binding_watermarks(path, repository, &records)?;
+    Ok(BindingSnapshot {
+        records,
+        watermarks,
+    })
+}
+
+pub(crate) fn sql_binding_snapshot(
+    c: &rusqlite::Connection,
+    repository: &str,
+) -> Result<BindingSnapshot, DevMapError> {
+    // Pin both tables to one generation; callers in a write transaction already hold a snapshot.
+    let own = c.is_autocommit();
+    if own {
+        c.execute_batch("BEGIN")?;
+    }
+    let result = (|| {
+        let mut bytes = Vec::new();
+        let mut stmt = c.prepare("SELECT observation_id,host,task_id,observed_at,record_json FROM binding_records ORDER BY rowid")?;
+        for row in stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })? {
+            let (id, host, task, at, json) = row?;
+            let record: TaskBindingObservation = serde_json::from_str(&json)?;
+            if host != record.host
+                || task != record.task_id
+                || at != record.observed_at
+                || id != binding_id(&record)?
+            {
+                return Err(corruption("inconsistent SQL binding keys"));
+            }
+            bytes.extend(json.as_bytes());
+            bytes.push(b'\n');
+            if bytes.len() as u64 > MAX_BINDING_BYTES {
+                return Err(corruption("task binding journal limit reached"));
+            }
+        }
+        let records = parse_binding_records(&bytes, repository)?;
+        let mut watermarks = BindingWatermarkMap::new();
+        let mut stmt =
+            c.prepare("SELECT source_scope,observed_at,record_json FROM binding_watermarks")?;
+        let mut watermark_bytes = 0usize;
+        for row in stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (key, at, json) = row?;
+            watermark_bytes += json.len();
+            let (host, task, time): (String, String, String) = serde_json::from_str(&json)?;
+            if key != serde_json::to_string(&(host.clone(), task.clone()))?
+                || at != time
+                || [&host, &task]
+                    .iter()
+                    .any(|s| s.is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+                || time::OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339)
+                    .is_err()
+                || watermarks.insert((host, task), at).is_some()
+                || watermarks.len() > MAX_BINDING_RECORDS
+                || watermark_bytes as u64 > MAX_BINDING_BYTES
+            {
+                return Err(corruption("invalid SQL binding watermark"));
+            }
+        }
+        for record in &records {
+            let at = watermarks
+                .get(&(record.host.clone(), record.task_id.clone()))
+                .ok_or_else(|| corruption("missing SQL binding watermark"))?;
+            if time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
+                .map_err(|_| corruption("invalid SQL binding time"))?
+                < time::OffsetDateTime::parse(
+                    &record.observed_at,
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .map_err(|_| corruption("invalid SQL binding time"))?
+            {
+                return Err(corruption("stale SQL binding watermark"));
+            }
+        }
+        Ok(BindingSnapshot {
+            records,
+            watermarks,
+        })
+    })();
+    if own {
+        c.execute_batch("ROLLBACK")?;
+    }
+    result
+}
+pub(crate) fn binding_id(record: &TaskBindingObservation) -> Result<String, DevMapError> {
+    Ok(sha256_hex(&serde_json::to_vec(record)?))
 }
 
 pub(crate) fn observe_task_bindings(
@@ -247,12 +385,76 @@ pub(crate) fn observe_task_bindings(
     {
         return Err(corruption("invalid task binding observation"));
     }
-    let path = binding_path(workspace, true)?.expect("created binding directory");
-    let mut file = checked_file(&path, true, true)?;
-    FileExt::lock_exclusive(&file)?;
-    let repository = crate::worktrees::repository_id(workspace);
-    let mut records = read_binding_records(&mut file, &repository)?;
-    let mut watermarks = read_binding_watermarks(&path, &repository, &records)?;
+    crate::store::domain_write(workspace, |tx| {
+        let repository = crate::worktrees::repository_id(workspace);
+        if let Some(tx) = tx {
+            let snapshot = sql_binding_snapshot(tx, &repository)?;
+            let mut records = snapshot.records;
+            let mut watermarks = snapshot.watermarks;
+            let before = records.len();
+            let (changed, _) = update_bindings(
+                &repository,
+                &mut records,
+                &mut watermarks,
+                associations,
+                observed_at,
+                timestamp,
+            )?;
+            if changed {
+                for record in &records[before..] {
+                    tx.execute("INSERT INTO binding_records(observation_id,host,task_id,observed_at,record_json) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![binding_id(record)?,record.host,record.task_id,record.observed_at,serde_json::to_string(record)?])?;
+                }
+                for ((host, task), at) in &watermarks {
+                    tx.execute("INSERT INTO binding_watermarks(source_scope,observed_at,record_json) VALUES(?1,?2,?3) ON CONFLICT(source_scope) DO UPDATE SET observed_at=excluded.observed_at,record_json=excluded.record_json", rusqlite::params![serde_json::to_string(&(host,task))?,at,serde_json::to_string(&(host,task,at))?])?;
+                }
+                tx.execute(
+                    "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+                    [],
+                )?;
+            }
+            return Ok(records);
+        }
+        let path = binding_path(workspace, true)?.expect("created binding directory");
+        let mut file = checked_file(&path, true, true)?;
+        crate::store::lock_domain_file(&file)?;
+        let mut records = read_binding_records(&mut file, &repository)?;
+        let mut watermarks = read_binding_watermarks(&path, &repository, &records)?;
+        let (changed, additions) = update_bindings(
+            &repository,
+            &mut records,
+            &mut watermarks,
+            associations,
+            observed_at,
+            timestamp,
+        )?;
+        if file
+            .metadata()?
+            .len()
+            .saturating_add(additions.len() as u64)
+            > MAX_BINDING_BYTES
+        {
+            return Err(corruption("task binding journal limit reached"));
+        }
+        if changed {
+            write_binding_watermarks(&path, &repository, &watermarks)?;
+        }
+        if !additions.is_empty() {
+            file.seek(SeekFrom::End(0))?;
+            file.write_all(&additions)?;
+            file.sync_all()?;
+        }
+        Ok(records)
+    })
+}
+fn update_bindings(
+    repository: &str,
+    records: &mut Vec<TaskBindingObservation>,
+    watermarks: &mut BindingWatermarkMap,
+    associations: &[(String, String, String)],
+    observed_at: &str,
+    timestamp: time::OffsetDateTime,
+) -> Result<(bool, Vec<u8>), DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
     let mut watermark_changed = false;
     let mut additions = Vec::new();
     for (host, task_id, worktree_id) in associations {
@@ -274,7 +476,7 @@ pub(crate) fn observe_task_bindings(
         }
         let record = TaskBindingObservation {
             schema_version: "devmap/task-binding/1".into(),
-            repository_id: repository.clone(),
+            repository_id: repository.to_owned(),
             kind: if previous.is_some() {
                 "task_migration_observed"
             } else {
@@ -294,26 +496,27 @@ pub(crate) fn observe_task_bindings(
         additions.push(b'\n');
         records.push(record);
     }
+    let total = records
+        .iter()
+        .try_fold(0u64, |n, r| -> Result<u64, DevMapError> {
+            Ok(n + serde_json::to_vec(r)?.len() as u64 + 1)
+        })?;
+    let saved = BindingWatermarks {
+        schema_version: "devmap/task-binding-watermarks/1".into(),
+        repository_id: repository.into(),
+        observations: watermarks
+            .iter()
+            .map(|((h, t), a)| (h.clone(), t.clone(), a.clone()))
+            .collect(),
+    };
     if records.len() > MAX_BINDING_RECORDS
-        || file
-            .metadata()?
-            .len()
-            .saturating_add(additions.len() as u64)
-            > MAX_BINDING_BYTES
+        || total > MAX_BINDING_BYTES
+        || watermarks.len() > MAX_BINDING_RECORDS
+        || serde_json::to_vec(&saved)?.len() as u64 > MAX_BINDING_BYTES
     {
         return Err(corruption("task binding journal limit reached"));
     }
-    // Persist freshness before accepting new history; a failed history append
-    // may lose an event, but must never permit an older observation to replace it.
-    if watermark_changed {
-        write_binding_watermarks(&path, &repository, &watermarks)?;
-    }
-    if !additions.is_empty() {
-        file.seek(SeekFrom::End(0))?;
-        file.write_all(&additions)?;
-        file.sync_all()?;
-    }
-    Ok(records)
+    Ok((watermark_changed, additions))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1235,4 +1438,38 @@ impl JournalRecord {
 
 fn corruption(message: impl Into<String>) -> DevMapError {
     DevMapError::JournalCorruption(message.into())
+}
+
+#[cfg(test)]
+mod binding_snapshot_tests {
+    use super::*;
+    #[test]
+    fn strict_binding_snapshot_keeps_orphan_watermark_and_rejects_pending() {
+        let d = tempfile::tempdir().unwrap();
+        let common = d.path().join("git");
+        std::fs::create_dir_all(common.join("devmap")).unwrap();
+        let w = SourceWorkspace {
+            root: d.path().into(),
+            git_dir: common.clone(),
+            git_common_dir: common.clone(),
+            branch: None,
+            head: String::new(),
+        };
+        let p = common.join("devmap/task-binding-watermarks.json");
+        let saved = BindingWatermarks {
+            schema_version: "devmap/task-binding-watermarks/1".into(),
+            repository_id: crate::worktrees::repository_id(&w),
+            observations: vec![("local".into(), "task".into(), "2026-09-08T12:00:00Z".into())],
+        };
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        std::fs::write(&p, &bytes).unwrap();
+        let snapshot = legacy_binding_snapshot(&w).unwrap();
+        assert!(snapshot.records.is_empty());
+        assert_eq!(snapshot.watermarks.len(), 1);
+        assert_eq!(std::fs::read(&p).unwrap(), bytes);
+        assert!(!common.join("devmap/task-bindings.jsonl").exists());
+        std::fs::write(p.with_extension("pending"), b"pending").unwrap();
+        assert!(legacy_binding_snapshot(&w).is_err());
+        assert!(p.with_extension("pending").exists());
+    }
 }

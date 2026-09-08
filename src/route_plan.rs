@@ -73,11 +73,11 @@ pub struct RoutePlan {
     pub updated_at: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
-    input: PlanInput,
-    plan: RoutePlan,
+pub(crate) struct Record {
+    pub(crate) input: PlanInput,
+    pub(crate) plan: RoutePlan,
 }
 
 pub struct RoutePlanStore {
@@ -117,12 +117,11 @@ impl RoutePlanStore {
 
     /// The first journal record establishes plan creation, not worktree creation.
     pub(crate) fn list_with_starts(&self) -> Result<(Vec<RoutePlan>, PlanStarts), DevMapError> {
-        let Some(path) = self.existing_path()? else {
-            return Ok((Vec::new(), BTreeMap::new()));
+        let records = if let Some(store) = crate::store::active_existing(&self.workspace)? {
+            sql_records(store.connection(), &repository_id(&self.workspace))?
+        } else {
+            self.legacy_snapshot()?
         };
-        let mut file = checked_file(&path, false, false)?;
-        FileExt::lock_shared(&file)?;
-        let records = read_records(&mut file, &repository_id(&self.workspace))?;
         let mut latest = BTreeMap::new();
         let mut starts = BTreeMap::new();
         for record in records {
@@ -144,16 +143,66 @@ impl RoutePlanStore {
                 return Err(invalid("invalid target_ref"));
             }
         }
-        let directory = ensure_directory_chain(&self.root, &["devmap"])?;
-        let mut file = checked_file(&directory.join("route-plans.jsonl"), true, true)?;
-        FileExt::lock_exclusive(&file)?;
-        let records = read_records(&mut file, &repository_id(&self.workspace))?;
+        crate::store::domain_write(&self.workspace, |tx| {
+            if let Some(tx) = tx {
+                let records = sql_records(tx, &repository_id(&self.workspace))?;
+                let (plan, addition) = self.build(input, &records)?;
+                if let Some(record) = addition {
+                    let size = records.iter().chain(std::iter::once(&record)).try_fold(
+                        0u64,
+                        |n, r| -> Result<u64, DevMapError> {
+                            Ok(n + serde_json::to_vec(r)?.len() as u64 + 1)
+                        },
+                    )?;
+                    if size > MAX_JOURNAL_BYTES {
+                        return Err(invalid("route plan journal limit reached"));
+                    }
+                    tx.execute("INSERT INTO route_records(route_id,revision,request_id,input_json,plan_json) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![record.plan.route_id,i64::try_from(record.plan.revision).map_err(|_| invalid("revision overflow"))?,record.input.request_id,serde_json::to_string(&record.input)?,serde_json::to_string(&record.plan)?])?;
+                    tx.execute(
+                        "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+                        [],
+                    )?;
+                }
+                return Ok(plan);
+            }
+            let directory = ensure_directory_chain(&self.root, &["devmap"])?;
+            let mut file = checked_file(&directory.join("route-plans.jsonl"), true, true)?;
+            crate::store::lock_domain_file(&file)?;
+            let records = read_records(&mut file, &repository_id(&self.workspace))?;
+            let (plan, addition) = self.build(input, &records)?;
+            if let Some(record) = addition {
+                let mut bytes = serde_json::to_vec(&record)?;
+                bytes.push(b'\n');
+                if file.metadata()?.len().saturating_add(bytes.len() as u64) > MAX_JOURNAL_BYTES {
+                    return Err(invalid("route plan journal limit reached"));
+                }
+                file.seek(SeekFrom::End(0))?;
+                file.write_all(&bytes)?;
+                file.sync_all()?;
+            }
+            Ok(plan)
+        })
+    }
+
+    /// Strict full-history input for frozen migration; no file creation or repairs.
+    pub(crate) fn legacy_snapshot(&self) -> Result<Vec<Record>, DevMapError> {
+        let Some(path) = self.existing_path()? else {
+            return Ok(Vec::new());
+        };
+        legacy_snapshot_at(&path, &repository_id(&self.workspace))
+    }
+
+    fn build(
+        &self,
+        input: PlanInput,
+        records: &[Record],
+    ) -> Result<(RoutePlan, Option<Record>), DevMapError> {
         if let Some(existing) = records
             .iter()
             .find(|record| record.input.request_id == input.request_id)
         {
             return if existing.input == input {
-                Ok(existing.plan.clone())
+                Ok((existing.plan.clone(), None))
             } else {
                 Err(invalid("request_id already used for different content"))
             };
@@ -228,19 +277,22 @@ impl RoutePlanStore {
             abandoned: input.abandoned,
             updated_at: OffsetDateTime::now_utc().format(&Rfc3339)?,
         };
-        let mut bytes = serde_json::to_vec(&Record {
+        let record = Record {
             input,
             plan: plan.clone(),
-        })?;
-        bytes.push(b'\n');
-        if file.metadata()?.len().saturating_add(bytes.len() as u64) > MAX_JOURNAL_BYTES {
-            return Err(invalid("route plan journal limit reached"));
-        }
-        file.seek(SeekFrom::End(0))?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        Ok(plan)
+        };
+        Ok((plan, Some(record)))
     }
+}
+
+/// Reads a frozen journal copy with the original repository identity.
+pub(crate) fn legacy_snapshot_at(
+    path: &std::path::Path,
+    repository: &str,
+) -> Result<Vec<Record>, DevMapError> {
+    let mut file = checked_file(path, false, false)?;
+    FileExt::lock_shared(&file)?;
+    read_records(&mut file, repository)
 }
 
 fn read_records(file: &mut std::fs::File, repository: &str) -> Result<Vec<Record>, DevMapError> {
@@ -253,6 +305,43 @@ fn read_records(file: &mut std::fs::File, repository: &str) -> Result<Vec<Record
     if !bytes.is_empty() && bytes.last() != Some(&b'\n') {
         return Err(invalid("incomplete plan journal; reconciliation required"));
     }
+    parse_records(&bytes, repository)
+}
+pub(crate) fn sql_records(
+    c: &rusqlite::Connection,
+    repository: &str,
+) -> Result<Vec<Record>, DevMapError> {
+    let mut stmt = c.prepare("SELECT route_id,revision,request_id,input_json,plan_json FROM route_records ORDER BY rowid")?;
+    let mut bytes = Vec::new();
+    for row in stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })? {
+        let (id, revision, request, input, plan) = row?;
+        let record = Record {
+            input: serde_json::from_str(&input)?,
+            plan: serde_json::from_str(&plan)?,
+        };
+        if id != record.plan.route_id
+            || u64::try_from(revision).ok() != Some(record.plan.revision)
+            || request != record.input.request_id
+        {
+            return Err(invalid("inconsistent SQL route keys"));
+        }
+        bytes.extend(serde_json::to_vec(&record)?);
+        bytes.push(b'\n');
+        if bytes.len() as u64 > MAX_JOURNAL_BYTES {
+            return Err(invalid("route plan journal limit reached"));
+        }
+    }
+    parse_records(&bytes, repository)
+}
+fn parse_records(bytes: &[u8], repository: &str) -> Result<Vec<Record>, DevMapError> {
     let mut records = Vec::new();
     let mut revisions = BTreeMap::new();
     let mut requests = std::collections::BTreeSet::new();

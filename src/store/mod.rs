@@ -394,3 +394,57 @@ mod snapshot_tests {
         assert_eq!(reader.generation().unwrap(), 1);
     }
 }
+
+/// Validate the persisted selector even when legacy remains authoritative.
+pub(crate) fn is_active(connection: &Connection) -> Result<bool, DevMapError> {
+    let state: String = connection.query_row(
+        "SELECT backend_state FROM store_meta WHERE singleton=1",
+        [],
+        |r| r.get(0),
+    )?;
+    match state.as_str() {
+        "active" => Ok(true),
+        "shadow" => Ok(false),
+        _ => Err(err("unknown backend state")),
+    }
+}
+pub(crate) fn active_existing(
+    workspace: &SourceWorkspace,
+) -> Result<Option<RepositoryStore>, DevMapError> {
+    let Some(store) = RepositoryStore::open_existing(workspace)? else {
+        return Ok(None);
+    };
+    if is_active(store.connection())? {
+        Ok(Some(store))
+    } else {
+        Ok(None)
+    }
+}
+/// Serialize selector inspection and writes with activation of an existing shadow.
+pub(crate) fn domain_write<T>(
+    workspace: &SourceWorkspace,
+    f: impl FnOnce(Option<&Transaction<'_>>) -> Result<T, DevMapError>,
+) -> Result<T, DevMapError> {
+    if RepositoryStore::open_existing(workspace)?.is_none() {
+        return f(None);
+    }
+    let mut store = RepositoryStore::open(workspace)?;
+    store.transaction(|tx| if is_active(tx)? { f(Some(tx)) } else { f(None) })
+}
+
+/// Lock order for legacy writes and activation: SQLite IMMEDIATE, then domain files.
+pub(crate) fn lock_domain_file(file: &File) -> Result<(), DevMapError> {
+    let start = std::time::Instant::now();
+    loop {
+        match fs2::FileExt::try_lock_exclusive(file) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+                if start.elapsed() >= TIMEOUT {
+                    return Err(err("domain lock timeout"));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
