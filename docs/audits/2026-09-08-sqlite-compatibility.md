@@ -76,3 +76,25 @@ distinguish retirement, replacement and inaccessible state while retaining
 historical origin evidence. Per-access full legacy validation and journal replay
 also remain explicit performance work. Neither limitation is waived by the
 passing small migration fixture.
+
+## Shared-runtime review checkpoint
+
+Application commit `56c927a` is not approved yet. Independent source review found
+that partial inventory merges can exceed the accepted query limits after binding
+writes, and that shared relationship observations can incorrectly reuse the
+owner worktree's `devmap.developmentTarget` for another worktree. Both require
+focused regressions and fixes. The separately reviewed `d9c71bb` wire seam was
+approved; this does not approve the unfinished application integration.
+
+Transport review fixes remove detached identity workers and correct the rejected
+Hello test oracle. The current working patch still needs full ancestor permission
+validation and owner-lock retention through reactor teardown. Ten process tests
+passed before the final startup guard; later unit/clippy checks passed, but the
+final combined link failed because C: was full. Do not count that failed run as
+validation of the final patch.
+
+Builds stopped when C: had no space. Generated files, fixtures and uncommitted
+changes were preserved. Space later recovered to about 1 GB on C: and 3 GB on D:;
+subsequent verification uses a separate D: target with incremental compilation
+and debug symbols disabled. This changes the local verification environment,
+not the durability, compatibility or final performance acceptance criteria.
