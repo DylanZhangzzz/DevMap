@@ -80,3 +80,53 @@ fn dock_workspace_allows_only_a_genuinely_unborn_symbolic_head() {
         "strict callers must still reject unborn HEAD"
     );
 }
+
+#[test]
+fn workspace_paths_preserve_linked_detached_and_nested_identity() {
+    let repository = committed_repo();
+    let linked_parent = tempfile::tempdir().unwrap();
+    let linked = linked_parent.path().join("linked worktree");
+    git(
+        repository.path(),
+        ["worktree", "add", "--detach", linked.to_str().unwrap()],
+    );
+    fs::create_dir(linked.join("nested")).unwrap();
+    let main = SourceGitInspector::open(repository.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let other = SourceGitInspector::open(linked.join("nested"))
+        .unwrap()
+        .workspace()
+        .unwrap();
+    assert_eq!(other.head, main.head);
+    assert_eq!(other.branch, None);
+    assert_eq!(
+        other.root.canonicalize().unwrap(),
+        linked.canonicalize().unwrap()
+    );
+    assert_eq!(other.git_common_dir, main.git_common_dir);
+    assert_ne!(other.git_dir, main.git_dir);
+    assert!(other.git_dir.join("HEAD").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_paths_preserve_newline_directory_names() {
+    let repository = committed_repo();
+    let linked_parent = tempfile::tempdir().unwrap();
+    let linked = linked_parent.path().join("linked\nworktree");
+    git(
+        repository.path(),
+        ["worktree", "add", "--detach", linked.to_str().unwrap()],
+    );
+    let workspace = SourceGitInspector::open(&linked)
+        .unwrap()
+        .workspace()
+        .unwrap();
+    assert_eq!(
+        workspace.root.canonicalize().unwrap(),
+        linked.canonicalize().unwrap()
+    );
+    assert!(workspace.git_dir.join("HEAD").is_file());
+}

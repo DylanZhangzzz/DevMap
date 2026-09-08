@@ -457,15 +457,6 @@ fn relationship_for(
     let (subject, authored_at) = metadata
         .split_once('\0')
         .ok_or_else(|| malformed_git("git show -s"))?;
-    let distance_to_target = parse_count(Some(&required_text(
-        &worktree.root,
-        [
-            OsString::from("rev-list"),
-            OsString::from("--count"),
-            OsString::from(format!("{}..{}", merge_base, target.ref_name)),
-        ],
-    )?))?;
-
     let counts = required_text(
         &worktree.root,
         [
@@ -481,6 +472,21 @@ fn relationship_for(
     if fields.next().is_some() {
         return Err(malformed_git("git rev-list --left-right --count"));
     }
+    // Only an ancestor head makes the two ranges identical. In particular,
+    // divergent criss-cross histories may have more than one merge base.
+    // Recheck ahead as the target may have moved since merge-base was read.
+    let distance_to_target = if merge_base == worktree.head && ahead == 0 {
+        behind
+    } else {
+        parse_count(Some(&required_text(
+            &worktree.root,
+            [
+                OsString::from("rev-list"),
+                OsString::from("--count"),
+                OsString::from(format!("{}..{}", merge_base, target.ref_name)),
+            ],
+        )?))?
+    };
 
     Ok((
         GitRelationship {

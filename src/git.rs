@@ -104,9 +104,22 @@ impl SourceGitInspector {
     }
 
     fn workspace_with_head(&self, head: String) -> Result<SourceWorkspace, DevMapError> {
-        let root = self.required_git(["rev-parse", "--show-toplevel"])?;
-        let git_dir = self.required_git(["rev-parse", "--git-dir"])?;
-        let git_common_dir = self.required_git(["rev-parse", "--git-common-dir"])?;
+        let paths = self.required_git([
+            "rev-parse",
+            "--show-toplevel",
+            "--git-dir",
+            "--git-common-dir",
+        ])?;
+        // Git has no NUL separator for these path options. Preserve the
+        // independent-command behavior for legal paths containing newlines.
+        let [root, git_dir, git_common_dir] = match workspace_paths(&paths) {
+            Some(paths) => paths.map(str::to_owned),
+            None => [
+                self.required_git(["rev-parse", "--show-toplevel"])?,
+                self.required_git(["rev-parse", "--git-dir"])?,
+                self.required_git(["rev-parse", "--git-common-dir"])?,
+            ],
+        };
         let branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
         let root = PathBuf::from(root);
         let resolve = |value: String| {
@@ -204,4 +217,28 @@ fn normalize_remote(remote: &str) -> String {
         .strip_suffix(".git")
         .unwrap_or(remote.trim().trim_end_matches('/'))
         .replace('\\', "/")
+}
+
+fn workspace_paths(text: &str) -> Option<[&str; 3]> {
+    let mut fields = text.split('\n').map(|value| value.trim_end_matches('\r'));
+    let paths = [fields.next()?, fields.next()?, fields.next()?];
+    (fields.next().is_none() && paths.iter().all(|path| !path.is_empty())).then_some(paths)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn path_batch_accepts_only_three_unambiguous_nonempty_fields() {
+        assert_eq!(
+            super::workspace_paths("C:/repo\n.git\n.git"),
+            Some(["C:/repo", ".git", ".git"])
+        );
+        assert_eq!(
+            super::workspace_paths("C:/repo\r\nC:/admin\r\nC:/common"),
+            Some(["C:/repo", "C:/admin", "C:/common"])
+        );
+        for ambiguous in ["/repo\nname\n.git\n.git", "/repo\n\n.git", "/repo\n.git"] {
+            assert_eq!(super::workspace_paths(ambiguous), None);
+        }
+    }
 }

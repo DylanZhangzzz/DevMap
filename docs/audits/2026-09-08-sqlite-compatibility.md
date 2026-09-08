@@ -330,3 +330,31 @@ serialization 0.23 ms. Output was 206917 bytes.
 This is bottleneck attribution, not a p95 acceptance run. Cached SQL input time
 is not end-to-end hot query latency, and this full map is not a compact summary.
 The cold-open, hot-summary, default-payload and idle-resource gates remain open.
+
+## Narrow Git command reduction and startup recovery states
+
+Commit following 8ef9a4a batches the three workspace path rev-parse commands
+into one, with original independent calls retained for ambiguous newline paths.
+It also reuses the already measured behind count for fork distance only when
+merge-base equals the worktree HEAD and ahead is zero. Divergent and real
+criss-cross histories retain their explicit distance query. Git relationship
+regressions passed 12/12 in 12.03 seconds; the inspector passed 4/4 in 1.26 seconds.
+Native Unix newline-directory coverage is present but was not executed here.
+A new release/process-count measurement is still required before claiming speedup.
+
+Four durable startup-state tests passed 4/4 in 4.82 seconds and an environment
+control passed 4/4 in 5.58 seconds: complete pristine/imported/fenced owned
+snapshots resume to active generation zero with exact retry preservation;
+missing database or partial snapshot is refused without deleting evidence.
+These construct persisted states; they are not kill-at-fsync fault injection.
+
+Verification now uses a trusted temporary fixture directory outside Git. The
+previous trusted directory inside this checkout caused Git to discover its
+ancestor repository in an existing non-repository test. The same already-built
+inspector executable passed after moving only its temporary fixture root. No
+production repository-discovery behavior or system ACL was changed.
+
+Lifecycle qualification remains under development: initial removal and remaining
+source tamper cases pass, but foreign .git redirection exposed a real missing
+identity check, and same-path new-session writes remain intentionally blocked
+by the strict write gate. These open cases are not included in this scoped slice.

@@ -285,3 +285,70 @@ fn failed_status_is_retained_as_unknown_instead_of_clean() {
             && warning.worktree_id.as_deref() == Some(worktree_id.as_str())
     }));
 }
+
+fn commit_node(repo: &std::path::Path, parents: &[&str], message: &str) -> String {
+    let tree = support::git(repo, ["rev-parse", "HEAD^{tree}"]);
+    let mut args = vec!["commit-tree", tree.as_str(), "-m", message];
+    for parent in parents {
+        args.extend(["-p", *parent]);
+    }
+    support::git(repo, args)
+}
+
+#[test]
+fn ancestor_distance_matches_git_when_target_is_a_later_commit() {
+    let repo = support::committed_repo();
+    let head = support::git(repo.path(), ["rev-parse", "HEAD"]);
+    let feature = support::linked_worktree(repo.path(), "feature");
+    let target = commit_node(repo.path(), &[&head], "later target");
+    support::git(repo.path(), ["update-ref", "refs/heads/main", &target]);
+    let expected = support::git(
+        repo.path(),
+        ["rev-list", "--count", &format!("{head}..{target}")],
+    );
+    let (report, worktrees) = report(repo.path());
+    let row = row_for_branch(&report, &worktrees, "feature");
+    assert_eq!((row.ahead, row.behind), (Some(0), Some(1)));
+    let fork = row.fork_point.as_ref().unwrap();
+    assert_eq!(fork.commit, head);
+    assert_eq!(fork.distance_to_target, Some(expected.parse().unwrap()));
+    drop(feature);
+}
+
+#[test]
+fn divergent_and_criss_cross_distance_preserve_selected_merge_base_oracle() {
+    for criss_cross in [false, true] {
+        let repo = support::committed_repo();
+        let initial = support::git(repo.path(), ["rev-parse", "HEAD"]);
+        let left = commit_node(repo.path(), &[&initial], "left");
+        let right = commit_node(repo.path(), &[&initial], "right");
+        let (target, head) = if criss_cross {
+            (
+                commit_node(repo.path(), &[&left, &right], "left merge"),
+                commit_node(repo.path(), &[&right, &left], "right merge"),
+            )
+        } else {
+            (left, right)
+        };
+        support::git(repo.path(), ["update-ref", "refs/heads/main", &target]);
+        let feature = support::linked_worktree_from(repo.path(), "feature", &head);
+        let bases = support::git(feature.path(), ["merge-base", "--all", &target, &head]);
+        assert_eq!(bases.lines().count(), if criss_cross { 2 } else { 1 });
+        let (report, worktrees) = report(repo.path());
+        let row = row_for_branch(&report, &worktrees, "feature");
+        let fork = row.fork_point.as_ref().unwrap();
+        assert_ne!(fork.commit, head);
+        assert!(bases.lines().any(|base| base == fork.commit));
+        let expected = support::git(
+            feature.path(),
+            ["rev-list", "--count", &format!("{}..{target}", fork.commit)],
+        );
+        assert_eq!(fork.distance_to_target, Some(expected.parse().unwrap()));
+        assert_eq!(row.ahead, Some(1));
+        assert_eq!(row.behind, Some(1));
+        if criss_cross {
+            assert_eq!(fork.distance_to_target, Some(2));
+            assert_ne!(fork.distance_to_target, row.behind);
+        }
+    }
+}
