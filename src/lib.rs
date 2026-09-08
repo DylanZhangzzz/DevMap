@@ -18,6 +18,7 @@ pub mod journal;
 pub mod mcp;
 pub mod presence;
 pub mod route_plan;
+pub mod store;
 pub mod viewer;
 pub mod worktrees;
 
