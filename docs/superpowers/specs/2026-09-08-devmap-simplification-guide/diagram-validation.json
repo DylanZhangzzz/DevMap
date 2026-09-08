@@ -1,0 +1,26 @@
+[
+  {
+    "page": "codegraph",
+    "nodes": 11,
+    "edges": 8,
+    "bounds_and_text": "pass"
+  },
+  {
+    "page": "devmap",
+    "nodes": 11,
+    "edges": 7,
+    "bounds_and_text": "pass"
+  },
+  {
+    "page": "migration",
+    "nodes": 8,
+    "edges": 5,
+    "bounds_and_text": "pass"
+  },
+  {
+    "page": "roadmap",
+    "nodes": 7,
+    "edges": 5,
+    "bounds_and_text": "pass"
+  }
+]

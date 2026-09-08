@@ -1,0 +1,260 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="24.7.17" type="device">
+  <diagram id="codegraph" name="01 CodeGraph 如何工作">
+    <mxGraphModel dx="1440" dy="1020" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="1020" background="#f8fafc">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="CodeGraph 如何工作" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=38;fontColor=#172c43;">
+          <mxGeometry x="50" y="60" width="1340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="源码事实 · 固定提交 195888d · 索引、自动核对与查询入口" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#172c43;">
+          <mxGeometry x="50" y="117" width="1340" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.4962962962962963;exitDx=0;exitDy=0;entryX=0.0;entryY=0.4962962962962963;entryDx=0;entryDy=0;" edge="1" parent="1" source="files" target="extract">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.4962962962962963;exitDx=0;exitDy=0;entryX=0.0;entryY=0.4962962962962963;entryDx=0;entryDy=0;" edge="1" parent="1" source="extract" target="resolve">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.4962962962962963;exitDx=0;exitDy=0;entryX=0.0;entryY=0.4962962962962963;entryDx=0;entryDy=0;" edge="1" parent="1" source="resolve" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="重新提取" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=0.0;exitDx=0;exitDy=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="extract">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="370" y="360" />
+              <mxPoint x="540" y="360" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-4" value="检索" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.34375;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="db" target="context">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1180" y="365" />
+              <mxPoint x="880" y="365" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-5" value="读取" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.71875;exitY=1.0;exitDx=0;exitDy=0;entryX=0.71875;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="db" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="context" target="mcp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="api" target="browser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="files" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;源文件&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;当前文件系统&lt;br&gt;语言、路径、内容与修改时间&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="170" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="extract" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;提取符号&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;TypeScript 编排&lt;br&gt;Rust kernel / WASM 后备&lt;br&gt;节点 + 尚未解析的引用&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="390" y="170" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="resolve" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;解析跨文件关系&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;调用 / 导入 / 继承&lt;br&gt;保留未解析引用&lt;br&gt;变更后修复失效关系&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="730" y="170" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;SQLite 索引&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;nodes / edges / files&lt;br&gt;unresolved_refs / FTS5&lt;br&gt;本地 WAL 数据库&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f3ee;strokeColor=#30916c;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="1070" y="170" width="320" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="sync" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;自动同步与补核对&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;watcher 防抖 → 精确路径核对；范围不明时完整核对&lt;br&gt;size / mtime 预筛 → 内容哈希 → 增量提取&lt;br&gt;重连补同步；不只依赖 git status&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf2ff;strokeColor=#6488c1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="430" width="640" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="context" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;相关上下文&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;搜索入口 → 图遍历&lt;br&gt;按深度、节点和源码预算&lt;br&gt;返回结构化结果&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="730" y="430" width="300" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="api" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;UI HTTP API&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;读取同一项目索引&lt;br&gt;另有 trails JSON 写入&lt;br&gt;浏览器不直接访问数据库&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="1070" y="430" width="320" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="fresh" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;边界必须看源码&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;补同步有超时后继续服务的路径&lt;br&gt;pending 提示不等于永不过期&lt;br&gt;新库快建可丢弃；不适合直接搬到决策库&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e4;strokeColor=#c49245;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="680" width="640" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;MCP / CLI&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;向 Agent 提供检索结果&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff0fc;strokeColor=#9295c8;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="730" y="680" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;浏览器&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;查看代码关系与源码&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff0fc;strokeColor=#9295c8;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="1070" y="680" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;运行组织&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;共享后台按项目复用 MCPEngine；每个客户端有 MCPSession / proxy；UI 服务可独立运行。&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf1f6;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="880" width="1340" height="90" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="devmap" name="02 DevMap 简化后的技术框架">
+    <mxGraphModel dx="1440" dy="1040" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="1040" background="#f8fafc">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="DevMap 简化后的技术框架" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=38;fontColor=#172c43;">
+          <mxGeometry x="50" y="60" width="1340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="建议方案 · 本机、单用户、仓库级存储 · 复用现有 Rust 领域核心" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#172c43;">
+          <mxGeometry x="50" y="117" width="1340" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.14925373134328357;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="git" target="ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="host" target="ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.8507462686567164;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="human" target="ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="领域命令 / 观察批次" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.14925373134328357;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="ingest" target="app">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.496;exitDx=0;exitDy=0;entryX=0.0;entryY=0.496;entryDx=0;entryDy=0;" edge="1" parent="1" source="app" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.496;exitDx=0;exitDy=0;entryX=0.0;entryY=0.496;entryDx=0;entryDy=0;" edge="1" parent="1" source="db" target="query">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="一致读快照" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="query" target="clients">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="git" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;Git 观察&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;refs / HEAD / worktree / 拓扑&lt;br&gt;真实开发状态的来源&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="170" width="400" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="host" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;宿主 / Agent 观察&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;任务、会话、活动、覆盖范围&lt;br&gt;保留来源与缺口&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="520" y="170" width="400" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="human" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;用户意图&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;路线、目标、里程碑、撤回&lt;br&gt;无法单靠 Git 重建&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="990" y="170" width="400" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ingest" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;统一接入与校验&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;解析 repository / worktree incarnation · 校验来源和幂等键 · 明确观察时间 · 不从相似路径猜关联&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf2ff;strokeColor=#6488c1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="355" width="1340" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="app" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;应用服务 / 领域规则&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;版本冲突检查与事件去重&lt;br&gt;写队列 → 短事务 → 提交确认&lt;br&gt;计划、事实和未知保持分离&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="545" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;devmap.db&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;&amp;lt;git-common-dir&amp;gt;/devmap/&lt;br&gt;持久记录 + 可重建投影&lt;br&gt;SQLite WAL / 默认 FULL&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f3ee;strokeColor=#30916c;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="520" y="545" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="query" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;统一查询与投影&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;generation + evaluated_at&lt;br&gt;各来源 freshness / warnings&lt;br&gt;摘要优先、历史分页&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="990" y="545" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="durable" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;必须保留&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;事件、路线修订、关联历史、水位&lt;br&gt;迁移溯源；外部一致性备份&lt;br&gt;损坏时停止写入并恢复&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e4;strokeColor=#c49245;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="770" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="cache" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;可以重新生成&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;当前 presence、Git 当前快照&lt;br&gt;从事实来源或持久记录重算&lt;br&gt;过期不代表完成&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf1f6;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="520" y="770" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="clients" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;地图 / MCP / CLI&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;同一查询契约，按需展示详情&lt;br&gt;写命令回到统一接入层&lt;br&gt;浏览器首轮只读&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff0fc;strokeColor=#9295c8;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="990" y="770" width="400" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime" value="&lt;span style=&quot;font-size:20px;font-weight:700&quot;&gt;运行方式&lt;/span&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;每仓库一个按需共享写核心；多个代理可连接。SQLite 替代多文件协议，不替代 Git。" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf1f6;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="940" width="1340" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="migration" name="03 存储迁移与回退边界">
+    <mxGraphModel dx="1440" dy="1090" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="1090" background="#f8fafc">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="存储迁移与回退边界" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=38;fontColor=#172c43;">
+          <mxGeometry x="50" y="60" width="1340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="建议流程 · 影子验证先行，最终切换重新冻结 · 不长期双写" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#172c43;">
+          <mxGeometry x="50" y="117" width="1340" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="freeze" target="backup">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="backup" target="import">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="import" target="verify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="verify" target="activate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="失败" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.496;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="verify" target="failure">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="835" y="737" />
+              <mxPoint x="835" y="495" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="freeze" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;1  停止旧写入并冻结&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;确认旧插件、hook、CLI 和后台都已停止写入&lt;br&gt;检查 pending intent；不一致时停止并保留原始副本&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="60" y="165" width="730" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="backup" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;2  创建外部备份&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;备份旧日志、路线、关联水位和必要 Context 对象&lt;br&gt;保存源哈希与清单；备份放在 Git 目录之外&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="60" y="335" width="730" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="import" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;3  导入临时 SQLite&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;保留原 ID、修订、时间、来源与记录哈希&lt;br&gt;导入可重试；无法验证的记录不能当作成功&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="60" y="505" width="730" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="verify" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;4  验证完整性和领域等价&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;数据库完整性 + 外键 + 持久记录去向 + 语义对照&lt;br&gt;未解释差异为 0；确认最终源哈希未变&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="60" y="675" width="730" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="activate" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;5  发布新库并切换写核心&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;关闭临时库句柄，发布一致库；确认客户端版本&lt;br&gt;旧写入口退役；原备份保留&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f3ee;strokeColor=#30916c;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="60" y="845" width="730" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="shadow" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P2 影子验证&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;此前只从冻结副本试导入&lt;br&gt;旧系统仍是唯一权威写路径&lt;br&gt;最终切换必须重新导入最新数据&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf2ff;strokeColor=#6488c1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="890" y="165" width="480" height="155" as="geometry" />
+        </mxCell>
+        <mxCell id="failure" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;验证失败：停止切换&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;保留旧存储与临时库诊断&lt;br&gt;修复导入器后重新验证&lt;br&gt;不删除旧数据、不自动清空&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e4;strokeColor=#c49245;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="890" y="420" width="480" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="rollback" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;回退分界&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;新库尚未接受写入：&lt;br&gt;可恢复旧存储为权威&lt;br&gt; &lt;br&gt;新库已经确认新记录：&lt;br&gt;先验证反向导出覆盖所有新记录&lt;br&gt;不能无损表达时保持只读并前向修复&lt;br&gt;禁止直接退回旧快照&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e4;strokeColor=#c49245;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="890" y="675" width="480" height="295" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="roadmap" name="04 DevMap 技术路线图">
+    <mxGraphModel dx="1440" dy="1050" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="1050" background="#f8fafc">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="DevMap 技术路线图" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=38;fontColor=#172c43;">
+          <mxGeometry x="50" y="60" width="1340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="建议阶段 · 所有阶段待实施 · 以验收门槛推进，不承诺未经测量的工期" vertex="1" parent="1" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#172c43;">
+          <mxGeometry x="50" y="117" width="1340" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.49795918367346936;exitDx=0;exitDy=0;entryX=0.0;entryY=0.49795918367346936;entryDx=0;entryDy=0;" edge="1" parent="1" source="p0" target="p1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=1.0;exitY=0.49795918367346936;exitDx=0;exitDy=0;entryX=0.0;entryY=0.49795918367346936;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1" target="p2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="等价通过" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p2" target="p3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.0;exitY=0.49795918367346936;exitDx=0;exitDy=0;entryX=1.0;entryY=0.49795918367346936;entryDx=0;entryDy=0;" edge="1" parent="1" source="p3" target="p4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=2;fontSize=14;fontFamily=Microsoft YaHei;labelBackgroundColor=#f8fafc;exitX=0.0;exitY=0.49795918367346936;exitDx=0;exitDy=0;entryX=1.0;entryY=0.49795918367346936;entryDx=0;entryDy=0;" edge="1" parent="1" source="p4" target="p5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p0" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P0  固定基线&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;盘点运行时与实际数据&lt;br&gt;冻结关键语义样本&lt;br&gt;记录打开步骤和性能基线&lt;br&gt; &lt;br&gt;门槛：每类持久记录都有去向&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="180" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P1  SQLite 基础&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;受限存储接口与 schema&lt;br&gt;事务、幂等、版本检查&lt;br&gt;一致性备份与恢复&lt;br&gt; &lt;br&gt;门槛：故障检查与构建通过&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="520" y="180" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P2  影子导入&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;旧系统继续权威写入&lt;br&gt;冻结副本导入，完整保留水位&lt;br&gt;新旧领域输出逐项比较&lt;br&gt; &lt;br&gt;门槛：未解释语义差异为 0&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf2ff;strokeColor=#6488c1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="990" y="180" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P3  共享核心&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;互斥启动、身份与版本握手&lt;br&gt;串行写入，多客户端读取&lt;br&gt;重连核对和来源 freshness&lt;br&gt; &lt;br&gt;门槛：一个仓库一个写核心&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="990" y="555" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P4  简化使用&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;一个日常打开动作&lt;br&gt;UI / MCP / CLI 统一结果&lt;br&gt;真实宿主及发布构件验证&lt;br&gt; &lt;br&gt;门槛：可用性与测量证据通过&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="520" y="555" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;P5  切换与退役&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;冻结最新旧数据，备份&lt;br&gt;最终导入验证后切换&lt;br&gt;确认旧写入口停止，再退役&lt;br&gt; &lt;br&gt;门槛：迁移与恢复演练通过&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f3ee;strokeColor=#30916c;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="555" width="400" height="245" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;div style=&quot;font-size:21px;font-weight:700;line-height:25px;color:#172c43&quot;&gt;全程停止条件&lt;/div&gt;&lt;div style=&quot;margin-top:2px;line-height:24px;font-size:17px;color:#40526a&quot;&gt;记录丢失、错误 worktree 绑定、未知被当成事实、失败却返回成功：先修复，不能以性能或进度豁免。&lt;/div&gt;" vertex="1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e4;strokeColor=#c49245;strokeWidth=1.5;align=left;verticalAlign=top;spacing=12;fontFamily=Microsoft YaHei;fontSize=17;arcSize=10;">
+          <mxGeometry x="50" y="900" width="1340" height="95" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

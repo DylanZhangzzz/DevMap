@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1090" viewBox="0 0 1440 1090" role="img" aria-labelledby="title desc">
+<title id="title">存储迁移与回退边界</title>
+<desc id="desc">建议流程 · 影子验证先行，最终切换重新冻结 · 不长期双写</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/></marker></defs>
+<g font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+<rect width="1440" height="1090" fill="#f8fafc"/>
+<rect x="50" y="45" width="52" height="5" rx="2" fill="#30916c"/>
+<text x="50" y="102" font-size="38" fill="#172c43" font-weight="700">存储迁移与回退边界</text>
+<text x="50" y="140" font-size="17" fill="#586a81" font-weight="400">建议流程 · 影子验证先行，最终切换重新冻结 · 不长期双写</text>
+<path d="M425,290 L425,335" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M425,460 L425,505" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M425,630 L425,675" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M425,800 L425,845" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="437.0" y="822.5" font-size="14" fill="#40526a" font-weight="400">通过</text>
+<path d="M790,737 L835,737 L835,495 L890,495" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="847.0" y="616.0" font-size="14" fill="#40526a" font-weight="400">失败</text>
+<rect x="60" y="165" width="730" height="125" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="78" y="200" font-size="21" fill="#172c43" font-weight="700">1  停止旧写入并冻结</text>
+<text x="78" y="226" font-size="17" fill="#40526a" font-weight="400">确认旧插件、hook、CLI 和后台都已停止写入</text>
+<text x="78" y="251" font-size="17" fill="#40526a" font-weight="400">检查 pending intent；不一致时停止并保留原始副本</text>
+<rect x="60" y="335" width="730" height="125" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="78" y="370" font-size="21" fill="#172c43" font-weight="700">2  创建外部备份</text>
+<text x="78" y="396" font-size="17" fill="#40526a" font-weight="400">备份旧日志、路线、关联水位和必要 Context 对象</text>
+<text x="78" y="421" font-size="17" fill="#40526a" font-weight="400">保存源哈希与清单；备份放在 Git 目录之外</text>
+<rect x="60" y="505" width="730" height="125" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="78" y="540" font-size="21" fill="#172c43" font-weight="700">3  导入临时 SQLite</text>
+<text x="78" y="566" font-size="17" fill="#40526a" font-weight="400">保留原 ID、修订、时间、来源与记录哈希</text>
+<text x="78" y="591" font-size="17" fill="#40526a" font-weight="400">导入可重试；无法验证的记录不能当作成功</text>
+<rect x="60" y="675" width="730" height="125" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="78" y="710" font-size="21" fill="#172c43" font-weight="700">4  验证完整性和领域等价</text>
+<text x="78" y="736" font-size="17" fill="#40526a" font-weight="400">数据库完整性 + 外键 + 持久记录去向 + 语义对照</text>
+<text x="78" y="761" font-size="17" fill="#40526a" font-weight="400">未解释差异为 0；确认最终源哈希未变</text>
+<rect x="60" y="845" width="730" height="125" rx="12" fill="#e7f3ee" stroke="#30916c" stroke-width="1.5"/>
+<text x="78" y="880" font-size="21" fill="#172c43" font-weight="700">5  发布新库并切换写核心</text>
+<text x="78" y="906" font-size="17" fill="#40526a" font-weight="400">关闭临时库句柄，发布一致库；确认客户端版本</text>
+<text x="78" y="931" font-size="17" fill="#40526a" font-weight="400">旧写入口退役；原备份保留</text>
+<rect x="890" y="165" width="480" height="155" rx="12" fill="#eaf2ff" stroke="#6488c1" stroke-width="1.5"/>
+<text x="908" y="200" font-size="21" fill="#172c43" font-weight="700">P2 影子验证</text>
+<text x="908" y="226" font-size="17" fill="#40526a" font-weight="400">此前只从冻结副本试导入</text>
+<text x="908" y="251" font-size="17" fill="#40526a" font-weight="400">旧系统仍是唯一权威写路径</text>
+<text x="908" y="276" font-size="17" fill="#40526a" font-weight="400">最终切换必须重新导入最新数据</text>
+<rect x="890" y="420" width="480" height="150" rx="12" fill="#fff4e4" stroke="#c49245" stroke-width="1.5"/>
+<text x="908" y="455" font-size="21" fill="#172c43" font-weight="700">验证失败：停止切换</text>
+<text x="908" y="481" font-size="17" fill="#40526a" font-weight="400">保留旧存储与临时库诊断</text>
+<text x="908" y="506" font-size="17" fill="#40526a" font-weight="400">修复导入器后重新验证</text>
+<text x="908" y="531" font-size="17" fill="#40526a" font-weight="400">不删除旧数据、不自动清空</text>
+<rect x="890" y="675" width="480" height="295" rx="12" fill="#fff4e4" stroke="#c49245" stroke-width="1.5"/>
+<text x="908" y="710" font-size="21" fill="#172c43" font-weight="700">回退分界</text>
+<text x="908" y="736" font-size="17" fill="#40526a" font-weight="400">新库尚未接受写入：</text>
+<text x="908" y="761" font-size="17" fill="#40526a" font-weight="400">可恢复旧存储为权威</text>
+<text x="908" y="786" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="908" y="811" font-size="17" fill="#40526a" font-weight="400">新库已经确认新记录：</text>
+<text x="908" y="836" font-size="17" fill="#40526a" font-weight="400">先验证反向导出覆盖所有新记录</text>
+<text x="908" y="861" font-size="17" fill="#40526a" font-weight="400">不能无损表达时保持只读并前向修复</text>
+<text x="908" y="886" font-size="17" fill="#40526a" font-weight="400">禁止直接退回旧快照</text>
+</g>
+</svg>

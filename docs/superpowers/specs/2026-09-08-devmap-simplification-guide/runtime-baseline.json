@@ -1,0 +1,28 @@
+{
+  "baseline_commit": "db696768baf366b442adf6097e0c1f4cec3f7e08",
+  "runtime_version": "0.1.1+codex.20260908153418",
+  "runtime_sha256": "A1CFBB1C46BD9026B18DB67DA9F70485B0BB20C6C54FD779475B52531731D419",
+  "overlay_source": "C:/Users/user/.codex/worktrees/b714/AI auto-git context",
+  "files": [
+    {
+      "path": "assets/dock.html",
+      "sha256": "CB30C346129F6BA15670D0A6419D2CCBD7F939F4A7B1C86FED1359B0825F3FC0"
+    },
+    {
+      "path": "assets/metro-core.js",
+      "sha256": "2D1C0968BDA36F9EFE58CCB7AB80A448CD519B87DE7F8DBAE1CF6E079E0C37AD"
+    },
+    {
+      "path": "src/dock_asset.rs",
+      "sha256": "62215F84F5C4BE19A09EC3B4D99C450AD1F5C0012CBF59F50BF09A64FAB851BF"
+    },
+    {
+      "path": "tests/dock_renderer.cjs",
+      "sha256": "DF2D9E06EBA15B02A2D2EF6965DE64B6D3F0710EE4EDE12BA8122DC8C4E042A9"
+    },
+    {
+      "path": "tests/dock_ui_contract.rs",
+      "sha256": "A919F864FFD71F215CC85D5CB71B9AB5E94E002CBA71D1DB0629A671C99E6A99"
+    }
+  ]
+}

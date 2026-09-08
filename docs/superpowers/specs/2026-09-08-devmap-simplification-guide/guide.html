@@ -1,0 +1,647 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DevMap 简化设计指导方针</title><style>
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:#f5f7fa;color:#24364b;font-family:"Microsoft YaHei",system-ui,sans-serif;line-height:1.85;font-size:16px}nav{position:fixed;inset:0 auto 0 0;width:250px;padding:36px 24px;background:#152d43;color:#fff;overflow:auto}nav .brand{font-size:24px;font-weight:700;letter-spacing:.04em}nav p{font-size:13px;color:#bbcada;line-height:1.7}nav a{display:block;margin:12px 0;padding:8px 0;color:#e5eef6;text-decoration:none}nav a:hover{color:#8bddba}nav hr{border:0;border-top:1px solid #ffffff30;margin:24px 0}main{margin-left:250px;padding:40px 48px;max-width:1520px}section{padding:32px 38px 46px;margin-bottom:34px;background:#fff;border:1px solid #dde4ec;border-radius:10px}h1{font-size:30px;line-height:1.4;letter-spacing:-.02em;color:#15334b;margin:0 0 24px}h2{font-size:23px;line-height:1.5;margin:38px 0 16px;color:#176346;border-bottom:1px solid #e2e9ee;padding-bottom:10px}h3{font-size:18px}p{margin:14px 0}a{color:#176b58;text-underline-offset:3px;overflow-wrap:anywhere}li{margin:8px 0}table{width:100%;border-collapse:collapse;font-size:14px;margin:22px 0;display:block;overflow-x:auto}th,td{border-bottom:1px solid #dce4eb;padding:12px 14px;vertical-align:top;min-width:110px}th{background:#edf3f7;text-align:left}code{font-family:Consolas,monospace;font-size:.92em;background:#eef3f7;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{overflow:auto;background:#112b40;color:#dcebf4;border-radius:8px;padding:20px;line-height:1.6}pre code{background:transparent;padding:0}img{display:block;width:100%;height:auto;border:1px solid #dce4eb;border-radius:8px;margin:25px 0}.figure-link{display:block}.stamp{font-size:12px;letter-spacing:.1em;color:#86d2b1}strong{color:#173d50}@media(max-width:800px){nav{position:static;width:auto;padding:20px}nav a{display:inline-block;margin:2px 16px 2px 0}nav hr,nav p{display:none}main{margin-left:0;padding:16px}section{padding:24px 18px}h1{font-size:25px}h2{font-size:21px}}@media print{nav{display:none}main{margin:0;padding:0}section{border:0;page-break-before:always}a{color:inherit}table{display:table;font-size:11px}h1{font-size:24px}h2{break-after:avoid}tr,img{break-inside:avoid}}
+</style></head><body><nav aria-label="文档导航"><div class="brand">DevMap</div><p class="stamp">SIMPLIFICATION GUIDE</p><p>简化设计指导方针<br>2026-09-08 · v0.1 评审稿</p><a href="#overview">设计总览</a><a href="#study">CodeGraph 实现研究</a><a href="#framework">DevMap 技术框架</a><a href="#roadmap">技术路线图</a><hr><a href="devmap-simplification.drawio">四页可编辑架构图</a><a href="04-roadmap.svg">全尺寸路线图</a><p>研究基线<br>CodeGraph · 195888d<br>DevMap main · db69676</p></nav><main><section id="overview" aria-label="设计总览"><h1>DevMap 简化设计指导方针</h1>
+<p>日期：2026-09-08 · 状态：设计评审稿 v0.1 · 本次范围：源码研究、技术框架、技术路线图。</p>
+<p><strong>建议：保留现有 Rust 核心与 Git 观察语义，以每个本地 Git 仓库一个 SQLite 数据库统一状态，通过按需启动的共享核心服务地图、MCP 和 CLI。</strong></p>
+<p>这里的“一个数据库”指一个主要持久化入口。程序仍可自动管理 WAL、通信端点和进程锁；用户无需手动管理这些运行文件。目标是减少重复存储、重复采集和使用步骤，同时保留无法从 Git 重建的决策与活动历史。</p>
+<h2>阅读顺序</h2>
+<ol>
+<li><a href="#study">CodeGraph 实现研究</a>：按源码解释启动、索引、同步、查询及边界，区分实现事实与文档宣传。</li>
+<li><a href="#framework">DevMap 技术框架</a>：方案比较、模块职责、数据模型、事务与恢复、接口约定。</li>
+<li><a href="#roadmap">技术路线图</a>：P0–P5 的交付物、前置依赖、验收门槛和停止条件。</li>
+<li><a href="devmap-simplification.drawio">四页可编辑架构图</a>：用 diagrams.net / draw.io 打开，可逐个修改节点、箭头和文字。</li>
+<li><a href="guide.html">浏览版</a>：同一套文档与图的离线阅读页面。</li>
+</ol>
+<h2>四张图</h2>
+<ul>
+<li><a href="01-codegraph.svg">图 1：CodeGraph 的实现链路</a></li>
+<li><a href="02-devmap.svg">图 2：DevMap 建议架构</a></li>
+<li><a href="03-migration.svg">图 3：从旧存储迁移到 SQLite</a></li>
+<li><a href="04-roadmap.svg">图 4：分阶段路线图</a></li>
+</ul>
+<p><a class="figure-link" href="02-devmap.svg" title="打开全尺寸架构图"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNDAiIHZpZXdCb3g9IjAgMCAxNDQwIDEwNDAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSBkZXNjIj4NCjx0aXRsZSBpZD0idGl0bGUiPkRldk1hcCDnroDljJblkI7nmoTmioDmnK/moYbmnrY8L3RpdGxlPg0KPGRlc2MgaWQ9ImRlc2MiPuW7uuiuruaWueahiCDCtyDmnKzmnLrjgIHljZXnlKjmiLfjgIHku5PlupPnuqflrZjlgqggwrcg5aSN55So546w5pyJIFJ1c3Qg6aKG5Z+f5qC45b+DPC9kZXNjPg0KPGRlZnM+PG1hcmtlciBpZD0iYXJyb3ciIG1hcmtlcldpZHRoPSIxMCIgbWFya2VySGVpZ2h0PSIxMCIgcmVmWD0iOCIgcmVmWT0iNCIgb3JpZW50PSJhdXRvIiBtYXJrZXJVbml0cz0ic3Ryb2tlV2lkdGgiPjxwYXRoIGQ9Ik0wLDAgTDgsNCBMMCw4IFoiIGZpbGw9IiM2NDc0OGIiLz48L21hcmtlcj48L2RlZnM+DQo8ZyBmb250LWZhbWlseT0iTWljcm9zb2Z0IFlhSGVpLCBOb3RvIFNhbnMgQ0pLIFNDLCBzYW5zLXNlcmlmIj4NCjxyZWN0IHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNDAiIGZpbGw9IiNmOGZhZmMiLz4NCjxyZWN0IHg9IjUwIiB5PSI0NSIgd2lkdGg9IjUyIiBoZWlnaHQ9IjUiIHJ4PSIyIiBmaWxsPSIjMzA5MTZjIi8+DQo8dGV4dCB4PSI1MCIgeT0iMTAyIiBmb250LXNpemU9IjM4IiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5EZXZNYXAg566A5YyW5ZCO55qE5oqA5pyv5qGG5p62PC90ZXh0Pg0KPHRleHQgeD0iNTAiIHk9IjE0MCIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzU4NmE4MSIgZm9udC13ZWlnaHQ9IjQwMCI+5bu66K6u5pa55qGIIMK3IOacrOacuuOAgeWNleeUqOaIt+OAgeS7k+W6k+e6p+WtmOWCqCDCtyDlpI3nlKjnjrDmnIkgUnVzdCDpoobln5/moLjlv4M8L3RleHQ+DQo8cGF0aCBkPSJNMjUwLDI4MCBMMjUwLDM1NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNNzIwLDI4MCBMNzIwLDM1NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNMTE5MCwyODAgTDExOTAsMzU1IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjxwYXRoIGQ9Ik0yNTAsNDY1IEwyNTAsNTQ1IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjx0ZXh0IHg9IjI2Mi4wIiB5PSI1MDUuMCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6aKG5Z+f5ZG95LukIC8g6KeC5a+f5om55qyhPC90ZXh0Pg0KPHBhdGggZD0iTTQ1MCw2MDcgTDUyMCw2MDciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTkyMCw2MDcgTDk5MCw2MDciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTExOTAsNjcwIEwxMTkwLDc3MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8dGV4dCB4PSIxMjAyLjAiIHk9IjcyMC4wIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kuIDoh7Tor7vlv6vnhac8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iMTcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjExMCIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iMjA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5HaXQg6KeC5a+fPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjIzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+cmVmcyAvIEhFQUQgLyB3b3JrdHJlZSAvIOaLk+aJkTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSIyNTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuecn+WunuW8gOWPkeeKtuaAgeeahOadpea6kDwvdGV4dD4NCjxyZWN0IHg9IjUyMCIgeT0iMTcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjExMCIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI1MzgiIHk9IjIwNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+5a6/5Li7IC8gQWdlbnQg6KeC5a+fPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS7u+WKoeOAgeS8muivneOAgea0u+WKqOOAgeimhuebluiMg+WbtDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iMjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kv53nlZnmnaXmupDkuI7nvLrlj6M8L3RleHQ+DQo8cmVjdCB4PSI5OTAiIHk9IjE3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMTAiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTAwOCIgeT0iMjA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7nlKjmiLfmhI/lm748L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPui3r+e6v+OAgeebruagh+OAgemHjOeoi+eikeOAgeaSpOWbnjwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjI1NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5peg5rOV5Y2V6Z2gIEdpdCDph43lu7o8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iMzU1IiB3aWR0aD0iMTM0MCIgaGVpZ2h0PSIxMTAiIHJ4PSIxMiIgZmlsbD0iI2VhZjJmZiIgc3Ryb2tlPSIjNjQ4OGMxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNjgiIHk9IjM5MCIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+57uf5LiA5o6l5YWl5LiO5qCh6aqMPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjQxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6Kej5p6QIHJlcG9zaXRvcnkgLyB3b3JrdHJlZSBpbmNhcm5hdGlvbiDCtyDmoKHpqozmnaXmupDlkozluYLnrYnplK4gwrcg5piO56Gu6KeC5a+f5pe26Ze0IMK3IOS4jeS7juebuOS8vOi3r+W+hOeMnOWFs+iBlDwvdGV4dD4NCjxyZWN0IHg9IjUwIiB5PSI1NDUiIHdpZHRoPSI0MDAiIGhlaWdodD0iMTI1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuW6lOeUqOacjeWKoSAvIOmihuWfn+inhOWImTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI2MDYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPueJiOacrOWGsueqgeajgOafpeS4juS6i+S7tuWOu+mHjTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI2MzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWGmemYn+WIlyDihpIg55+t5LqL5YqhIOKGkiDmj5DkuqTnoa7orqQ8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iNjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7orqHliJLjgIHkuovlrp7lkozmnKrnn6Xkv53mjIHliIbnprs8L3RleHQ+DQo8cmVjdCB4PSI1MjAiIHk9IjU0NSIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2U3ZjNlZSIgc3Ryb2tlPSIjMzA5MTZjIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNTM4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPmRldm1hcC5kYjwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iNjA2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4mbHQ7Z2l0LWNvbW1vbi1kaXImZ3Q7L2Rldm1hcC88L3RleHQ+DQo8dGV4dCB4PSI1MzgiIHk9IjYzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5oyB5LmF6K6w5b2VICsg5Y+v6YeN5bu65oqV5b2xPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSI2NTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPlNRTGl0ZSBXQUwgLyDpu5jorqQgRlVMTDwvdGV4dD4NCjxyZWN0IHg9Ijk5MCIgeT0iNTQ1IiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSIxMDA4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPue7n+S4gOafpeivouS4juaKleW9sTwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjYwNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+Z2VuZXJhdGlvbiArIGV2YWx1YXRlZF9hdDwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjYzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5ZCE5p2l5rqQIGZyZXNobmVzcyAvIHdhcm5pbmdzPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iNjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mkZjopoHkvJjlhYjjgIHljoblj7LliIbpobU8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iNzcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZmZmNGU0IiBzdHJva2U9IiNjNDkyNDUiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iODA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7lv4Xpobvkv53nlZk8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODMxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kuovku7bjgIHot6/nur/kv67orqLjgIHlhbPogZTljoblj7LjgIHmsLTkvY08L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ov4Hnp7vmuq/mupDvvJvlpJbpg6jkuIDoh7TmgKflpIfku708L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mjZ/lnY/ml7blgZzmraLlhpnlhaXlubbmgaLlpI08L3RleHQ+DQo8cmVjdCB4PSI1MjAiIHk9Ijc3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2VkZjFmNiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNTM4IiB5PSI4MDUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuWPr+S7pemHjeaWsOeUn+aIkDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iODMxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lvZPliY0gcHJlc2VuY2XjgIFHaXQg5b2T5YmN5b+r54WnPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSI4NTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS7juS6i+Wunuadpea6kOaIluaMgeS5heiusOW9lemHjeeulzwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ov4fmnJ/kuI3ku6PooajlrozmiJA8L3RleHQ+DQo8cmVjdCB4PSI5OTAiIHk9Ijc3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2VmZjBmYyIgc3Ryb2tlPSIjOTI5NWM4IiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTAwOCIgeT0iODA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7lnLDlm74gLyBNQ1AgLyBDTEk8L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSI4MzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWQjOS4gOafpeivouWlkee6pu+8jOaMiemcgOWxleekuuivpuaDhTwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9Ijg1NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5YaZ5ZG95Luk5Zue5Yiw57uf5LiA5o6l5YWl5bGCPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mtY/op4jlmajpppbova7lj6ror7s8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iOTQwIiB3aWR0aD0iMTM0MCIgaGVpZ2h0PSI2MCIgcng9IjEyIiBmaWxsPSIjZWRmMWY2IiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iOTc4IiBmb250LXNpemU9IjIwIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7ov5DooYzmlrnlvI88L3RleHQ+DQo8dGV4dCB4PSIyMTUiIHk9Ijk3OCIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5q+P5LuT5bqT5LiA5Liq5oyJ6ZyA5YWx5Lqr5YaZ5qC45b+D77yb5aSa5Liq5Luj55CG5Y+v6L+e5o6l44CCU1FMaXRlIOabv+S7o+WkmuaWh+S7tuWNj+iuru+8jOS4jeabv+S7oyBHaXTjgII8L3RleHQ+DQo8L2c+DQo8L3N2Zz4=" alt="DevMap 建议架构"></a></p>
+<h2>六条设计准则</h2>
+<ol>
+<li><strong>Git 提供开发事实。</strong> 数据库保存观察结果，不替代 Git 的提交与分支历史。</li>
+<li><strong>人类意图必须持久保留。</strong> 路线变更、撤回决定和无法重放的活动不得当作缓存清理。</li>
+<li><strong>同一仓库共享存储，worktree 身份独立。</strong> 路径相近、分支同名或任务标题相似都不能作为关联依据。</li>
+<li><strong>一处计算，多处使用。</strong> UI、MCP、CLI 共用领域逻辑与查询契约。</li>
+<li><strong>自动更新必须说明边界。</strong> 过期、缺失、观察不完整都必须可见；未观察到不等于不存在。</li>
+<li><strong>迁移先证明等价，再切换。</strong> 旧数据先冻结和备份，新实现通过恢复与语义检查后才接管写入。</li>
+</ol>
+<h2>研究基线与交付边界</h2>
+<p>CodeGraph 固定在 <code>195888d71f3ad053bfa725f24b3d3e9353c50e09</code>，包版本字段为 1.6.0。DevMap 固定在本地 main 的 <code>db696768baf366b442adf6097e0c1f4cec3f7e08</code>，版本字段为 0.1.1。这是源码快照，不代表远端最新版本、已安装插件或正在运行的服务。</p>
+<p>当前工作目录位于较早的 <code>codex/git-workflow-orchestrator-design</code> 分支，不能用它的源文件代替上述 main 基线。研究通过 <code>git show &lt;固定提交&gt;:&lt;路径&gt;</code> 读取 DevMap；没有切换工作区。</p>
+<p>本次没有安装或运行 CodeGraph，没有修改 DevMap 产品代码，没有迁移现有数据库或日志。性能数字均为待验证目标。本文档作为下一轮开发的评审输入，不表示迁移已完成或路线图已执行。</p>
+<p>图的唯一编辑数据为 <code>diagrams.json</code>；<code>build_diagrams.py</code> 从它生成 draw.io 与 SVG。若直接在 draw.io 修改，应以导出的 draw.io 为后续源文件并重新导出 SVG，避免覆盖人工编辑。<code>build_preview.cjs</code> 生成浏览版与 PNG 检查图；<code>verification.json</code> 记录本次产物检查。</p>
+</section>
+<section id="study" aria-label="CodeGraph 实现研究"><h1>CodeGraph：实现方式与运行逻辑</h1>
+<h2>1. 研究结论</h2>
+<p>CodeGraph 将代码理解中反复进行的结构查找预先做成索引：扫描源文件，提取符号和引用，解析跨文件关系，存入 SQLite，再用搜索和图遍历组织回答。AI 不必每次从零寻找所有调用关系。</p>
+<p>它提供了一个可参考的工程模式：<strong>领域核心 + 本地数据库 + 自动同步 + 多种查询入口</strong>。但其解析器、后台管理和查询优化并不简单；可用性来自封装和自动化，不能把“一个 .db”理解为整个产品只有一个文件或一种进程。</p>
+<p>研究方式：静态读取固定提交的源码，检查调用关系和关键分支。未执行安装器、未建立真实代码索引、未复现基准测试。以下“已实现”表示源码存在对应路径，不表示本机端到端验证通过。</p>
+<p><a class="figure-link" href="01-codegraph.svg" title="打开全尺寸架构图"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwMjAiIHZpZXdCb3g9IjAgMCAxNDQwIDEwMjAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSBkZXNjIj4NCjx0aXRsZSBpZD0idGl0bGUiPkNvZGVHcmFwaCDlpoLkvZXlt6XkvZw8L3RpdGxlPg0KPGRlc2MgaWQ9ImRlc2MiPua6kOeggeS6i+WuniDCtyDlm7rlrprmj5DkuqQgMTk1ODg4ZCDCtyDntKLlvJXjgIHoh6rliqjmoLjlr7nkuI7mn6Xor6LlhaXlj6M8L2Rlc2M+DQo8ZGVmcz48bWFya2VyIGlkPSJhcnJvdyIgbWFya2VyV2lkdGg9IjEwIiBtYXJrZXJIZWlnaHQ9IjEwIiByZWZYPSI4IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iIG1hcmtlclVuaXRzPSJzdHJva2VXaWR0aCI+PHBhdGggZD0iTTAsMCBMOCw0IEwwLDggWiIgZmlsbD0iIzY0NzQ4YiIvPjwvbWFya2VyPjwvZGVmcz4NCjxnIGZvbnQtZmFtaWx5PSJNaWNyb3NvZnQgWWFIZWksIE5vdG8gU2FucyBDSksgU0MsIHNhbnMtc2VyaWYiPg0KPHJlY3Qgd2lkdGg9IjE0NDAiIGhlaWdodD0iMTAyMCIgZmlsbD0iI2Y4ZmFmYyIvPg0KPHJlY3QgeD0iNTAiIHk9IjQ1IiB3aWR0aD0iNTIiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMzMDkxNmMiLz4NCjx0ZXh0IHg9IjUwIiB5PSIxMDIiIGZvbnQtc2l6ZT0iMzgiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPkNvZGVHcmFwaCDlpoLkvZXlt6XkvZw8L3RleHQ+DQo8dGV4dCB4PSI1MCIgeT0iMTQwIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNTg2YTgxIiBmb250LXdlaWdodD0iNDAwIj7mupDnoIHkuovlrp4gwrcg5Zu65a6a5o+Q5LqkIDE5NTg4OGQgwrcg57Si5byV44CB6Ieq5Yqo5qC45a+55LiO5p+l6K+i5YWl5Y+jPC90ZXh0Pg0KPHBhdGggZD0iTTM1MCwyMzcgTDM5MCwyMzciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTY5MCwyMzcgTDczMCwyMzciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTEwMzAsMjM3IEwxMDcwLDIzNyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNMzcwLDQzMCBMMzcwLDM2MCBMNTQwLDM2MCBMNTQwLDMwNSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8dGV4dCB4PSI0MjcuMCIgeT0iMzUwLjAiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPumHjeaWsOaPkOWPljwvdGV4dD4NCjxwYXRoIGQ9Ik0xMTgwLDMwNSBMMTE4MCwzNjUgTDg4MCwzNjUgTDg4MCw0MzAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHRleHQgeD0iMTAxNi4wIiB5PSIzNTUuMCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5qOA57SiPC90ZXh0Pg0KPHBhdGggZD0iTTEzMDAsMzA1IEwxMzAwLDQzMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8dGV4dCB4PSIxMzEyLjAiIHk9IjM2Ny41IiBmb250LXNpemU9IjE0IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7or7vlj5Y8L3RleHQ+DQo8cGF0aCBkPSJNODgwLDU3NSBMODgwLDY4MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNMTIzMCw1NzUgTDEyMzAsNjgwIiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjxyZWN0IHg9IjUwIiB5PSIxNzAiIHdpZHRoPSIzMDAiIGhlaWdodD0iMTM1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSIyMDUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPua6kOaWh+S7tjwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuW9k+WJjeaWh+S7tuezu+e7nzwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSIyNTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuivreiogOOAgei3r+W+hOOAgeWGheWuueS4juS/ruaUueaXtumXtDwvdGV4dD4NCjxyZWN0IHg9IjM5MCIgeT0iMTcwIiB3aWR0aD0iMzAwIiBoZWlnaHQ9IjEzNSIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI0MDgiIHk9IjIwNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+5o+Q5Y+W56ym5Y+3PC90ZXh0Pg0KPHRleHQgeD0iNDA4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPlR5cGVTY3JpcHQg57yW5o6SPC90ZXh0Pg0KPHRleHQgeD0iNDA4IiB5PSIyNTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPlJ1c3Qga2VybmVsIC8gV0FTTSDlkI7lpIc8L3RleHQ+DQo8dGV4dCB4PSI0MDgiIHk9IjI4MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6IqC54K5ICsg5bCa5pyq6Kej5p6Q55qE5byV55SoPC90ZXh0Pg0KPHJlY3QgeD0iNzMwIiB5PSIxNzAiIHdpZHRoPSIzMDAiIGhlaWdodD0iMTM1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9Ijc0OCIgeT0iMjA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7op6PmnpDot6jmlofku7blhbPns7s8L3RleHQ+DQo8dGV4dCB4PSI3NDgiIHk9IjIzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6LCD55SoIC8g5a+85YWlIC8g57un5om/PC90ZXh0Pg0KPHRleHQgeD0iNzQ4IiB5PSIyNTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS/neeVmeacquino+aekOW8leeUqDwvdGV4dD4NCjx0ZXh0IHg9Ijc0OCIgeT0iMjgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lj5jmm7TlkI7kv67lpI3lpLHmlYjlhbPns7s8L3RleHQ+DQo8cmVjdCB4PSIxMDcwIiB5PSIxNzAiIHdpZHRoPSIzMjAiIGhlaWdodD0iMTM1IiByeD0iMTIiIGZpbGw9IiNlN2YzZWUiIHN0cm9rZT0iIzMwOTE2YyIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjEwODgiIHk9IjIwNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+U1FMaXRlIOe0ouW8lTwvdGV4dD4NCjx0ZXh0IHg9IjEwODgiIHk9IjIzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+bm9kZXMgLyBlZGdlcyAvIGZpbGVzPC90ZXh0Pg0KPHRleHQgeD0iMTA4OCIgeT0iMjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj51bnJlc29sdmVkX3JlZnMgLyBGVFM1PC90ZXh0Pg0KPHRleHQgeD0iMTA4OCIgeT0iMjgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mnKzlnLAgV0FMIOaVsOaNruW6kzwvdGV4dD4NCjxyZWN0IHg9IjUwIiB5PSI0MzAiIHdpZHRoPSI2NDAiIGhlaWdodD0iMTQ1IiByeD0iMTIiIGZpbGw9IiNlYWYyZmYiIHN0cm9rZT0iIzY0ODhjMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSI0NjUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuiHquWKqOWQjOatpeS4juihpeaguOWvuTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI0OTEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPndhdGNoZXIg6Ziy5oqWIOKGkiDnsr7noa7ot6/lvoTmoLjlr7nvvJvojIPlm7TkuI3mmI7ml7blrozmlbTmoLjlr7k8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iNTE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj5zaXplIC8gbXRpbWUg6aKE562bIOKGkiDlhoXlrrnlk4jluIwg4oaSIOWinumHj+aPkOWPljwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI1NDEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPumHjei/nuihpeWQjOatpe+8m+S4jeWPquS+nei1liBnaXQgc3RhdHVzPC90ZXh0Pg0KPHJlY3QgeD0iNzMwIiB5PSI0MzAiIHdpZHRoPSIzMDAiIGhlaWdodD0iMTQ1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9Ijc0OCIgeT0iNDY1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7nm7jlhbPkuIrkuIvmloc8L3RleHQ+DQo8dGV4dCB4PSI3NDgiIHk9IjQ5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5pCc57Si5YWl5Y+jIOKGkiDlm77pgY3ljoY8L3RleHQ+DQo8dGV4dCB4PSI3NDgiIHk9IjUxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5oyJ5rex5bqm44CB6IqC54K55ZKM5rqQ56CB6aKE566XPC90ZXh0Pg0KPHRleHQgeD0iNzQ4IiB5PSI1NDEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPui/lOWbnue7k+aehOWMlue7k+aenDwvdGV4dD4NCjxyZWN0IHg9IjEwNzAiIHk9IjQzMCIgd2lkdGg9IjMyMCIgaGVpZ2h0PSIxNDUiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTA4OCIgeT0iNDY1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5VSSBIVFRQIEFQSTwvdGV4dD4NCjx0ZXh0IHg9IjEwODgiIHk9IjQ5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6K+75Y+W5ZCM5LiA6aG555uu57Si5byVPC90ZXh0Pg0KPHRleHQgeD0iMTA4OCIgeT0iNTE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lj6bmnIkgdHJhaWxzIEpTT04g5YaZ5YWlPC90ZXh0Pg0KPHRleHQgeD0iMTA4OCIgeT0iNTQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mtY/op4jlmajkuI3nm7TmjqXorr/pl67mlbDmja7lupM8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iNjgwIiB3aWR0aD0iNjQwIiBoZWlnaHQ9IjE0NSIgcng9IjEyIiBmaWxsPSIjZmZmNGU0IiBzdHJva2U9IiNjNDkyNDUiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iNzE1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7ovrnnlYzlv4XpobvnnIvmupDnoIE8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iNzQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ooaXlkIzmraXmnInotoXml7blkI7nu6fnu63mnI3liqHnmoTot6/lvoQ8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iNzY2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj5wZW5kaW5nIOaPkOekuuS4jeetieS6juawuOS4jei/h+acnzwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI3OTEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuaWsOW6k+W/q+W7uuWPr+S4ouW8g++8m+S4jemAguWQiOebtOaOpeaQrOWIsOWGs+etluW6kzwvdGV4dD4NCjxyZWN0IHg9IjczMCIgeT0iNjgwIiB3aWR0aD0iMzAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjZWZmMGZjIiBzdHJva2U9IiM5Mjk1YzgiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI3NDgiIHk9IjcxNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+TUNQIC8gQ0xJPC90ZXh0Pg0KPHRleHQgeD0iNzQ4IiB5PSI3NDEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWQkSBBZ2VudCDmj5Dkvpvmo4DntKLnu5Pmnpw8L3RleHQ+DQo8cmVjdCB4PSIxMDcwIiB5PSI2ODAiIHdpZHRoPSIzMjAiIGhlaWdodD0iMTAwIiByeD0iMTIiIGZpbGw9IiNlZmYwZmMiIHN0cm9rZT0iIzkyOTVjOCIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjEwODgiIHk9IjcxNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+5rWP6KeI5ZmoPC90ZXh0Pg0KPHRleHQgeD0iMTA4OCIgeT0iNzQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mn6XnnIvku6PnoIHlhbPns7vkuI7mupDnoIE8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iODgwIiB3aWR0aD0iMTM0MCIgaGVpZ2h0PSI5MCIgcng9IjEyIiBmaWxsPSIjZWRmMWY2IiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iOTE1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7ov5DooYznu4Tnu4c8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iOTQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lhbHkuqvlkI7lj7DmjInpobnnm67lpI3nlKggTUNQRW5naW5l77yb5q+P5Liq5a6i5oi356uv5pyJIE1DUFNlc3Npb24gLyBwcm94ee+8m1VJIOacjeWKoeWPr+eLrOeri+i/kOihjOOAgjwvdGV4dD4NCjwvZz4NCjwvc3ZnPg==" alt="CodeGraph 实现链路"></a></p>
+<h2>2. 用户入口与内部职责</h2>
+<table>
+<thead>
+<tr>
+<th>入口</th>
+<th>用户得到什么</th>
+<th>内部职责与边界</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>安装 CLI</td>
+<td>可调用 codegraph</td>
+<td>发布包管理运行时和平台构件；安装 CLI 不等于完成宿主接入</td>
+</tr>
+<tr>
+<td>codegraph install</td>
+<td>配置所用 Agent</td>
+<td>installer 按目标宿主修改其接入配置；不是建索引</td>
+</tr>
+<tr>
+<td>codegraph init</td>
+<td>初始化当前项目并建图</td>
+<td>解析项目根，创建本地存储，扫描、提取、解析并落库</td>
+</tr>
+<tr>
+<td>codegraph serve --mcp</td>
+<td>Agent 查询能力</td>
+<td>MCP 启动路径决定直接服务或通过代理连接共享后台</td>
+</tr>
+<tr>
+<td>codegraph ui</td>
+<td>浏览代码图</td>
+<td>本地 HTTP 服务读取相同索引，提供浏览器资源与 API</td>
+</tr>
+<tr>
+<td>codegraph status / sync</td>
+<td>状态诊断或显式刷新</td>
+<td>日常可自动同步；诊断、离线脚本和受限环境仍需显式入口</td>
+</tr>
+</tbody></table>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/bin/codegraph.ts">CLI</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/index.ts">MCP 入口</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/ui-server/index.ts">UI 服务</a>。</p>
+<h2>3. 首次建图：先提取，再解析关系</h2>
+<p>CodeGraph 类负责装配数据库、提取器、引用解析器、图查询与上下文构建器。<code>indexAll()</code> 使用进程内互斥和文件锁防止重叠建库，随后运行以下阶段：</p>
+<ol>
+<li>建立索引中状态，枚举需要处理的文件。</li>
+<li>根据语言提取函数、类等节点，以及尚未解析的引用。</li>
+<li>将节点、文件元数据和待解析引用写入数据库。大批量装载阶段可以暂缓二级索引与全文索引维护，之后统一重建。</li>
+<li>在已有文件信息后重新初始化框架解析器，补充框架相关关系。</li>
+<li>解析跨文件引用，生成调用、导入、继承等边，并执行后续维护。</li>
+</ol>
+<p>这里的重要顺序是：先有符号集合，才能可靠地寻找引用目标。关系无法解析时保留待处理记录，而不是强行生成一条确定的边。</p>
+<p>原生 Rust kernel 通过 Node addon 加载；加载失败、ABI 不匹配等路径返回不可用，再走 WASM 提取管线。因此它是 TypeScript 编排与原生加速结合的实现，并非一个纯 Rust 应用。SQLite 适配器使用 Node 内置 <code>node:sqlite</code>；源码注释要求从源码运行时 Node &gt;= 22.5，而 package.json 的 engines 范围更宽。实际源码运行要求需要验证，不能只看包字段。</p>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/index.ts">核心编排</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/extraction/kernel/loader.ts">kernel loader</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/db/sqlite-adapter.ts">SQLite adapter</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/package.json">package.json</a>。</p>
+<h2>4. 数据库：关系表就能表达图</h2>
+<p>核心数据包括：<code>nodes</code> 保存符号和源位置；<code>edges</code> 保存 source、target、kind 与 provenance；<code>files</code> 保存哈希、修改与索引时间；<code>unresolved_refs</code> 保存待解析或失败引用；<code>nodes_fts</code> 提供 FTS5 搜索；另外有 schema version 和项目元数据。</p>
+<p>这些表将图表示为“实体 + 关系”，不依赖独立图数据库服务。复杂信息可局部存为 JSON 字段，而身份、关系、时间和查询索引仍使用明确的列。</p>
+<p><code>DatabaseConnection</code> 集中配置外键、WAL、busy timeout、缓存和 WAL 维护。SQLite 不会消除进程协调：源码另有 writer.pid、daemon.pid、socket / Windows named pipe，以及建库锁。</p>
+<p>也并非所有持久信息都在数据库：UI 的命名 trails 会写入 <code>.codegraph/ui/trails/</code> 下的 JSON。不要将 README 的“SQLite database only”扩展解释为所有功能都无其他状态文件。</p>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/db/schema.sql">schema</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/db/index.ts">连接管理</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/daemon-paths.ts">运行路径</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/ui-server/index.ts">UI 服务</a>。</p>
+<h2>5. 自动同步：变更提示 + 核对 + 修复受影响关系</h2>
+<p>文件 watcher 记录 pending 集合，并通过防抖合并编辑事件。已知准确文件集合时，只核对这些路径；事件溢出、目录变化等不能确定范围时，退回完整扫描核对。</p>
+<p>核对依据是文件系统与索引状态的差异：先用 size、mtime 过滤，再用内容哈希确认。不能只依赖 <code>git status</code>，因为 pull、checkout 后工作区即使干净，内容也可能已改变。<code>ExtractionOrchestrator.sync()</code> 明确实现了这个区别。</p>
+<p>增量提取后不仅更新被编辑文件，也可能重新打开其他文件中已经失效的解析关系。例如 A 删除一个定义，B 没有修改，但 B 指向 A 的关系必须重新检查。正确的增量结果应收敛到完整重建结果。</p>
+<p>启动/重连还会进行 catch-up，弥补后台停机期间的变化。MCP 工具对涉及 pending 文件的结果增加过期提示。但 <code>awaitCatchUpGate()</code> 有超时分支，超时会记录日志后继续服务；异常核对也可能退回尽力返回。因此“永不过期”不能作为从源码得出的保证。</p>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/sync/watcher.ts">watcher</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/extraction/index.ts">文件核对</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/index.ts">增量关系修复</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/tools.ts">过期提示与 catch-up gate</a>。</p>
+<h2>6. 查询：搜索入口，再沿关系扩展</h2>
+<p><code>ContextBuilder.buildContext()</code> 先调用相关上下文查找，结合搜索候选和有界图遍历，提取入口、相关文件及可选源码片段，最后输出结构化对象、Markdown 或 JSON。节点数、深度、片段数量与大小都有预算参数。</p>
+<p>对 DevMap 的启示是：先回答“当前任务在哪里、目标是什么、有什么阻塞”，再按请求展开历史。不要每次 MCP 调用都发送整张图。CodeGraph 的少调用优势也不能直接推导为更小的常驻上下文；其 README 自己区分了累计 token 使用量与长会话残留上下文。本文不采用其性能宣传作为 DevMap 指标。</p>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/context/index.ts">ContextBuilder</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/graph/traversal.ts">图遍历</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/README.md">README</a>。</p>
+<h2>7. 多 Agent：共享重资源，隔离会话</h2>
+<p>共享后台模式按项目根复用一个 MCPEngine，避免每个 Agent 重复启动 watcher 和解析引擎。每个连接拥有自己的 MCPSession，宿主通过轻量 proxy 接入。最后一个客户端断开后，后台默认等待 300 秒再退出，减少连续会话反复冷启动。</p>
+<p>这不是严格的“一个 OS 进程”：代理、查询 worker 和 UI 服务仍可能独立存在。应该借鉴“同一份重资源和写入所有权”，不应承诺所有入口只有一个进程。</p>
+<p>worktree 检查通过当前 Git 工作根和索引根识别串用，并比较 git common dir 排除无关仓库。发现同仓库不同工作树时提示建立当前工作树索引。CodeGraph 以工作树代码索引为边界；DevMap 要展示整个仓库的 worktree，不能直接复制它的数据库划分规则。</p>
+<p>来源：<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/daemon.ts">daemon</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/engine.ts">engine</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/mcp/writer-lock.ts">writer lock</a>、<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/sync/worktree.ts">worktree</a>。</p>
+<h2>8. 学什么，不照搬什么</h2>
+<table>
+<thead>
+<tr>
+<th>采用的思路</th>
+<th>不直接照搬的内容</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SQLite + 明确的领域表</td>
+<td>AST、跨语言调用解析、全文检索全套引擎</td>
+<td>DevMap 目前解决任务/Git 关系，而非代码语义索引</td>
+</tr>
+<tr>
+<td>共享核心与按需启动</td>
+<td>全部 worker pool、WAL 批量优化</td>
+<td>先测实际瓶颈，避免复制别人的规模成本</td>
+</tr>
+<tr>
+<td>哈希核对与显式 freshness</td>
+<td>“watcher 一直工作，所以永远最新”</td>
+<td>watcher 会漏事件，宿主会断开，Git 状态会并发变化</td>
+</tr>
+<tr>
+<td>同一数据服务多个入口</td>
+<td>UI 与 MCP 必须同一个进程</td>
+<td>共用查询语义比物理进程数量更关键</td>
+</tr>
+<tr>
+<td>可重建索引的恢复方式</td>
+<td>首次建库 synchronous=OFF</td>
+<td>DevMap 数据库内有人类决策，不能全库视为可丢弃</td>
+</tr>
+<tr>
+<td>简洁接入流程</td>
+<td>直接改成 TypeScript / Node 技术栈</td>
+<td>现有 Rust 领域逻辑和发布入口可继续使用</td>
+</tr>
+</tbody></table>
+<p>CodeGraph 的新库快建会临时使用 MEMORY journal 和 synchronous=OFF；正常配置是 WAL / NORMAL。这适用于其明确可重建阶段，不能复制到 DevMap 的持久决策库。<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/src/index.ts">核心编排</a></p>
+<p>另一个产品表述边界：本地索引不等于程序完全无网络。固定版本有匿名遥测和更新检查路径；文档说明了关闭方式。因此 DevMap 的“本地”承诺应具体描述数据流，不能照抄绝对表述。<a href="https://github.com/colbymchenry/codegraph/blob/195888d71f3ad053bfa725f24b3d3e9353c50e09/TELEMETRY.md">遥测说明</a></p>
+<h2>9. 源码复核入口</h2>
+<p>固定提交：<code>195888d71f3ad053bfa725f24b3d3e9353c50e09</code>。推荐按此顺序读：</p>
+<ol>
+<li>src/bin/codegraph.ts → src/index.ts：入口和核心编排。</li>
+<li>src/db/schema.sql → sqlite-adapter.ts → index.ts：数据结构和连接策略。</li>
+<li>src/extraction/index.ts → src/resolution/：提取、核对和引用解析。</li>
+<li>src/sync/watcher.ts → src/mcp/tools.ts：pending、补同步和查询边界。</li>
+<li>src/context/index.ts → src/graph/traversal.ts：有界检索。</li>
+<li>src/mcp/index.ts → daemon.ts → engine.ts → session.ts：多客户端生命周期。</li>
+<li>src/sync/worktree.ts → src/ui-server/index.ts：身份边界和人类入口。</li>
+</ol>
+<p>后续若要采用它的具体优化，先在公开小仓库上复现初建、增量更新、后台中断、双客户端和 worktree 错配，再决定。这个验证不是当前文档中已完成的工作。</p>
+</section>
+<section id="framework" aria-label="DevMap 技术框架"><h1>DevMap 简化技术框架</h1>
+<p>状态：建议方案，等待评审；不是现有系统实现说明。目标读者：产品负责人及后续开发、验证人员。</p>
+<h2>1. 目标与范围</h2>
+<p>用户进入任意一个 worktree，打开 DevMap，就应看到这个仓库的工作区、任务、真实 Git 状态和已记录路线。初始化、状态保存和刷新由程序处理，日常操作不要求用户创建独立 Context Repository 或理解 JSON 日志、manifest、租约文件。</p>
+<p>本轮简化覆盖本机、单用户、一个 Git 仓库及其多个 worktree。多仓库可以分别运行相同核心；跨机器同步、云服务、自动 merge/revert、代码 AST 索引、通用图查询语言均不进入首轮范围。Git 写操作仍属于独立、明确授权的工作流。</p>
+<p>成功标准是：用户步骤减少，重复扫描和写入路径减少，恢复逻辑更集中，领域语义不退化。数据库文件数量减少只是手段。</p>
+<h2>2. 当前代码基线</h2>
+<p>DevMap 基线为本地 main <code>db696768baf366b442adf6097e0c1f4cec3f7e08</code>。所有现状判断仅针对该提交；当前分支、其他工作区和已安装运行时可能不同。</p>
+<table>
+<thead>
+<tr>
+<th>当前模块</th>
+<th>已观察到的职责/存储</th>
+<th>简化中的处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>src/git.rs、worktrees.rs</td>
+<td>Git 检查、common dir、worktree 发现及身份计算</td>
+<td>保留并复用</td>
+</tr>
+<tr>
+<td>src/git_relationship.rs、git_topology.rs</td>
+<td>Git 关系与拓扑计算</td>
+<td>保留语义，统一输入快照</td>
+</tr>
+<tr>
+<td>src/journal.rs</td>
+<td>每会话 events.ndjson、intent、index、锁；任务关联与水位文件</td>
+<td>以事务、唯一键及持久水位替换多文件提交协议</td>
+</tr>
+<tr>
+<td>src/presence.rs</td>
+<td>common dir 下 presence/v1 的每会话 JSON 与锁；状态来源和租约</td>
+<td>当前状态进入数据库；保留来源、置信与过期语义</td>
+</tr>
+<tr>
+<td>src/route_plan.rs</td>
+<td>route-plans.jsonl；request_id、expected_revision、start_commit</td>
+<td>保留幂等、版本并发检查及不可变起点</td>
+</tr>
+<tr>
+<td>src/dock.rs</td>
+<td>DockReadModel / DockReducer，schema 为 devmap/dock/4</td>
+<td>先保持输出兼容，再扩展 freshness 字段</td>
+</tr>
+<tr>
+<td>src/viewer.rs、mcp.rs</td>
+<td>浏览器服务与 MCP 入口；已有本地访问 token</td>
+<td>适配共享应用服务，保留已有访问边界</td>
+</tr>
+<tr>
+<td>src/context.rs</td>
+<td>独立 Context Git 及对象完整性</td>
+<td>作为兼容能力保留，退出默认初始化必需路径</td>
+</tr>
+<tr>
+<td>src/adapter.rs、hook.rs、capture.rs</td>
+<td>宿主接入、事件与能力边界</td>
+<td>继续做薄适配，不能通过换库夸大观察覆盖率</td>
+</tr>
+</tbody></table>
+<p>源码入口：<a href="https://github.com/DylanZhangzzz/DevMap/tree/db696768baf366b442adf6097e0c1f4cec3f7e08/src">固定版本 src</a>。本次本地读取了上述文件及 Cargo.toml；这里没有以远端页面代替本地版本检查。</p>
+<h2>3. 方案比较与推荐</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>代价</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A. 保持多文件，封装用户入口</td>
+<td>改动少，容易保留现状</td>
+<td>事务、索引、并发和恢复仍散落在不同文件协议中</td>
+<td>可短期改善使用，无法充分解决内部复杂性</td>
+</tr>
+<tr>
+<td>B. Rust 核心 + 仓库 SQLite + 按需共享服务</td>
+<td>复用现有逻辑，集中一致性，多入口共享</td>
+<td>需要可靠迁移、SQLite 依赖及进程生命周期验证</td>
+<td><strong>推荐，分阶段交付</strong></td>
+</tr>
+<tr>
+<td>C. 全局后台 + 全局数据库 + 重写技术栈</td>
+<td>跨项目查询集中</td>
+<td>身份、权限、资源和故障范围都扩大，迁移成本最高</td>
+<td>当前不采用</td>
+</tr>
+</tbody></table>
+<p>采用 B 不要求一开始完成 daemon：P1–P2 先用同一存储接口替换落盘，再在 P3 集中后台写入所有权。这样可以分别定位存储错误与进程协调错误。</p>
+<h2>4. 总体架构</h2>
+<p><a class="figure-link" href="02-devmap.svg" title="打开全尺寸架构图"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNDAiIHZpZXdCb3g9IjAgMCAxNDQwIDEwNDAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSBkZXNjIj4NCjx0aXRsZSBpZD0idGl0bGUiPkRldk1hcCDnroDljJblkI7nmoTmioDmnK/moYbmnrY8L3RpdGxlPg0KPGRlc2MgaWQ9ImRlc2MiPuW7uuiuruaWueahiCDCtyDmnKzmnLrjgIHljZXnlKjmiLfjgIHku5PlupPnuqflrZjlgqggwrcg5aSN55So546w5pyJIFJ1c3Qg6aKG5Z+f5qC45b+DPC9kZXNjPg0KPGRlZnM+PG1hcmtlciBpZD0iYXJyb3ciIG1hcmtlcldpZHRoPSIxMCIgbWFya2VySGVpZ2h0PSIxMCIgcmVmWD0iOCIgcmVmWT0iNCIgb3JpZW50PSJhdXRvIiBtYXJrZXJVbml0cz0ic3Ryb2tlV2lkdGgiPjxwYXRoIGQ9Ik0wLDAgTDgsNCBMMCw4IFoiIGZpbGw9IiM2NDc0OGIiLz48L21hcmtlcj48L2RlZnM+DQo8ZyBmb250LWZhbWlseT0iTWljcm9zb2Z0IFlhSGVpLCBOb3RvIFNhbnMgQ0pLIFNDLCBzYW5zLXNlcmlmIj4NCjxyZWN0IHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNDAiIGZpbGw9IiNmOGZhZmMiLz4NCjxyZWN0IHg9IjUwIiB5PSI0NSIgd2lkdGg9IjUyIiBoZWlnaHQ9IjUiIHJ4PSIyIiBmaWxsPSIjMzA5MTZjIi8+DQo8dGV4dCB4PSI1MCIgeT0iMTAyIiBmb250LXNpemU9IjM4IiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5EZXZNYXAg566A5YyW5ZCO55qE5oqA5pyv5qGG5p62PC90ZXh0Pg0KPHRleHQgeD0iNTAiIHk9IjE0MCIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzU4NmE4MSIgZm9udC13ZWlnaHQ9IjQwMCI+5bu66K6u5pa55qGIIMK3IOacrOacuuOAgeWNleeUqOaIt+OAgeS7k+W6k+e6p+WtmOWCqCDCtyDlpI3nlKjnjrDmnIkgUnVzdCDpoobln5/moLjlv4M8L3RleHQ+DQo8cGF0aCBkPSJNMjUwLDI4MCBMMjUwLDM1NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNNzIwLDI4MCBMNzIwLDM1NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNMTE5MCwyODAgTDExOTAsMzU1IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjxwYXRoIGQ9Ik0yNTAsNDY1IEwyNTAsNTQ1IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjx0ZXh0IHg9IjI2Mi4wIiB5PSI1MDUuMCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6aKG5Z+f5ZG95LukIC8g6KeC5a+f5om55qyhPC90ZXh0Pg0KPHBhdGggZD0iTTQ1MCw2MDcgTDUyMCw2MDciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTkyMCw2MDcgTDk5MCw2MDciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTExOTAsNjcwIEwxMTkwLDc3MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8dGV4dCB4PSIxMjAyLjAiIHk9IjcyMC4wIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kuIDoh7Tor7vlv6vnhac8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iMTcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjExMCIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iMjA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5HaXQg6KeC5a+fPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjIzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+cmVmcyAvIEhFQUQgLyB3b3JrdHJlZSAvIOaLk+aJkTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSIyNTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuecn+WunuW8gOWPkeeKtuaAgeeahOadpea6kDwvdGV4dD4NCjxyZWN0IHg9IjUyMCIgeT0iMTcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjExMCIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI1MzgiIHk9IjIwNSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+5a6/5Li7IC8gQWdlbnQg6KeC5a+fPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS7u+WKoeOAgeS8muivneOAgea0u+WKqOOAgeimhuebluiMg+WbtDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iMjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kv53nlZnmnaXmupDkuI7nvLrlj6M8L3RleHQ+DQo8cmVjdCB4PSI5OTAiIHk9IjE3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMTAiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTAwOCIgeT0iMjA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7nlKjmiLfmhI/lm748L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSIyMzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPui3r+e6v+OAgeebruagh+OAgemHjOeoi+eikeOAgeaSpOWbnjwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjI1NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5peg5rOV5Y2V6Z2gIEdpdCDph43lu7o8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iMzU1IiB3aWR0aD0iMTM0MCIgaGVpZ2h0PSIxMTAiIHJ4PSIxMiIgZmlsbD0iI2VhZjJmZiIgc3Ryb2tlPSIjNjQ4OGMxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNjgiIHk9IjM5MCIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+57uf5LiA5o6l5YWl5LiO5qCh6aqMPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjQxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6Kej5p6QIHJlcG9zaXRvcnkgLyB3b3JrdHJlZSBpbmNhcm5hdGlvbiDCtyDmoKHpqozmnaXmupDlkozluYLnrYnplK4gwrcg5piO56Gu6KeC5a+f5pe26Ze0IMK3IOS4jeS7juebuOS8vOi3r+W+hOeMnOWFs+iBlDwvdGV4dD4NCjxyZWN0IHg9IjUwIiB5PSI1NDUiIHdpZHRoPSI0MDAiIGhlaWdodD0iMTI1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuW6lOeUqOacjeWKoSAvIOmihuWfn+inhOWImTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI2MDYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPueJiOacrOWGsueqgeajgOafpeS4juS6i+S7tuWOu+mHjTwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI2MzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWGmemYn+WIlyDihpIg55+t5LqL5YqhIOKGkiDmj5DkuqTnoa7orqQ8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iNjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7orqHliJLjgIHkuovlrp7lkozmnKrnn6Xkv53mjIHliIbnprs8L3RleHQ+DQo8cmVjdCB4PSI1MjAiIHk9IjU0NSIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2U3ZjNlZSIgc3Ryb2tlPSIjMzA5MTZjIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNTM4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPmRldm1hcC5kYjwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iNjA2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4mbHQ7Z2l0LWNvbW1vbi1kaXImZ3Q7L2Rldm1hcC88L3RleHQ+DQo8dGV4dCB4PSI1MzgiIHk9IjYzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5oyB5LmF6K6w5b2VICsg5Y+v6YeN5bu65oqV5b2xPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSI2NTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPlNRTGl0ZSBXQUwgLyDpu5jorqQgRlVMTDwvdGV4dD4NCjxyZWN0IHg9Ijk5MCIgeT0iNTQ1IiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSIxMDA4IiB5PSI1ODAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPue7n+S4gOafpeivouS4juaKleW9sTwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjYwNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+Z2VuZXJhdGlvbiArIGV2YWx1YXRlZF9hdDwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjYzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5ZCE5p2l5rqQIGZyZXNobmVzcyAvIHdhcm5pbmdzPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iNjU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mkZjopoHkvJjlhYjjgIHljoblj7LliIbpobU8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iNzcwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZmZmNGU0IiBzdHJva2U9IiNjNDkyNDUiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iODA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7lv4Xpobvkv53nlZk8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODMxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kuovku7bjgIHot6/nur/kv67orqLjgIHlhbPogZTljoblj7LjgIHmsLTkvY08L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODU2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ov4Hnp7vmuq/mupDvvJvlpJbpg6jkuIDoh7TmgKflpIfku708L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mjZ/lnY/ml7blgZzmraLlhpnlhaXlubbmgaLlpI08L3RleHQ+DQo8cmVjdCB4PSI1MjAiIHk9Ijc3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2VkZjFmNiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNTM4IiB5PSI4MDUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuWPr+S7pemHjeaWsOeUn+aIkDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iODMxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lvZPliY0gcHJlc2VuY2XjgIFHaXQg5b2T5YmN5b+r54WnPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSI4NTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS7juS6i+Wunuadpea6kOaIluaMgeS5heiusOW9lemHjeeulzwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ov4fmnJ/kuI3ku6PooajlrozmiJA8L3RleHQ+DQo8cmVjdCB4PSI5OTAiIHk9Ijc3MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2VmZjBmYyIgc3Ryb2tlPSIjOTI5NWM4IiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTAwOCIgeT0iODA1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7lnLDlm74gLyBNQ1AgLyBDTEk8L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSI4MzEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWQjOS4gOafpeivouWlkee6pu+8jOaMiemcgOWxleekuuivpuaDhTwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9Ijg1NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5YaZ5ZG95Luk5Zue5Yiw57uf5LiA5o6l5YWl5bGCPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iODgxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mtY/op4jlmajpppbova7lj6ror7s8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iOTQwIiB3aWR0aD0iMTM0MCIgaGVpZ2h0PSI2MCIgcng9IjEyIiBmaWxsPSIjZWRmMWY2IiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iOTc4IiBmb250LXNpemU9IjIwIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7ov5DooYzmlrnlvI88L3RleHQ+DQo8dGV4dCB4PSIyMTUiIHk9Ijk3OCIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5q+P5LuT5bqT5LiA5Liq5oyJ6ZyA5YWx5Lqr5YaZ5qC45b+D77yb5aSa5Liq5Luj55CG5Y+v6L+e5o6l44CCU1FMaXRlIOabv+S7o+WkmuaWh+S7tuWNj+iuru+8jOS4jeabv+S7oyBHaXTjgII8L3RleHQ+DQo8L2c+DQo8L3N2Zz4=" alt="目标架构"></a></p>
+<p>逻辑依赖为：Git/宿主/用户输入 → 采集与校验 → 应用服务和领域规则 → SQLite → 查询投影 → UI/MCP/CLI。所有写命令都经过应用服务；所有读入口使用统一查询契约。UI 不读取数据库文件，也不自行推导完成状态。</p>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>负责什么</th>
+<th>接口/输出</th>
+<th>不承担什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Repository resolver</td>
+<td>解析真实工作根、git dir、common dir，验证本机路径身份</td>
+<td>RepositoryContext / WorktreeDescriptor</td>
+<td>根据标题或相似路径猜关联</td>
+</tr>
+<tr>
+<td>Git observer</td>
+<td>读取 refs、HEAD、worktree 和必要拓扑；记录观察区间</td>
+<td>GitObservationBatch</td>
+<td>修改源 Git、保证观察期间 Git 不变</td>
+</tr>
+<tr>
+<td>Host adapters</td>
+<td>转换宿主任务、会话、活动，声明覆盖范围和来源</td>
+<td>NormalizedEvent / TaskObservationBatch</td>
+<td>把宿主报告当成经过认证的实际执行证据</td>
+</tr>
+<tr>
+<td>Application service</td>
+<td>命令校验、幂等、版本冲突、领域状态变化</td>
+<td>CommandResult / domain error</td>
+<td>任意 SQL 透传</td>
+</tr>
+<tr>
+<td>Repository store</td>
+<td>一个 SQLite 文件，事务、迁移、备份、受限查询</td>
+<td>小范围读写方法</td>
+<td>Git 语义推断、UI 展示逻辑</td>
+</tr>
+<tr>
+<td>Projector/query service</td>
+<td>合并持久记录与最新观察，生成地图/任务摘要</td>
+<td>SnapshotEnvelope</td>
+<td>写入推测为事实、自动恢复撤回工作</td>
+</tr>
+<tr>
+<td>Runtime coordinator</td>
+<td>共享核心发现、启动、连接、退出和写入串行化</td>
+<td>本地 IPC；健康状态</td>
+<td>跨机器数据库共享</td>
+</tr>
+<tr>
+<td>Browser/MCP/CLI</td>
+<td>展示、查询或提交明确的领域命令</td>
+<td>同一版本查询模型</td>
+<td>独立维护另一套业务状态</td>
+</tr>
+</tbody></table>
+<p>实现继续使用 Rust；SQLite binding 作为 P1 验证的新增依赖，优先评估 rusqlite 的 bundled 构建路线并固定经过构建验证的版本。当前不承诺具体版本或所有平台已支持。保留现有打包和 npx 入口，验证依赖后再更新发布构件；不引入 Node 常驻服务作为前提。</p>
+<p>建议的代码边界是 <code>store/</code>、<code>application/</code> 和 <code>runtime/</code> 三个小模块，加上已有 observer/reducer/adapter。这里是职责建议，不要求一次性搬动全部源文件或增加通用插件框架。</p>
+<h2>5. 存储位置与身份</h2>
+<p>默认路径为 <code>&lt;git-common-dir&gt;/devmap/devmap.db</code>。必须通过 Git 与现有路径校验解析，不能拼接当前工作区的 <code>.git</code>：linked worktree 的 <code>.git</code> 通常是指针文件。它与源码文件分离，也避免每个 worktree 都创建一份状态。</p>
+<p>运行时可以存在 devmap.db-wal、devmap.db-shm、owner lock 及 socket；Windows 使用受本机用户权限约束的 named pipe。用户不需要手动创建、复制或删除这些文件。</p>
+<p>数据库与后台实例按规范化 common dir 定位。P1–P2 保留旧 repository_id/worktree_id，避免迁移时无故切断历史关联。现有 ID 与路径有关：仓库移动、工作区删除后同路径重建不能默认为原身份延续。为工作区登记增加 incarnation（一次注册的生命周期标识）；路径只作为定位信息。检测到移动/重建时先提示重新关联，明确确认后记录映射，保留旧 ID。自动推断跨路径同一仓库不属于首轮目标。</p>
+<p>使用本地磁盘数据库；不把活动数据库放在共享网络盘上供多台机器直接读写。不具备本地存储条件时明确返回不支持的存储位置，后续才评估本机用户目录覆盖选项。原有 Context Repository 的备份/共享能力不能因为移入 SQLite 就视为自动保留。</p>
+<h2>6. 数据模型：统一文件，明确寿命</h2>
+<p>下表是概念模型，实际 DDL 由 P1 校验。可以调整表数量，但不能丢掉以下约束。</p>
+<table>
+<thead>
+<tr>
+<th>表/数据集</th>
+<th>主要字段</th>
+<th>保留性质与规则</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>store_meta</td>
+<td>schema_version、repository_id、common_dir、generation</td>
+<td>持久；未知新版本拒绝写入，不自动降级</td>
+</tr>
+<tr>
+<td>worktrees</td>
+<td>worktree_id、incarnation、git_dir、workspace_path、retired_at</td>
+<td>登记历史持久；删除工作区不级联删除事件</td>
+</tr>
+<tr>
+<td>events</td>
+<td>event_id、source、session_id、worktree/incarnation、observed_at、event_at、source_seq、payload、payload_hash</td>
+<td>持久追加；重复 ID 同内容返回原结果，不同内容报冲突</td>
+</tr>
+<tr>
+<td>route_revisions</td>
+<td>route_id、revision、request_id、start_commit、target_ref、goal、milestones、abandoned</td>
+<td>持久追加；唯一 route/revision 与 request_id；start_commit 不变</td>
+</tr>
+<tr>
+<td>task_binding_observations</td>
+<td>host、task_id、worktree/incarnation、from_worktree、source、observed_at</td>
+<td>持久观察历史；不虚构准确移动时刻</td>
+</tr>
+<tr>
+<td>source_watermarks</td>
+<td>source_scope、cursor/sequence、observed_at、coverage、gap_state</td>
+<td>持久；与接受事件/关联在同一事务更新，防旧观察回滚新状态</td>
+</tr>
+<tr>
+<td>presence_current</td>
+<td>host/session、status、status_source、confidence、last_seen、expires_at</td>
+<td>派生当前态，可重建/过期；来源事件保留</td>
+</tr>
+<tr>
+<td>git_snapshots</td>
+<td>scope、refs/HEAD、topology 摘要、scan_started_at、scan_finished_at、freshness</td>
+<td>当前态缓存，可刷新；不可把历史分支名当作当前 ref</td>
+</tr>
+<tr>
+<td>migration_imports</td>
+<td>import_id、source_hash、source_path、record_key、outcome、tool_version</td>
+<td>持久迁移溯源与幂等检查；不把损坏数据标成成功</td>
+</tr>
+</tbody></table>
+<p>原 Common Ground/Approval 对象若被导入，存为明确类型的持久记录，保留原字节、内容 ID、绑定关系和来源提交。若 SQL 库尚不能验证其原信任契约，保持 legacy-only 并通过兼容读取器访问，不降格为普通缓存。</p>
+<p>完整对话、终端输出和源码内容不默认全部复制入库；存储原有允许的事件内容及受限引用。持久内容默认不静默删除；数据量达到预算时报告容量问题并停止接受无法可靠保存的新写入。后续归档策略需要单独说明，不能通过清空决策历史来“修复”数据库。</p>
+<h2>7. 写入事务和领域不变量</h2>
+<p>一条写命令遵循：识别仓库和工作区 → 验证载荷/来源 → 查幂等键 → 检查 expected_revision/水位 → 写记录及投影 → 更新 generation → COMMIT → 返回已接受。</p>
+<p>如果在 COMMIT 后响应前断开，客户端用同一 request_id 重试并得到同一结果。提交失败不得返回成功。多次接收同一事件不得多生成一个路线版本。来源序号只在该来源范围内比较；没有序号时不能用接收顺序冒充事件发生顺序，observed_at 与 event_at 分开保存。</p>
+<p>默认持久写连接采用 WAL、foreign_keys=ON、synchronous=FULL，并设置有限 busy timeout。不使用 CodeGraph 新建可重建索引时的 OFF 优化。FULL 也不能替代真实磁盘/故障测试；文档不承诺超出存储硬件保证的零丢失。<a href="https://www.sqlite.org/wal.html">SQLite WAL 与持久性</a></p>
+<p>必须保留的业务不变量：</p>
+<ul>
+<li>start_commit、observed_head、merge_base 分开；后两者按观察更新。</li>
+<li>计划不是已发生历史；unknown 不是一条虚构关系边。</li>
+<li>ahead=0 或 merged 标志不能直接等同于任务交付完成。</li>
+<li>手工 cherry-pick/revert 的实际结果优先；保留撤回历史，不自动重做。</li>
+<li>部分宿主任务列表不能删除未返回任务；租约超时不等于任务完成。</li>
+<li>delivery.mode 等计划字段不是可执行授权凭据；换库不能触发自动 Git 操作。</li>
+<li>哈希帮助检查内容一致性，不证明操作者身份，也不单独提供防篡改审计。</li>
+</ul>
+<h2>8. 更新与查询契约</h2>
+<p>第一版使用按需刷新和低频核对；在 P3 再合并常驻观察。watcher/hook 只提供刷新信号。重连、checkout、ref 改变、工作区增删或观察缺口时重新核对。Git 扫描期间记录开始/结束时的相关 HEAD/refs；发生变化则丢弃候选快照并有限重试，仍不稳定就返回 pending/unknown。未提交文件状态仍是观察区间内的样本，不宣称整个 Git 仓库被原子冻结。</p>
+<p>建议所有查询带上同一外层契约：</p>
+<pre><code class="language-json">{
+  &quot;schema_version&quot;: &quot;devmap/query/1&quot;,
+  &quot;repository_id&quot;: &quot;...&quot;,
+  &quot;generation&quot;: 42,
+  &quot;evaluated_at&quot;: &quot;...&quot;,
+  &quot;scope&quot;: { &quot;worktree_id&quot;: &quot;...&quot;, &quot;incarnation&quot;: &quot;...&quot; },
+  &quot;freshness&quot;: {
+    &quot;git&quot;: { &quot;state&quot;: &quot;fresh&quot;, &quot;observed_at&quot;: &quot;...&quot; },
+    &quot;host&quot;: { &quot;state&quot;: &quot;partial&quot;, &quot;observed_at&quot;: &quot;...&quot; }
+  },
+  &quot;warnings&quot;: [],
+  &quot;truncated&quot;: false,
+  &quot;next_cursor&quot;: null,
+  &quot;data&quot;: {}
+}
+</code></pre>
+<p><code>fresh</code> 仅表示在记录的观察边界上核对成功，不保证未来时刻不变。其他状态为 pending、stale、partial、unknown、error。各来源独立标记，不能用 Git 已刷新掩盖宿主信息缺失。</p>
+<p>同一次响应在一个数据库读事务中取得一致 generation；租约计算固定使用 evaluated_at。UI、MCP 和 CLI 若要比较一致性，必须使用相同 generation、作用域和 evaluated_at。generation 相同也不代表较晚读取时租约没有过期。分页游标绑定 generation 和查询范围；失效时要求重新开始，不混入新旧数据。</p>
+<p>建议领域接口包括 GetMap、GetTask、GetRoute、ListEvents、Refresh、RecordEvent、UpdateRoute。前三个入口默认返回摘要，历史通过受限分页展开；无任意 SQL 端点。MCP 旧工具先由兼容层映射，保持 devmap/dock/4 消费者可用，再明确升级 schema。上述接口名称为建议，不是现有可调用工具。</p>
+<p>浏览器首轮保持地图/详情读取；路线写入走现有已授权命令接口。后续浏览器编辑必须走相同命令处理器，并保持 loopback、token、Origin/Host 校验；不为图方便增加无保护写接口。</p>
+<h2>9. 后台生命周期</h2>
+<p>P3 的目标是每个仓库一个共享写入核心：客户端先解析仓库，再通过本地 IPC 查找实例。没有实例则在互斥启动协议下按需启动；握手校验协议版本、仓库身份与实例存活信息。PID 仅作为线索，不能仅凭一个存活 PID 判定归属，也不能据此结束陌生进程。</p>
+<p>所有写入通过队列串行进入短事务，Git 扫描在事务外完成；查询通过只读事务获得快照。代理可以有多个，但不能各自启动 watcher 或写入同一个仓库。冲突版本拒绝静默并行运行第二个写核心，明确要求重连/升级。</p>
+<p>无客户端后建议等待 5 分钟再退出，这是待测默认值。短命 hook 可以按需唤醒核心，必须等到写入确认后才报告成功；失败要返回错误与可重试身份，不丢事件后假装成功。后台离线期间不会观察到全部瞬时事件，只能下次核对当前状态并保留 capture gap。</p>
+<h2>10. 备份、损坏与容量</h2>
+<p>备份使用 SQLite 一致性备份接口，产生已验证快照；不要在后台运行时只复制主 .db 文件。升级和迁移前保存外部备份及哈希，备份目录放在 Git 管理目录之外，由用户指定或使用用户数据目录，避免删除仓库时连备份一起消失。<a href="https://www.sqlite.org/backup.html">SQLite Backup API</a></p>
+<p>启动时检查 schema 和上次退出状态；发现异常执行有界检查并隔离问题。损坏的派生表可以重建，持久事件或路线损坏则停止写入、保留原文件和 WAL、报告恢复路径，不自动删库重建。schema 升级先备份并在事务内完成；旧程序看到新 schema 必须拒绝写入。</p>
+<p>WAL 大小通过监控和 checkpoint 管理，长读事务超时/分页以避免长期阻塞回收。磁盘满、锁超时和写队列满必须有可诊断错误。默认不加入复杂的自适应缓存或查询 worker pool；只有测量证明需要后才扩展。</p>
+<h2>11. 兼容与简化边界</h2>
+<p>可以删除的是被 SQLite 事务和索引完整替代的多文件写入协议，以及切换后不再使用的重复扫描/投影代码。不能提前删除 legacy 读取器、事件去重、版本冲突、来源标记、捕获缺口、路径校验和完整性验证。</p>
+<p>“不再要求 Context Repository”意味着默认本地看图和记录路线可以独立工作；旧审计对象保持可访问。是否完全移除该功能，须在现有数据依赖盘点和等价验证后另作决定。</p>
+<p>设计自检结果：图、数据寿命、写入确认点与迁移门槛采用同一规则。P0 先确认活跃运行时与持久数据实际范围；本框架不假定旧日志全部可重放，也不将未来性能目标写成现有能力。</p>
+</section>
+<section id="roadmap" aria-label="技术路线图"><h1>DevMap 简化技术路线图</h1>
+<p>本路线图按依赖和验收门槛排序，不给未经测量的日历承诺。所有阶段当前都属于待实施；本次已完成的是设计研究和产物整理。</p>
+<h2>1. 总顺序</h2>
+<p><a class="figure-link" href="04-roadmap.svg" title="打开全尺寸架构图"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNTAiIHZpZXdCb3g9IjAgMCAxNDQwIDEwNTAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSBkZXNjIj4NCjx0aXRsZSBpZD0idGl0bGUiPkRldk1hcCDmioDmnK/ot6/nur/lm748L3RpdGxlPg0KPGRlc2MgaWQ9ImRlc2MiPuW7uuiurumYtuautSDCtyDmiYDmnInpmLbmrrXlvoXlrp7mlr0gwrcg5Lul6aqM5pS26Zeo5qeb5o6o6L+b77yM5LiN5om/6K+65pyq57uP5rWL6YeP55qE5bel5pyfPC9kZXNjPg0KPGRlZnM+PG1hcmtlciBpZD0iYXJyb3ciIG1hcmtlcldpZHRoPSIxMCIgbWFya2VySGVpZ2h0PSIxMCIgcmVmWD0iOCIgcmVmWT0iNCIgb3JpZW50PSJhdXRvIiBtYXJrZXJVbml0cz0ic3Ryb2tlV2lkdGgiPjxwYXRoIGQ9Ik0wLDAgTDgsNCBMMCw4IFoiIGZpbGw9IiM2NDc0OGIiLz48L21hcmtlcj48L2RlZnM+DQo8ZyBmb250LWZhbWlseT0iTWljcm9zb2Z0IFlhSGVpLCBOb3RvIFNhbnMgQ0pLIFNDLCBzYW5zLXNlcmlmIj4NCjxyZWN0IHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwNTAiIGZpbGw9IiNmOGZhZmMiLz4NCjxyZWN0IHg9IjUwIiB5PSI0NSIgd2lkdGg9IjUyIiBoZWlnaHQ9IjUiIHJ4PSIyIiBmaWxsPSIjMzA5MTZjIi8+DQo8dGV4dCB4PSI1MCIgeT0iMTAyIiBmb250LXNpemU9IjM4IiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5EZXZNYXAg5oqA5pyv6Lev57q/5Zu+PC90ZXh0Pg0KPHRleHQgeD0iNTAiIHk9IjE0MCIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzU4NmE4MSIgZm9udC13ZWlnaHQ9IjQwMCI+5bu66K6u6Zi25q61IMK3IOaJgOaciemYtuauteW+heWunuaWvSDCtyDku6XpqozmlLbpl6jmp5vmjqjov5vvvIzkuI3mib/or7rmnKrnu4/mtYvph4/nmoTlt6XmnJ88L3RleHQ+DQo8cGF0aCBkPSJNNDUwLDMwMiBMNTIwLDMwMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNOTIwLDMwMiBMOTkwLDMwMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8cGF0aCBkPSJNMTE5MCw0MjUgTDExOTAsNTU1IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjx0ZXh0IHg9IjEyMDIuMCIgeT0iNDkwLjAiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuetieS7t+mAmui/hzwvdGV4dD4NCjxwYXRoIGQ9Ik05OTAsNjc3IEw5MjAsNjc3IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjxwYXRoIGQ9Ik01MjAsNjc3IEw0NTAsNjc3IiBmaWxsPSJub25lIiBzdHJva2U9IiM2NDc0OGIiIHN0cm9rZS13aWR0aD0iMiIgbWFya2VyLWVuZD0idXJsKCNhcnJvdykiLz4NCjxyZWN0IHg9IjUwIiB5PSIxODAiIHdpZHRoPSI0MDAiIGhlaWdodD0iMjQ1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSIyMTUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPlAwICDlm7rlrprln7rnur88L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iMjQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7nm5jngrnov5DooYzml7bkuI7lrp7pmYXmlbDmja48L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iMjY2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lhrvnu5PlhbPplK7or63kuYnmoLfmnKw8L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iMjkxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7orrDlvZXmiZPlvIDmraXpqqTlkozmgKfog73ln7rnur88L3RleHQ+DQo8dGV4dCB4PSI2OCIgeT0iMzE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4gPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjM0MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+6Zeo5qeb77ya5q+P57G75oyB5LmF6K6w5b2V6YO95pyJ5Y675ZCRPC90ZXh0Pg0KPHJlY3QgeD0iNTIwIiB5PSIxODAiIHdpZHRoPSI0MDAiIGhlaWdodD0iMjQ1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjUzOCIgeT0iMjE1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5QMSAgU1FMaXRlIOWfuuehgDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iMjQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lj5fpmZDlrZjlgqjmjqXlj6PkuI4gc2NoZW1hPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSIyNjYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS6i+WKoeOAgeW5guetieOAgeeJiOacrOajgOafpTwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iMjkxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kuIDoh7TmgKflpIfku73kuI7mgaLlpI08L3RleHQ+DQo8dGV4dCB4PSI1MzgiIHk9IjMxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+IDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iMzQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7pl6jmp5vvvJrmlYXpmpzmo4Dmn6XkuI7mnoTlu7rpgJrov4c8L3RleHQ+DQo8cmVjdCB4PSI5OTAiIHk9IjE4MCIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIyNDUiIHJ4PSIxMiIgZmlsbD0iI2VhZjJmZiIgc3Ryb2tlPSIjNjQ4OGMxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iMTAwOCIgeT0iMjE1IiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5QMiAg5b2x5a2Q5a+85YWlPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iMjQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ml6fns7vnu5/nu6fnu63mnYPlqIHlhpnlhaU8L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSIyNjYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWGu+e7k+WJr+acrOWvvOWFpe+8jOWujOaVtOS/neeVmeawtOS9jTwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjI5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5paw5pen6aKG5Z+f6L6T5Ye66YCQ6aG55q+U6L6DPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iMzE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4gPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iMzQxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7pl6jmp5vvvJrmnKrop6Pph4ror63kuYnlt67lvILkuLogMDwvdGV4dD4NCjxyZWN0IHg9Ijk5MCIgeT0iNTU1IiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjI0NSIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSIxMDA4IiB5PSI1OTAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPlAzICDlhbHkuqvmoLjlv4M8L3RleHQ+DQo8dGV4dCB4PSIxMDA4IiB5PSI2MTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS6kuaWpeWQr+WKqOOAgei6q+S7veS4jueJiOacrOaPoeaJizwvdGV4dD4NCjx0ZXh0IHg9IjEwMDgiIHk9IjY0MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5Liy6KGM5YaZ5YWl77yM5aSa5a6i5oi356uv6K+75Y+WPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iNjY2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ph43ov57moLjlr7nlkozmnaXmupAgZnJlc2huZXNzPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iNjkxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4gPC90ZXh0Pg0KPHRleHQgeD0iMTAwOCIgeT0iNzE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7pl6jmp5vvvJrkuIDkuKrku5PlupPkuIDkuKrlhpnmoLjlv4M8L3RleHQ+DQo8cmVjdCB4PSI1MjAiIHk9IjU1NSIgd2lkdGg9IjQwMCIgaGVpZ2h0PSIyNDUiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNTM4IiB5PSI1OTAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPlA0ICDnroDljJbkvb/nlKg8L3RleHQ+DQo8dGV4dCB4PSI1MzgiIHk9IjYxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5LiA5Liq5pel5bi45omT5byA5Yqo5L2cPC90ZXh0Pg0KPHRleHQgeD0iNTM4IiB5PSI2NDEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPlVJIC8gTUNQIC8gQ0xJIOe7n+S4gOe7k+aenDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iNjY2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7nnJ/lrp7lrr/kuLvlj4rlj5HluIPmnoTku7bpqozor4E8L3RleHQ+DQo8dGV4dCB4PSI1MzgiIHk9IjY5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+IDwvdGV4dD4NCjx0ZXh0IHg9IjUzOCIgeT0iNzE2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7pl6jmp5vvvJrlj6/nlKjmgKfkuI7mtYvph4/or4Hmja7pgJrov4c8L3RleHQ+DQo8cmVjdCB4PSI1MCIgeT0iNTU1IiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjI0NSIgcng9IjEyIiBmaWxsPSIjZTdmM2VlIiBzdHJva2U9IiMzMDkxNmMiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI2OCIgeT0iNTkwIiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj5QNSAg5YiH5o2i5LiO6YCA5b25PC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjYxNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5Ya757uT5pyA5paw5pen5pWw5o2u77yM5aSH5Lu9PC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjY0MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5pyA57uI5a+85YWl6aqM6K+B5ZCO5YiH5o2iPC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjY2NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+56Gu6K6k5pen5YaZ5YWl5Y+j5YGc5q2i77yM5YaN6YCA5b25PC90ZXh0Pg0KPHRleHQgeD0iNjgiIHk9IjY5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+IDwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI3MTYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPumXqOanm++8mui/geenu+S4juaBouWkjea8lOe7g+mAmui/hzwvdGV4dD4NCjxyZWN0IHg9IjUwIiB5PSI5MDAiIHdpZHRoPSIxMzQwIiBoZWlnaHQ9Ijk1IiByeD0iMTIiIGZpbGw9IiNmZmY0ZTQiIHN0cm9rZT0iI2M0OTI0NSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjY4IiB5PSI5MzUiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuWFqOeoi+WBnOatouadoeS7tjwvdGV4dD4NCjx0ZXh0IHg9IjY4IiB5PSI5NjEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuiusOW9leS4ouWkseOAgemUmeivryB3b3JrdHJlZSDnu5HlrprjgIHmnKrnn6XooqvlvZPmiJDkuovlrp7jgIHlpLHotKXljbTov5Tlm57miJDlip/vvJrlhYjkv67lpI3vvIzkuI3og73ku6XmgKfog73miJbov5vluqbosYHlhY3jgII8L3RleHQ+DQo8L2c+DQo8L3N2Zz4=" alt="路线图"></a></p>
+<p>P0 基线冻结 → P1 SQLite 存储基础 → P2 影子导入与语义对照 → P3 共享核心 → P4 简化入口与真实宿主验证 → P5 切换及退役旧写路径。</p>
+<p>不能跳过 P2 直接切换；不能只凭数据库单元测试通过就宣布多 Agent 或跨平台可用。性能优化服从语义一致性和数据保留。</p>
+<h2>2. P0：确认真实基线与存储契约</h2>
+<p><strong>目的：</strong> 确认接下来迁移的是实际使用的数据，而不是只对老设计分支改造。</p>
+<ul>
+<li>核对选定开发分支、源提交、已安装插件版本、运行进程版本和数据目录，记录差异。</li>
+<li>盘点 route-plans、会话 journal、presence、任务关联、水位和 Context 对象；列出生产者、消费者、保留性质与恢复方式。</li>
+<li>记录现有语义样本：空仓库、多 worktree、任务关联变更、部分任务列表、租约过期、路线修订、撤回、cherry-pick/squash 关系与未知状态。</li>
+<li>记录打开步骤、冷启动时间、热查询延迟、刷新延迟、RSS、后台数量、每次刷新 Git 命令数和状态文件数。</li>
+</ul>
+<p><strong>交付物：</strong> 固定基线清单、存储清单、语义样本、性能基准输入和测试方法。</p>
+<p><strong>通过条件：</strong> 每类持久数据都有迁移或明确 legacy-only 方案；每条关键语义都有可重复检查的样本。</p>
+<p><strong>停止条件：</strong> 数据来源/运行时不明、旧文件存在未解决写入意图或损坏。先诊断，不自行猜测导入或清空。</p>
+<h2>3. P1：引入 SQLite 存储基础</h2>
+<p><strong>依赖：</strong> P0 契约通过。</p>
+<ul>
+<li>新增受限 RepositoryStore；以独立测试库验证 schema、唯一键、外键、事务和版本检查。</li>
+<li>优先验证 events、route_revisions、task binding 与 watermark 的事务组合，再验证可重建投影。</li>
+<li>保留 request_id、expected_revision、start_commit、来源与捕获等级；绑定 worktree incarnation。</li>
+<li>确定 Rust SQLite binding 与 bundled 构建；在发布目标 OS/架构上验证构件可执行。</li>
+<li>实现一致性备份、恢复、版本拒绝和诊断，尚不接管旧数据。</li>
+</ul>
+<p><strong>交付物：</strong> 可测试的存储实现、migration v1、恢复工具、构建证据。</p>
+<p><strong>通过条件：</strong> 重复事件、冲突版本、多写竞争、提交边界进程终止、磁盘/写失败注入均有确定结果；已确认记录与相应水位不分离。</p>
+<p><strong>停止条件：</strong> 返回成功后重启记录缺失、重复记录被计为新事件、写失败被当作成功，或任何声明支持的平台不能构建/启动。</p>
+<h2>4. P2：影子导入与旧新语义对照</h2>
+<p><strong>依赖：</strong> P1 存储和恢复通过；旧系统仍为权威写路径。</p>
+<ul>
+<li>从一致的冻结副本导入临时 SQLite；真实旧目录保持原样。</li>
+<li>导入器先验证旧格式，再记录源文件哈希、记录身份、旧提交/版本和接受/拒绝原因。</li>
+<li>route revision、事件、任务关联及独立 watermark 都要导入；不能只重放变化事件而丢掉“状态未变但观察时间更新”的水位。</li>
+<li>对同一冻结输入、同一租约计算时间，比较旧 reducer 与新 query 输出，规范化无语义差异的排序/时间字段。</li>
+<li>影子库保持一次性验证副本，不能继续作为活跃数据副本；最终切换时重新冻结最新旧数据并重新导入。</li>
+</ul>
+<p><strong>交付物：</strong> dry-run 报告、来源到新记录的映射、逐项差异报告、恢复演练记录。</p>
+<p><strong>通过条件：</strong> 所有纳入迁移的持久记录均有去向；未解释的语义差异为 0；重复导入无重复结果；旧系统继续正常工作。</p>
+<p><strong>停止条件：</strong> 丢失原记录、错误扩大数据可信度、路线起点变化、partial 列表删任务、旧数据格式无法验证。</p>
+<h2>5. P3：统一共享核心与观察</h2>
+<p><strong>依赖：</strong> P2 等价通过。</p>
+<ul>
+<li>将应用服务用于 direct 与 shared 两种运行模式，领域规则保持同一实现。</li>
+<li>加入按仓库发现、互斥启动、身份/版本握手、本地 IPC、写队列、只读查询和空闲退出。</li>
+<li>整合 Git 刷新与宿主观察，加入重连补核对、快照 generation、来源 freshness 和 capture gap。</li>
+<li>watcher 仅为刷新信号；覆盖 refs、worktree 增删、后台离线期间 Git 操作的核对路径。</li>
+<li>在隔离环境测试四个并发客户端，确认一个仓库只有一个写核心；客户端会话状态独立。</li>
+</ul>
+<p><strong>交付物：</strong> 共享运行时、生命周期诊断、并发/恢复检查报告。</p>
+<p><strong>通过条件：</strong> 并发启动不产生双写核心；关闭一个客户端不影响其他客户端；后台被终止后可重连且不重复接受命令；迟到观察不会覆盖新水位。</p>
+<p><strong>停止条件：</strong> PID 误认导致结束其他进程、跨仓库串用、无限锁等待、多个 watcher 反复扫描，或未提交就返回成功。</p>
+<h2>6. P4：简化入口与真实使用验证</h2>
+<p><strong>依赖：</strong> P3 并发与恢复通过。</p>
+<ul>
+<li>复用现有分发入口；日常“打开地图”自动解析仓库、初始化本地库并启动服务。全局宿主接入仍只配置一次。</li>
+<li>保持已有 MCP 工具兼容；UI/MCP/CLI 返回相同 query envelope，详情按需展开。</li>
+<li>从干净工作区演练安装/接入 → 打开 → 看到任务 → 刷新 → 关闭/重开；不要求用户手工创建 Context Repository。</li>
+<li>先验证用户真实使用的宿主，再按宣称支持列表逐一扩展。实际覆盖能力写入 capability 状态，不用模拟 fixture 冒充宿主 E2E。</li>
+<li>执行下方性能和可用性检查；记录基线和新版本，不引用 CodeGraph 的宣传数字。</li>
+</ul>
+<p><strong>交付物：</strong> 安装与使用说明、端到端录屏/截图或日志、兼容与性能报告。</p>
+<p><strong>通过条件：</strong> 已接入用户从目标 worktree 用一个日常打开动作看到地图；无需管理数据文件；同输入 UI 与 MCP 状态一致；全部性能门槛有测量证据或明确未达标记录。</p>
+<p><strong>停止条件：</strong> 默认流程增加手动初始化/启动步骤、任务绑定错位、数据过期但显示最新，或发布构件只在开发机可用。</p>
+<h2>7. P5：受控切换与旧写路径退役</h2>
+<p><strong>依赖：</strong> P4 真实使用通过，恢复演练再次通过。</p>
+<p><a class="figure-link" href="03-migration.svg" title="打开全尺寸架构图"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNDQwIiBoZWlnaHQ9IjEwOTAiIHZpZXdCb3g9IjAgMCAxNDQwIDEwOTAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSBkZXNjIj4NCjx0aXRsZSBpZD0idGl0bGUiPuWtmOWCqOi/geenu+S4juWbnumAgOi+ueeVjDwvdGl0bGU+DQo8ZGVzYyBpZD0iZGVzYyI+5bu66K6u5rWB56iLIMK3IOW9seWtkOmqjOivgeWFiOihjO+8jOacgOe7iOWIh+aNoumHjeaWsOWGu+e7kyDCtyDkuI3plb/mnJ/lj4zlhpk8L2Rlc2M+DQo8ZGVmcz48bWFya2VyIGlkPSJhcnJvdyIgbWFya2VyV2lkdGg9IjEwIiBtYXJrZXJIZWlnaHQ9IjEwIiByZWZYPSI4IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iIG1hcmtlclVuaXRzPSJzdHJva2VXaWR0aCI+PHBhdGggZD0iTTAsMCBMOCw0IEwwLDggWiIgZmlsbD0iIzY0NzQ4YiIvPjwvbWFya2VyPjwvZGVmcz4NCjxnIGZvbnQtZmFtaWx5PSJNaWNyb3NvZnQgWWFIZWksIE5vdG8gU2FucyBDSksgU0MsIHNhbnMtc2VyaWYiPg0KPHJlY3Qgd2lkdGg9IjE0NDAiIGhlaWdodD0iMTA5MCIgZmlsbD0iI2Y4ZmFmYyIvPg0KPHJlY3QgeD0iNTAiIHk9IjQ1IiB3aWR0aD0iNTIiIGhlaWdodD0iNSIgcng9IjIiIGZpbGw9IiMzMDkxNmMiLz4NCjx0ZXh0IHg9IjUwIiB5PSIxMDIiIGZvbnQtc2l6ZT0iMzgiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPuWtmOWCqOi/geenu+S4juWbnumAgOi+ueeVjDwvdGV4dD4NCjx0ZXh0IHg9IjUwIiB5PSIxNDAiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM1ODZhODEiIGZvbnQtd2VpZ2h0PSI0MDAiPuW7uuiurua1geeoiyDCtyDlvbHlrZDpqozor4HlhYjooYzvvIzmnIDnu4jliIfmjaLph43mlrDlhrvnu5Mgwrcg5LiN6ZW/5pyf5Y+M5YaZPC90ZXh0Pg0KPHBhdGggZD0iTTQyNSwyOTAgTDQyNSwzMzUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTQyNSw0NjAgTDQyNSw1MDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTQyNSw2MzAgTDQyNSw2NzUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHBhdGggZD0iTTQyNSw4MDAgTDQyNSw4NDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzY0NzQ4YiIgc3Ryb2tlLXdpZHRoPSIyIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPg0KPHRleHQgeD0iNDM3LjAiIHk9IjgyMi41IiBmb250LXNpemU9IjE0IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7pgJrov4c8L3RleHQ+DQo8cGF0aCBkPSJNNzkwLDczNyBMODM1LDczNyBMODM1LDQ5NSBMODkwLDQ5NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNjQ3NDhiIiBzdHJva2Utd2lkdGg9IjIiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+DQo8dGV4dCB4PSI4NDcuMCIgeT0iNjE2LjAiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWksei0pTwvdGV4dD4NCjxyZWN0IHg9IjYwIiB5PSIxNjUiIHdpZHRoPSI3MzAiIGhlaWdodD0iMTI1IiByeD0iMTIiIGZpbGw9IiNmZmZmZmYiIHN0cm9rZT0iI2NiZDVlMSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9Ijc4IiB5PSIyMDAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPjEgIOWBnOatouaXp+WGmeWFpeW5tuWGu+e7kzwvdGV4dD4NCjx0ZXh0IHg9Ijc4IiB5PSIyMjYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuehruiupOaXp+aPkuS7tuOAgWhvb2vjgIFDTEkg5ZKM5ZCO5Y+w6YO95bey5YGc5q2i5YaZ5YWlPC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjI1MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5qOA5p+lIHBlbmRpbmcgaW50ZW5077yb5LiN5LiA6Ie05pe25YGc5q2i5bm25L+d55WZ5Y6f5aeL5Ymv5pysPC90ZXh0Pg0KPHJlY3QgeD0iNjAiIHk9IjMzNSIgd2lkdGg9IjczMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNzgiIHk9IjM3MCIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+MiAg5Yib5bu65aSW6YOo5aSH5Lu9PC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjM5NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5aSH5Lu95pen5pel5b+X44CB6Lev57q/44CB5YWz6IGU5rC05L2N5ZKM5b+F6KaBIENvbnRleHQg5a+56LGhPC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjQyMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5L+d5a2Y5rqQ5ZOI5biM5LiO5riF5Y2V77yb5aSH5Lu95pS+5ZyoIEdpdCDnm67lvZXkuYvlpJY8L3RleHQ+DQo8cmVjdCB4PSI2MCIgeT0iNTA1IiB3aWR0aD0iNzMwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9IiNjYmQ1ZTEiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI3OCIgeT0iNTQwIiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj4zICDlr7zlhaXkuLTml7YgU1FMaXRlPC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjU2NiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5L+d55WZ5Y6fIElE44CB5L+u6K6i44CB5pe26Ze044CB5p2l5rqQ5LiO6K6w5b2V5ZOI5biMPC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjU5MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5a+85YWl5Y+v6YeN6K+V77yb5peg5rOV6aqM6K+B55qE6K6w5b2V5LiN6IO95b2T5L2c5oiQ5YqfPC90ZXh0Pg0KPHJlY3QgeD0iNjAiIHk9IjY3NSIgd2lkdGg9IjczMCIgaGVpZ2h0PSIxMjUiIHJ4PSIxMiIgZmlsbD0iI2ZmZmZmZiIgc3Ryb2tlPSIjY2JkNWUxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iNzgiIHk9IjcxMCIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+NCAg6aqM6K+B5a6M5pW05oCn5ZKM6aKG5Z+f562J5Lu3PC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9IjczNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5pWw5o2u5bqT5a6M5pW05oCnICsg5aSW6ZSuICsg5oyB5LmF6K6w5b2V5Y675ZCRICsg6K+t5LmJ5a+554WnPC90ZXh0Pg0KPHRleHQgeD0iNzgiIHk9Ijc2MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5pyq6Kej6YeK5beu5byC5Li6IDDvvJvnoa7orqTmnIDnu4jmupDlk4jluIzmnKrlj5g8L3RleHQ+DQo8cmVjdCB4PSI2MCIgeT0iODQ1IiB3aWR0aD0iNzMwIiBoZWlnaHQ9IjEyNSIgcng9IjEyIiBmaWxsPSIjZTdmM2VlIiBzdHJva2U9IiMzMDkxNmMiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI3OCIgeT0iODgwIiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj41ICDlj5HluIPmlrDlupPlubbliIfmjaLlhpnmoLjlv4M8L3RleHQ+DQo8dGV4dCB4PSI3OCIgeT0iOTA2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lhbPpl63kuLTml7blupPlj6Xmn4TvvIzlj5HluIPkuIDoh7TlupPvvJvnoa7orqTlrqLmiLfnq6/niYjmnKw8L3RleHQ+DQo8dGV4dCB4PSI3OCIgeT0iOTMxIiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7ml6flhpnlhaXlj6PpgIDlvbnvvJvljp/lpIfku73kv53nlZk8L3RleHQ+DQo8cmVjdCB4PSI4OTAiIHk9IjE2NSIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSIxNTUiIHJ4PSIxMiIgZmlsbD0iI2VhZjJmZiIgc3Ryb2tlPSIjNjQ4OGMxIiBzdHJva2Utd2lkdGg9IjEuNSIvPg0KPHRleHQgeD0iOTA4IiB5PSIyMDAiIGZvbnQtc2l6ZT0iMjEiIGZpbGw9IiMxNzJjNDMiIGZvbnQtd2VpZ2h0PSI3MDAiPlAyIOW9seWtkOmqjOivgTwvdGV4dD4NCjx0ZXh0IHg9IjkwOCIgeT0iMjI2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7mraTliY3lj6rku47lhrvnu5Plia/mnKzor5Xlr7zlhaU8L3RleHQ+DQo8dGV4dCB4PSI5MDgiIHk9IjI1MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5pen57O757uf5LuN5piv5ZSv5LiA5p2D5aiB5YaZ6Lev5b6EPC90ZXh0Pg0KPHRleHQgeD0iOTA4IiB5PSIyNzYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuacgOe7iOWIh+aNouW/hemhu+mHjeaWsOWvvOWFpeacgOaWsOaVsOaNrjwvdGV4dD4NCjxyZWN0IHg9Ijg5MCIgeT0iNDIwIiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjE1MCIgcng9IjEyIiBmaWxsPSIjZmZmNGU0IiBzdHJva2U9IiNjNDkyNDUiIHN0cm9rZS13aWR0aD0iMS41Ii8+DQo8dGV4dCB4PSI5MDgiIHk9IjQ1NSIgZm9udC1zaXplPSIyMSIgZmlsbD0iIzE3MmM0MyIgZm9udC13ZWlnaHQ9IjcwMCI+6aqM6K+B5aSx6LSl77ya5YGc5q2i5YiH5o2iPC90ZXh0Pg0KPHRleHQgeD0iOTA4IiB5PSI0ODEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuS/neeVmeaXp+WtmOWCqOS4juS4tOaXtuW6k+iviuaWrTwvdGV4dD4NCjx0ZXh0IHg9IjkwOCIgeT0iNTA2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7kv67lpI3lr7zlhaXlmajlkI7ph43mlrDpqozor4E8L3RleHQ+DQo8dGV4dCB4PSI5MDgiIHk9IjUzMSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5LiN5Yig6Zmk5pen5pWw5o2u44CB5LiN6Ieq5Yqo5riF56m6PC90ZXh0Pg0KPHJlY3QgeD0iODkwIiB5PSI2NzUiIHdpZHRoPSI0ODAiIGhlaWdodD0iMjk1IiByeD0iMTIiIGZpbGw9IiNmZmY0ZTQiIHN0cm9rZT0iI2M0OTI0NSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCjx0ZXh0IHg9IjkwOCIgeT0iNzEwIiBmb250LXNpemU9IjIxIiBmaWxsPSIjMTcyYzQzIiBmb250LXdlaWdodD0iNzAwIj7lm57pgIDliIbnlYw8L3RleHQ+DQo8dGV4dCB4PSI5MDgiIHk9IjczNiIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5paw5bqT5bCa5pyq5o6l5Y+X5YaZ5YWl77yaPC90ZXh0Pg0KPHRleHQgeD0iOTA4IiB5PSI3NjEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuWPr+aBouWkjeaXp+WtmOWCqOS4uuadg+WogTwvdGV4dD4NCjx0ZXh0IHg9IjkwOCIgeT0iNzg2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj4gPC90ZXh0Pg0KPHRleHQgeD0iOTA4IiB5PSI4MTEiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuaWsOW6k+W3sue7j+ehruiupOaWsOiusOW9le+8mjwvdGV4dD4NCjx0ZXh0IHg9IjkwOCIgeT0iODM2IiBmb250LXNpemU9IjE3IiBmaWxsPSIjNDA1MjZhIiBmb250LXdlaWdodD0iNDAwIj7lhYjpqozor4Hlj43lkJHlr7zlh7ropobnm5bmiYDmnInmlrDorrDlvZU8L3RleHQ+DQo8dGV4dCB4PSI5MDgiIHk9Ijg2MSIgZm9udC1zaXplPSIxNyIgZmlsbD0iIzQwNTI2YSIgZm9udC13ZWlnaHQ9IjQwMCI+5LiN6IO95peg5o2f6KGo6L6+5pe25L+d5oyB5Y+q6K+75bm25YmN5ZCR5L+u5aSNPC90ZXh0Pg0KPHRleHQgeD0iOTA4IiB5PSI4ODYiIGZvbnQtc2l6ZT0iMTciIGZpbGw9IiM0MDUyNmEiIGZvbnQtd2VpZ2h0PSI0MDAiPuemgeatouebtOaOpemAgOWbnuaXp+W/q+eFpzwvdGV4dD4NCjwvZz4NCjwvc3ZnPg==" alt="迁移状态机"></a></p>
+<ol>
+<li>进入维护状态，停止并确认所有旧写进程，包括旧插件和 hook；冻结源数据，生成 Git 管理目录外的备份与哈希。</li>
+<li>检查没有悬挂的旧写入意图；导入新临时库，记录导入清单，校验 integrity、外键和语义摘要。</li>
+<li>关闭新库连接并形成一致检查点，在无使用中的句柄时发布 devmap.db；只在验证通过后切换后端选择。</li>
+<li>启动新写核心，确认所有客户端使用兼容版本。旧日志冻结，只保留兼容读取和导出，不能继续双写。</li>
+<li>通过一个明确记录起止版本的试用周期后，才删除仓库代码中的旧写路径。原备份与 legacy-only 对象不随代码清理自动删除。</li>
+</ol>
+<p><strong>回退规则必须分界：</strong> 新库尚未接收新写入时，可停止新核心并重新启用冻结旧存储。新库已经确认新记录后，禁止直接回到旧快照；必须用 P2/P5 验证过的反向导出覆盖所有新记录与水位。若反向格式不能表达全部新信息，进入只读维护并前向修复，保留新库，不承诺无损降级。</p>
+<p><strong>交付物：</strong> 最终迁移报告、激活记录、备份验证、切换后诊断、旧写代码退役清单。</p>
+<p><strong>通过条件：</strong> 已验证所有旧写入口停用、每个持久记录有溯源、新版本连续试用通过，且没有来源/语义提升错误。</p>
+<p><strong>停止条件：</strong> 不能冻结旧写入、最终源哈希变化、反向导出丢字段、启动遇到未知 schema、损坏被自动删库“修复”。</p>
+<h2>8. 验收矩阵</h2>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>必须观察到的结果</th>
+<th>阶段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同 request_id 提交两次</td>
+<td>一个结果、一个版本；不同内容报冲突</td>
+<td>P1</td>
+</tr>
+<tr>
+<td>两客户端同时更新路线</td>
+<td>expected_revision 只允许一个成功，另一个明确冲突</td>
+<td>P1/P3</td>
+</tr>
+<tr>
+<td>提交前、提交后响应前分别终止</td>
+<td>前者没有成功承诺；后者重试找到原结果</td>
+<td>P1/P3</td>
+</tr>
+<tr>
+<td>导入中断及再次导入</td>
+<td>可恢复或重建临时库；源不变、无重复</td>
+<td>P2</td>
+</tr>
+<tr>
+<td>水位新但状态没变</td>
+<td>后续旧观察不能倒退任务关联</td>
+<td>P2</td>
+</tr>
+<tr>
+<td>worktree 删除后同路径重建</td>
+<td>新 incarnation，不自动接续旧任务</td>
+<td>P2/P3</td>
+</tr>
+<tr>
+<td>partial 任务列表与租约到期</td>
+<td>保留未返回任务；标 partial/stale，不标完成</td>
+<td>P2/P4</td>
+</tr>
+<tr>
+<td>checkout/pull 后工作区干净</td>
+<td>Git 快照仍刷新，不以 clean 作为未变证据</td>
+<td>P3</td>
+</tr>
+<tr>
+<td>人类 revert / 部分 cherry-pick</td>
+<td>保留真实结果、撤回/部分/unknown；不自动重做</td>
+<td>P2/P4</td>
+</tr>
+<tr>
+<td>refs 在扫描中变化</td>
+<td>有限重试或 pending/unknown，不拼成确定结果</td>
+<td>P3</td>
+</tr>
+<tr>
+<td>四客户端同时启动/断开其一</td>
+<td>一个仓库写核心，其余连接不中断</td>
+<td>P3</td>
+</tr>
+<tr>
+<td>备份发生于活动 WAL 期间</td>
+<td>用一致性备份，恢复后记录与完整性校验通过</td>
+<td>P1/P5</td>
+</tr>
+<tr>
+<td>旧程序打开新 schema</td>
+<td>明确拒绝写，不损坏数据</td>
+<td>P1/P5</td>
+</tr>
+<tr>
+<td>实际宿主启动、活动、正常/异常结束</td>
+<td>地图表现与来源能力一致，缺口可见</td>
+<td>P4</td>
+</tr>
+</tbody></table>
+<h2>9. 性能与可用性目标</h2>
+<p>以下是首轮验收预算，不是测得结果。P0 在固定硬件上记录 OS、CPU、内存、磁盘、Git 版本和提交。建议样本：1 个仓库、20 个 worktree、100 个任务、10 万条事件、4 个并发客户端；另外测空库和多分支大历史。每组 10 次预热后至少 100 次测量，冷启动单独测至少 20 次，报告 p50/p95、RSS 与错误数。</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>初始预算/检查方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>日常打开步骤</td>
+<td>已完成宿主接入后，一个用户动作；无需手动管理 Context Repo/数据库/后台</td>
+</tr>
+<tr>
+<td>热摘要查询 p95</td>
+<td>≤ 200 ms；进程内开始处理到完整响应，排除 Git 全量刷新</td>
+</tr>
+<tr>
+<td>小范围 Git 变化到可见 p95</td>
+<td>≤ 2 s；从变化完成到可查询新快照；全量核对另报</td>
+</tr>
+<tr>
+<td>已初始化项目冷打开 p95</td>
+<td>≤ 3 s；进程启动到首个有效摘要，附 freshness</td>
+</tr>
+<tr>
+<td>默认 MCP 摘要</td>
+<td>≤ 32 KiB UTF-8；超限截断并提供分页/详情，不能静默丢警告</td>
+</tr>
+<tr>
+<td>空闲资源</td>
+<td>单仓库核心平均 CPU &lt; 1 个核心的 1%；RSS 初始预算 ≤ 150 MiB；连续 10 分钟测量</td>
+</tr>
+<tr>
+<td>并发核心数量</td>
+<td>同仓库一个共享写核心；代理数另计</td>
+</tr>
+<tr>
+<td>正确性</td>
+<td>未解释语义差异 0、错误绑定 0、确认后进程重启丢记录 0；断电保证需独立故障测试</td>
+</tr>
+</tbody></table>
+<p>任何性能预算未达标时，先定位并缩小瓶颈，记录理由后才能调整目标；不为延迟降低事务持久性，也不先加入分布式服务或通用图数据库。</p>
+<h2>10. 进入开发前的评审点</h2>
+<p>建议以这四项作为框架评审结论：默认仓库级 SQLite；保留 Rust/Git 领域核心；不可重建记录优先；按 P0–P5 门槛迁移。接口命名和具体 SQL binding 可在 P1 固定，不能延后事务、身份、完整性与回退规则。</p>
+<p>评审通过后，从 P0 开始细化可执行开发任务。本文没有启动产品重构、修改运行配置或批准任何自动 Git 写操作。</p>
+</section></main></body></html>

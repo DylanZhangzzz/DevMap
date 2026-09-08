@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1050" viewBox="0 0 1440 1050" role="img" aria-labelledby="title desc">
+<title id="title">DevMap 技术路线图</title>
+<desc id="desc">建议阶段 · 所有阶段待实施 · 以验收门槛推进，不承诺未经测量的工期</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/></marker></defs>
+<g font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+<rect width="1440" height="1050" fill="#f8fafc"/>
+<rect x="50" y="45" width="52" height="5" rx="2" fill="#30916c"/>
+<text x="50" y="102" font-size="38" fill="#172c43" font-weight="700">DevMap 技术路线图</text>
+<text x="50" y="140" font-size="17" fill="#586a81" font-weight="400">建议阶段 · 所有阶段待实施 · 以验收门槛推进，不承诺未经测量的工期</text>
+<path d="M450,302 L520,302" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M920,302 L990,302" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1190,425 L1190,555" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="1202.0" y="490.0" font-size="14" fill="#40526a" font-weight="400">等价通过</text>
+<path d="M990,677 L920,677" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M520,677 L450,677" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="50" y="180" width="400" height="245" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="68" y="215" font-size="21" fill="#172c43" font-weight="700">P0  固定基线</text>
+<text x="68" y="241" font-size="17" fill="#40526a" font-weight="400">盘点运行时与实际数据</text>
+<text x="68" y="266" font-size="17" fill="#40526a" font-weight="400">冻结关键语义样本</text>
+<text x="68" y="291" font-size="17" fill="#40526a" font-weight="400">记录打开步骤和性能基线</text>
+<text x="68" y="316" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="68" y="341" font-size="17" fill="#40526a" font-weight="400">门槛：每类持久记录都有去向</text>
+<rect x="520" y="180" width="400" height="245" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="538" y="215" font-size="21" fill="#172c43" font-weight="700">P1  SQLite 基础</text>
+<text x="538" y="241" font-size="17" fill="#40526a" font-weight="400">受限存储接口与 schema</text>
+<text x="538" y="266" font-size="17" fill="#40526a" font-weight="400">事务、幂等、版本检查</text>
+<text x="538" y="291" font-size="17" fill="#40526a" font-weight="400">一致性备份与恢复</text>
+<text x="538" y="316" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="538" y="341" font-size="17" fill="#40526a" font-weight="400">门槛：故障检查与构建通过</text>
+<rect x="990" y="180" width="400" height="245" rx="12" fill="#eaf2ff" stroke="#6488c1" stroke-width="1.5"/>
+<text x="1008" y="215" font-size="21" fill="#172c43" font-weight="700">P2  影子导入</text>
+<text x="1008" y="241" font-size="17" fill="#40526a" font-weight="400">旧系统继续权威写入</text>
+<text x="1008" y="266" font-size="17" fill="#40526a" font-weight="400">冻结副本导入，完整保留水位</text>
+<text x="1008" y="291" font-size="17" fill="#40526a" font-weight="400">新旧领域输出逐项比较</text>
+<text x="1008" y="316" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="1008" y="341" font-size="17" fill="#40526a" font-weight="400">门槛：未解释语义差异为 0</text>
+<rect x="990" y="555" width="400" height="245" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="1008" y="590" font-size="21" fill="#172c43" font-weight="700">P3  共享核心</text>
+<text x="1008" y="616" font-size="17" fill="#40526a" font-weight="400">互斥启动、身份与版本握手</text>
+<text x="1008" y="641" font-size="17" fill="#40526a" font-weight="400">串行写入，多客户端读取</text>
+<text x="1008" y="666" font-size="17" fill="#40526a" font-weight="400">重连核对和来源 freshness</text>
+<text x="1008" y="691" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="1008" y="716" font-size="17" fill="#40526a" font-weight="400">门槛：一个仓库一个写核心</text>
+<rect x="520" y="555" width="400" height="245" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="538" y="590" font-size="21" fill="#172c43" font-weight="700">P4  简化使用</text>
+<text x="538" y="616" font-size="17" fill="#40526a" font-weight="400">一个日常打开动作</text>
+<text x="538" y="641" font-size="17" fill="#40526a" font-weight="400">UI / MCP / CLI 统一结果</text>
+<text x="538" y="666" font-size="17" fill="#40526a" font-weight="400">真实宿主及发布构件验证</text>
+<text x="538" y="691" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="538" y="716" font-size="17" fill="#40526a" font-weight="400">门槛：可用性与测量证据通过</text>
+<rect x="50" y="555" width="400" height="245" rx="12" fill="#e7f3ee" stroke="#30916c" stroke-width="1.5"/>
+<text x="68" y="590" font-size="21" fill="#172c43" font-weight="700">P5  切换与退役</text>
+<text x="68" y="616" font-size="17" fill="#40526a" font-weight="400">冻结最新旧数据，备份</text>
+<text x="68" y="641" font-size="17" fill="#40526a" font-weight="400">最终导入验证后切换</text>
+<text x="68" y="666" font-size="17" fill="#40526a" font-weight="400">确认旧写入口停止，再退役</text>
+<text x="68" y="691" font-size="17" fill="#40526a" font-weight="400"> </text>
+<text x="68" y="716" font-size="17" fill="#40526a" font-weight="400">门槛：迁移与恢复演练通过</text>
+<rect x="50" y="900" width="1340" height="95" rx="12" fill="#fff4e4" stroke="#c49245" stroke-width="1.5"/>
+<text x="68" y="935" font-size="21" fill="#172c43" font-weight="700">全程停止条件</text>
+<text x="68" y="961" font-size="17" fill="#40526a" font-weight="400">记录丢失、错误 worktree 绑定、未知被当成事实、失败却返回成功：先修复，不能以性能或进度豁免。</text>
+</g>
+</svg>

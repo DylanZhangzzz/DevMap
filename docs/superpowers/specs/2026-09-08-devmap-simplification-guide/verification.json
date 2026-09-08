@@ -1,0 +1,106 @@
+{
+  "checked_at": "2026-09-08T16:08:49.388Z",
+  "product_code_changed": false,
+  "codegraph_runtime_tested": false,
+  "drawio_editor_roundtrip_tested": false,
+  "local_links": "pass",
+  "diagrams": [
+    {
+      "page": "codegraph",
+      "svg_render": "pass",
+      "text_in_canvas": "pass"
+    },
+    {
+      "page": "devmap",
+      "svg_render": "pass",
+      "text_in_canvas": "pass"
+    },
+    {
+      "page": "migration",
+      "svg_render": "pass",
+      "text_in_canvas": "pass"
+    },
+    {
+      "page": "roadmap",
+      "svg_render": "pass",
+      "text_in_canvas": "pass"
+    }
+  ],
+  "browser": {
+    "desktop": {
+      "images": true,
+      "sections": 4,
+      "overflow": false
+    },
+    "mobile": {
+      "overflow": false,
+      "images": true
+    },
+    "navigation_anchor": "#roadmap",
+    "errors": []
+  },
+  "artifacts": [
+    {
+      "file": "01-codegraph-study.md",
+      "bytes": 12028,
+      "sha256": "0e3dc02faf27cb33fcfafc91d1e7aaa0d38c979f9d1702f5f51fbb94c9b653d9"
+    },
+    {
+      "file": "01-codegraph.svg",
+      "bytes": 7201,
+      "sha256": "3b314318e659d60d7d768162d113b3de69414d2d2879f6f73ca6d64245f427f4"
+    },
+    {
+      "file": "02-devmap.svg",
+      "bytes": 7148,
+      "sha256": "a9f5c9c4db90538b577b312af51a334d04026980a653f0d8c39ec70eccd0dcef"
+    },
+    {
+      "file": "02-technical-framework.md",
+      "bytes": 15901,
+      "sha256": "45801c431daacc1654d61d956c34810e06b20fda439b7a549e62ea656b397a51"
+    },
+    {
+      "file": "03-migration.svg",
+      "bytes": 6100,
+      "sha256": "274a6372f3af748a63afb5abefaf304b8482000cb7254a8476fe4d1db51ebb6b"
+    },
+    {
+      "file": "03-roadmap.md",
+      "bytes": 11359,
+      "sha256": "a82aa196f7db533ad74470636afd77333a5c1a64e60b8c144dc9d09656f52f3a"
+    },
+    {
+      "file": "04-roadmap.svg",
+      "bytes": 6338,
+      "sha256": "7f26520a993718fa0195c7c7e4d4f4cde551a04fe37d4f0dff87eeddd817589e"
+    },
+    {
+      "file": "devmap-simplification.drawio",
+      "bytes": 41318,
+      "sha256": "12d28223272a1dda83925fcde93b04293d4ccef2034fe4fe3f98fdcaaf1c1f8b"
+    },
+    {
+      "file": "guide.html",
+      "bytes": 96970,
+      "sha256": "0d0b9fa5b54476f21f4018c14a81ddd1f8cf22cccddce930a7415158d2e38458"
+    },
+    {
+      "file": "README.md",
+      "bytes": 3367,
+      "sha256": "8965954f90f41a5ab1072a5e1cb4c99a2e8bbb5dd1db020b64773e3f5fbd0466"
+    }
+  ],
+  "visual_review": {
+    "reviewer": "Codex",
+    "reviewed": [
+      "01-codegraph.png",
+      "02-devmap.png",
+      "03-migration.png",
+      "04-roadmap.png",
+      "guide-desktop.png",
+      "guide-mobile.png"
+    ],
+    "result": "Legible labels, clear arrows, no visible clipping in reviewed renders"
+  }
+}
