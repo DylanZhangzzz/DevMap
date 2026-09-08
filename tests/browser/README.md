@@ -34,3 +34,13 @@ frozen copies of both legacy storage roots with per-file hashes. The
 script never runs the binary against the working repository. These disposable
 sources are available for the later migration test; generating them alone is
 not a migration pass.
+
+`process-performance.cjs` measures native MCP full-map round trips (including
+Git refresh). Set `DEVMAP_BENCHMARK_EXE` and `DEVMAP_BENCHMARK_SOURCE`; the source
+must be inside this checkout's `target/verification` directory. Defaults are
+20 cold processes, 10 warm-up requests and 100 timed persistent-client requests.
+The `DEVMAP_BENCHMARK_COLD`, `DEVMAP_BENCHMARK_WARMUP` and
+`DEVMAP_BENCHMARK_SAMPLES` overrides support smoke checks. It records executable
+hash, raw latencies and response sizes. This does not measure compact internal
+summaries, CPU/RSS, idle behavior or actual host integration, and concurrent
+build load must be excluded from an eventual controlled acceptance run.
