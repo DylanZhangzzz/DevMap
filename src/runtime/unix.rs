@@ -83,9 +83,9 @@ pub fn spawn_owner(
     source: &Path,
     instance: &str,
     idle_seconds: u64,
-) -> io::Result<()> {
+) -> io::Result<SpawnedOwner> {
     use std::process::{Command, Stdio};
-    let mut child = Command::new(executable)
+    let child = Command::new(executable)
         .arg("runtime")
         .arg("--source")
         .arg(source)
@@ -98,10 +98,7 @@ pub fn spawn_owner(
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
+    Ok(SpawnedOwner(Some(child)))
 }
 
 #[cfg(test)]
@@ -117,5 +114,104 @@ mod tests {
         let alias = temp.path().join("alias");
         std::os::unix::fs::symlink(&private, &alias).unwrap();
         assert!(private_dir(&alias).is_err());
+    }
+}
+
+pub fn prepare_identity(command: &mut tokio::process::Command) {
+    command.process_group(0);
+}
+pub struct IdentityTree(u32);
+impl IdentityTree {
+    pub fn attach(child: &tokio::process::Child) -> io::Result<Self> {
+        Ok(Self(
+            child
+                .id()
+                .ok_or_else(|| invalid("identity child PID missing"))?,
+        ))
+    }
+}
+impl Drop for IdentityTree {
+    fn drop(&mut self) {
+        unsafe {
+            libc::kill(-(self.0 as i32), libc::SIGKILL);
+        }
+    }
+}
+
+pub fn validate_parent(path: &Path) -> io::Result<()> {
+    let m = fs::symlink_metadata(path)?;
+    let current = unsafe { libc::geteuid() };
+    if !m.is_dir() || m.file_type().is_symlink() || (m.uid() != current && m.uid() != 0) {
+        return Err(invalid("runtime parent ownership is untrusted"));
+    }
+    // Root-owned sticky /tmp permits creation without permitting foreign users
+    // to rename/remove this user's private child. Ordinary writable parents do not.
+    if m.mode() & 0o022 != 0 && !(m.uid() == 0 && m.mode() & 0o1000 != 0) {
+        return Err(invalid("runtime parent permits untrusted mutation"));
+    }
+    Ok(())
+}
+
+impl IdentityTree {
+    pub async fn terminate_and_wait(&self) -> io::Result<()> {
+        // Called before reaping the group leader, retaining the owned PGID.
+        if unsafe { libc::kill(-(self.0 as i32), libc::SIGKILL) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct SpawnedOwner(Option<std::process::Child>);
+impl SpawnedOwner {
+    pub fn detach(mut self) {
+        if let Some(mut child) = self.0.take() {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+    }
+}
+impl Drop for SpawnedOwner {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.as_mut() {
+            let _ = child.kill();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+}
+
+pub fn validate_chain(path: &Path) -> io::Result<()> {
+    for ancestor in path.ancestors() {
+        validate_parent(ancestor)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod ancestor_tests {
+    use super::*;
+    #[test]
+    fn private_leaf_does_not_hide_a_writable_ancestor() {
+        let temp = tempfile::tempdir().unwrap();
+        let grandparent = temp.path().join("grandparent");
+        private_dir(&grandparent).unwrap();
+        let parent = grandparent.join("parent");
+        private_dir(&parent).unwrap();
+        let leaf = parent.join("leaf");
+        private_dir(&leaf).unwrap();
+        fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o777)).unwrap();
+        validate_parent(&leaf).unwrap();
+        assert!(validate_chain(&leaf).is_err());
+    }
+    #[test]
+    fn system_sticky_temporary_chain_is_accepted() {
+        validate_chain(&fs::canonicalize("/tmp").unwrap()).unwrap();
     }
 }

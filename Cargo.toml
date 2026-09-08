@@ -18,11 +18,10 @@ sha2 = "0.10"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tiny_http = "0.12"
-tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "process"] }
 
 [dev-dependencies]
 tempfile = "3.21"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
-
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Diagnostics_ToolHelp"] }

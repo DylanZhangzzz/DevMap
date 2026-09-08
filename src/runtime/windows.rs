@@ -240,7 +240,7 @@ pub fn spawn_owner(
     source: &Path,
     instance: &str,
     idle_seconds: u64,
-) -> io::Result<()> {
+) -> io::Result<SpawnedOwner> {
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
     };
@@ -302,9 +302,11 @@ pub fn spawn_owner(
             return Err(io::Error::last_os_error());
         }
         CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
+        Ok(SpawnedOwner {
+            handle: process.hProcess,
+            confirmed: false,
+        })
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -339,5 +341,340 @@ mod tests {
                 .unwrap();
             assert!(connect(&endpoint).await.is_err());
         });
+    }
+}
+
+pub fn prepare_identity(command: &mut tokio::process::Command) {
+    // Start suspended so no descendant can escape before job assignment.
+    command.creation_flags(0x08000000 | 0x00000004);
+}
+pub struct IdentityTree(windows_sys::Win32::Foundation::HANDLE);
+// HANDLE ownership is unique and kernel operations are thread safe.
+unsafe impl Send for IdentityTree {}
+impl Drop for IdentityTree {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+impl IdentityTree {
+    pub fn attach(child: &tokio::process::Child) -> io::Result<Self> {
+        use windows_sys::Win32::{
+            Foundation::INVALID_HANDLE_VALUE,
+            System::{
+                Diagnostics::ToolHelp::*,
+                JobObjects::*,
+                Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
+            },
+        };
+        unsafe {
+            let job = CreateJobObjectW(ptr::null(), ptr::null());
+            if job.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let tree = Self(job);
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+            limits.BasicLimitInformation.ActiveProcessLimit = 8;
+            if SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                mem::size_of_val(&limits) as u32,
+            ) == 0
+                || AssignProcessToJobObject(
+                    job,
+                    child
+                        .raw_handle()
+                        .ok_or_else(|| invalid("identity child handle missing"))?,
+                ) == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            if snapshot == INVALID_HANDLE_VALUE {
+                return Err(io::Error::last_os_error());
+            }
+            let mut entry: THREADENTRY32 = mem::zeroed();
+            entry.dwSize = mem::size_of::<THREADENTRY32>() as u32;
+            let mut found = false;
+            let mut next = Thread32First(snapshot, &mut entry);
+            while next != 0 {
+                if Some(entry.th32OwnerProcessID) == child.id() {
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                    if !thread.is_null() {
+                        found = ResumeThread(thread) != u32::MAX;
+                        CloseHandle(thread);
+                    }
+                    break;
+                }
+                next = Thread32Next(snapshot, &mut entry);
+            }
+            CloseHandle(snapshot);
+            if !found {
+                return Err(invalid("identity primary thread could not resume"));
+            }
+            Ok(tree)
+        }
+    }
+}
+
+/// Parent rights matter: DELETE_CHILD can replace even a private child directory.
+pub fn validate_parent(path: &Path) -> io::Result<()> {
+    validate_directory(path, false)
+}
+
+/// Validate every existing component before trusting a new private descendant.
+/// An ancestor may permit creating a sibling directory without permitting any
+/// existing component to be removed, replaced, or have its security changed.
+pub fn validate_chain(path: &Path) -> io::Result<()> {
+    for (depth, ancestor) in path.ancestors().enumerate() {
+        if depth == 0 {
+            validate_parent(ancestor)?;
+        } else {
+            validate_directory(ancestor, true)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_directory(path: &Path, ancestor: bool) -> io::Result<()> {
+    match path.components().next() {
+        Some(std::path::Component::Prefix(prefix))
+            if matches!(
+                prefix.kind(),
+                std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+            ) => {}
+        _ => return Err(invalid("runtime parent must be a local drive path")),
+    }
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(invalid("runtime parent is not a plain directory"));
+    }
+    unsafe {
+        let mut owner = ptr::null_mut();
+        let mut acl = ptr::null_mut();
+        let mut descriptor = ptr::null_mut();
+        let result = GetNamedSecurityInfoW(
+            wide(path).as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            ptr::null_mut(),
+            &mut acl,
+            ptr::null_mut(),
+            &mut descriptor,
+        );
+        if result != 0 {
+            return Err(io::Error::from_raw_os_error(result as i32));
+        }
+        let _allocation = LocalAllocation(descriptor);
+        let user = current_sid()?;
+        // TrustedInstaller owns normal Windows volume/system ancestors. It is
+        // an OS service identity, not an arbitrary SID discovered on this path.
+        let trusted = |sid: &str| {
+            sid == user
+                || sid == "S-1-5-18"
+                || sid == "S-1-5-32-544"
+                || sid == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+        };
+        if owner.is_null() || !trusted(&sid_string(owner)?) || acl.is_null() {
+            return Err(invalid("runtime parent ownership is untrusted"));
+        }
+        const MUTATION: u32 = 0x10000000 | 0x40000000 | 0x000d0156;
+        // FILE_ADD_SUBDIRECTORY alone does not authorize replacement of an
+        // existing child. C:\ commonly grants it to Authenticated Users.
+        let forbidden = if ancestor { MUTATION & !0x4 } else { MUTATION };
+        for index in 0..(*acl).AceCount {
+            let mut raw = ptr::null_mut();
+            if GetAce(acl, index as u32, &mut raw) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let ace = &*(raw.cast::<ACCESS_ALLOWED_ACE>());
+            if ace.Header.AceFlags & 8 != 0 || ace.Header.AceType == 1 {
+                continue;
+            }
+            if ace.Header.AceType != 0 {
+                return Err(invalid("runtime parent has unsupported access rule"));
+            }
+            let sid = sid_string((&ace.SidStart as *const u32).cast_mut().cast())?;
+            if !trusted(&sid) && ace.Mask & forbidden != 0 {
+                return Err(invalid("runtime parent permits untrusted mutation"));
+            }
+        }
+        Ok(())
+    }
+}
+pub fn runtime_base() -> io::Result<std::path::PathBuf> {
+    let temporary = std::env::temp_dir();
+    if validate_chain(&temporary).is_ok() {
+        return Ok(temporary);
+    }
+    let profile =
+        std::env::var_os("USERPROFILE").ok_or_else(|| invalid("no trusted runtime parent"))?;
+    let profile = std::path::PathBuf::from(profile);
+    validate_chain(&profile)?;
+    Ok(profile)
+}
+
+impl IdentityTree {
+    pub async fn terminate_and_wait(&mut self) -> io::Result<()> {
+        use windows_sys::Win32::{
+            Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+            System::{
+                JobObjects::*,
+                Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+            },
+        };
+        struct ProcessHandle(windows_sys::Win32::Foundation::HANDLE);
+        unsafe impl Send for ProcessHandle {}
+        impl Drop for ProcessHandle {
+            fn drop(&mut self) {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+        let mut processes = Vec::new();
+        unsafe {
+            let mut buffer = [0usize; 16];
+            if QueryInformationJobObject(
+                self.0,
+                JobObjectBasicProcessIdList,
+                buffer.as_mut_ptr().cast(),
+                mem::size_of_val(&buffer) as u32,
+                ptr::null_mut(),
+            ) == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            let list = &*(buffer.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>());
+            if list.NumberOfProcessIdsInList > 8 {
+                return Err(invalid("identity job process bound exceeded"));
+            }
+            let ids = std::slice::from_raw_parts(
+                list.ProcessIdList.as_ptr(),
+                list.NumberOfProcessIdsInList as usize,
+            );
+            for id in ids {
+                let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, *id as u32);
+                if !handle.is_null() {
+                    processes.push(ProcessHandle(handle));
+                }
+            }
+            if TerminateJobObject(self.0, 1) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            let mut done = true;
+            for process in &processes {
+                match unsafe { WaitForSingleObject(process.0, 0) } {
+                    WAIT_OBJECT_0 => {}
+                    WAIT_TIMEOUT => done = false,
+                    _ => return Err(io::Error::last_os_error()),
+                }
+            }
+            let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { mem::zeroed() };
+            if unsafe {
+                QueryInformationJobObject(
+                    self.0,
+                    JobObjectBasicAccountingInformation,
+                    (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                    mem::size_of_val(&accounting) as u32,
+                    ptr::null_mut(),
+                )
+            } == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            if done && accounting.ActiveProcesses == 0 {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(invalid("identity tree termination deadline"));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+}
+
+pub struct SpawnedOwner {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    confirmed: bool,
+}
+impl SpawnedOwner {
+    pub fn detach(mut self) {
+        self.confirmed = true;
+    }
+}
+impl Drop for SpawnedOwner {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.confirmed {
+                windows_sys::Win32::System::Threading::TerminateProcess(self.handle, 1);
+                windows_sys::Win32::System::Threading::WaitForSingleObject(self.handle, 1000);
+            }
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use super::*;
+    #[test]
+    fn candidate_guard_cleans_only_unconfirmed_owned_process() {
+        use std::{
+            os::windows::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle};
+        for confirmed in [false, true] {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "runtime::bounded_identity_tests::identity_descendant_fixture",
+                    "--nocapture",
+                ])
+                .env("DEVMAP_TEST_IDENTITY_DESCENDANT", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap();
+            let mut handle = ptr::null_mut();
+            assert_ne!(
+                unsafe {
+                    DuplicateHandle(
+                        GetCurrentProcess(),
+                        child.as_raw_handle(),
+                        GetCurrentProcess(),
+                        &mut handle,
+                        0,
+                        0,
+                        DUPLICATE_SAME_ACCESS,
+                    )
+                },
+                0
+            );
+            let guard = SpawnedOwner {
+                handle,
+                confirmed: false,
+            };
+            if confirmed {
+                guard.detach();
+                assert!(child.try_wait().unwrap().is_none());
+                child.kill().unwrap();
+            } else {
+                drop(guard);
+                assert!(child.try_wait().unwrap().is_some());
+            }
+            child.wait().unwrap();
+        }
     }
 }

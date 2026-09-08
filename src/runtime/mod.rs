@@ -21,8 +21,11 @@ use transport::invalid;
 use unix as platform;
 #[cfg(windows)]
 use windows as platform;
+static IDENTITY_SHUTDOWN_FAILED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 const START_BUDGET: Duration = Duration::from_secs(15);
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Identity {
     source: PathBuf,
     git_dir: PathBuf,
@@ -127,24 +130,12 @@ struct Location {
 }
 fn location(id: &Identity) -> io::Result<Location> {
     #[cfg(windows)]
-    let base = std::env::temp_dir();
+    let base = platform::runtime_base()?;
     #[cfg(unix)]
     let base = fs::canonicalize("/tmp")?;
-    // Reject link/reparse ancestors, including a redirected temporary root.
-    for ancestor in base.ancestors() {
-        let meta = fs::symlink_metadata(ancestor)?;
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            if meta.file_attributes() & 0x400 != 0 {
-                return Err(invalid("runtime ancestor is a reparse point"));
-            }
-        }
-        if meta.file_type().is_symlink() {
-            return Err(invalid("runtime ancestor is a symlink"));
-        }
-    }
+    platform::validate_chain(&base)?;
     let base = fs::canonicalize(base)?;
+    platform::validate_chain(&base)?;
     let user = crate::canonical::sha256_hex(platform::user_id()?.as_bytes());
     let root = base.join(format!("devmap-runtime-{}", &user[..16]));
     let directory = root.join(&id.repository[..32]);
@@ -185,9 +176,9 @@ impl RuntimeClient {
         Self::connect_with_idle(source, 60)
     }
     fn connect_with_idle(source: &Path, idle_seconds: u64) -> io::Result<Self> {
-        let id = identity(source)?;
-        let location = location(&id)?;
         let reactor = reactor()?;
+        let id = reactor.block_on(identity_async(source))?;
+        let location = location(&id)?;
         let hello = Hello {
             protocol: VERSION,
             repository: id.repository,
@@ -230,9 +221,13 @@ impl RuntimeClient {
         }
         let owner_lock = platform::lock_file(&location.directory.join("owner.lock"))?;
         let mut expected = None;
+        let mut spawned: Option<platform::SpawnedOwner> = None;
         loop {
             match connect(expected.as_deref()) {
                 Ok((stream, welcome)) => {
+                    if let Some(child) = spawned.take() {
+                        child.detach();
+                    }
                     return Ok(Self {
                         reactor,
                         stream,
@@ -249,12 +244,12 @@ impl RuntimeClient {
                     Ok(()) => {
                         FileExt::unlock(&owner_lock)?;
                         let instance = nonce()?;
-                        platform::spawn_owner(
+                        spawned = Some(platform::spawn_owner(
                             &std::env::current_exe()?,
                             &hello.source,
                             &instance,
                             idle_seconds,
-                        )?;
+                        )?);
                         expected = Some(instance);
                     }
                     Err(e) if contended(&e) => {}
@@ -336,7 +331,9 @@ pub(crate) fn dispatch(
     args: crate::cli::RuntimeArgs,
 ) -> Result<crate::CommandOutput, crate::error::DevMapError> {
     let result = (|| -> io::Result<String> {
-        if args.owner {
+        if args.identity {
+            serde_json::to_string(&identity(&args.source)?).map_err(|e| invalid(e.to_string()))
+        } else if args.owner {
             let instance = args
                 .instance
                 .ok_or_else(|| invalid("owner instance required"))?;
@@ -357,4 +354,188 @@ pub(crate) fn dispatch(
             exit_code: 0,
         })
         .map_err(|e| crate::error::DevMapError::Store(format!("runtime: {e}")))
+}
+
+#[cfg(test)]
+mod bounded_identity_tests {
+    use super::*;
+    #[test]
+    fn identity_stall_fixture() {
+        if std::env::var_os("DEVMAP_TEST_STALL_IDENTITY").is_some() {
+            let mut descendant = Command::new(std::env::current_exe().unwrap());
+            descendant
+                .args([
+                    "--exact",
+                    "runtime::bounded_identity_tests::identity_descendant_fixture",
+                    "--nocapture",
+                ])
+                .env("DEVMAP_TEST_IDENTITY_DESCENDANT", "1");
+            let child = descendant.spawn().unwrap();
+            if let Some(path) = std::env::var_os("DEVMAP_TEST_IDENTITY_PID_FILE") {
+                fs::write(path, child.id().to_string()).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn identity_descendant_fixture() {
+        if std::env::var_os("DEVMAP_TEST_IDENTITY_DESCENDANT").is_some() {
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    }
+    #[test]
+    fn stalled_identity_children_are_bounded_reaped_and_do_not_delay_shutdown() {
+        let started = Instant::now();
+        let fixture = tempfile::tempdir().unwrap();
+        let rt = reactor().unwrap();
+        rt.block_on(async {
+            let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+            let mut jobs = tokio::task::JoinSet::new();
+            let mut admitted = 0;
+            for index in 0..32 {
+                let Ok(permit) = permits.clone().try_acquire_owned() else {
+                    continue;
+                };
+                admitted += 1;
+                let marker = fixture.path().join(format!("child-{index}"));
+                jobs.spawn(async move {
+                    let _permit = permit;
+                    let mut command =
+                        tokio::process::Command::new(std::env::current_exe().unwrap());
+                    command
+                        .args([
+                            "--exact",
+                            "runtime::bounded_identity_tests::identity_stall_fixture",
+                            "--nocapture",
+                        ])
+                        .env("DEVMAP_TEST_STALL_IDENTITY", "1")
+                        .env("DEVMAP_TEST_IDENTITY_PID_FILE", &marker)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .kill_on_drop(true);
+                    platform::prepare_identity(&mut command);
+                    let child = command.spawn().unwrap();
+                    assert!(!marker.exists(), "child ran before job assignment");
+                    assert!(
+                        identity_child_output(child, Duration::from_secs(1))
+                            .await
+                            .is_err()
+                    );
+                });
+            }
+            assert_eq!(admitted, 4);
+            while let Some(result) = jobs.join_next().await {
+                result.unwrap();
+            }
+            assert_eq!(permits.available_permits(), 4);
+            let markers: Vec<_> = fs::read_dir(fixture.path()).unwrap().collect();
+            assert_eq!(markers.len(), 4, "all stalled descendants actually started");
+            #[cfg(windows)]
+            for marker in markers {
+                use windows_sys::Win32::{
+                    Foundation::{CloseHandle, WAIT_TIMEOUT},
+                    System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+                };
+                let pid: u32 = fs::read_to_string(marker.unwrap().path())
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                unsafe {
+                    let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+                    if !process.is_null() {
+                        let status = WaitForSingleObject(process, 0);
+                        CloseHandle(process);
+                        assert_ne!(
+                            status, WAIT_TIMEOUT,
+                            "owned descendant survived job timeout"
+                        );
+                    }
+                }
+            }
+        });
+        drop(rt);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "stalled identity work retained runtime shutdown"
+        );
+    }
+}
+
+async fn identity_async(source: &Path) -> io::Result<Identity> {
+    let mut command = tokio::process::Command::new(std::env::current_exe()?);
+    command
+        .arg("runtime")
+        .arg("--identity")
+        .arg("--source")
+        .arg(source)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    platform::prepare_identity(&mut command);
+    let bytes = identity_child_output(command.spawn()?, Duration::from_secs(3)).await?;
+    serde_json::from_slice(&bytes).map_err(|e| invalid(e.to_string()))
+}
+
+/// All source-dependent filesystem and Git work stays in an owned process tree.
+/// No blocking runtime task survives a deadline, including inherited stdout stalls.
+async fn identity_child_output(
+    mut child: tokio::process::Child,
+    budget: Duration,
+) -> io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut tree = match platform::IdentityTree::attach(&child) {
+        Ok(tree) => Some(tree),
+        Err(error) => {
+            let _ = child.start_kill();
+            reap_identity(&mut child).await?;
+            return Err(error);
+        }
+    };
+    let result = tokio::time::timeout(budget, async {
+        let mut bytes = Vec::new();
+        child
+            .stdout
+            .take()
+            .ok_or_else(|| invalid("identity stdout missing"))?
+            .take(32769)
+            .read_to_end(&mut bytes)
+            .await?;
+        if bytes.len() > 32768 {
+            return Err(invalid("identity output exceeds limit"));
+        }
+        #[cfg(unix)]
+        drop(tree.take()); // Leader is still unreaped, so PGID cannot be reused.
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(invalid("identity process failed"));
+        }
+        Ok(bytes)
+    })
+    .await;
+    if let Some(tree) = tree.as_mut()
+        && let Err(error) = tree.terminate_and_wait().await
+    {
+        IDENTITY_SHUTDOWN_FAILED.store(true, std::sync::atomic::Ordering::SeqCst);
+        return Err(error);
+    }
+    drop(tree.take()); // Kernel-confirmed Windows tree termination before releasing admission.
+    if !matches!(result, Ok(Ok(_))) {
+        let _ = child.start_kill();
+        reap_identity(&mut child).await?;
+    }
+    result.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "identity process deadline"))?
+}
+
+async fn reap_identity(child: &mut tokio::process::Child) -> io::Result<()> {
+    match tokio::time::timeout(Duration::from_secs(1), child.wait()).await {
+        Ok(Ok(_)) => Ok(()),
+        result => {
+            IDENTITY_SHUTDOWN_FAILED.store(true, std::sync::atomic::Ordering::SeqCst);
+            match result {
+                Ok(Err(error)) => Err(error),
+                _ => Err(invalid("identity process reap deadline")),
+            }
+        }
+    }
 }

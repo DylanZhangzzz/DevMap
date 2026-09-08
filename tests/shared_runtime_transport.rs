@@ -240,18 +240,18 @@ fn wrong_identity_partial_and_oversize_are_bounded_and_other_client_survives() {
             }
             let mut stream = raw_connect(&welcome.repository).await;
             send(&mut stream, &invalid).await;
-            assert!(receive::<Welcome>(&mut stream).await.is_err());
+            assert_rejected(receive::<devmap::runtime::protocol::HelloReply>(&mut stream).await);
         }
         let mut stream = raw_connect(&welcome.repository).await;
         stream
             .write_u32((devmap::runtime::protocol::MAX_FRAME + 1) as u32)
             .await
             .unwrap();
-        assert!(receive::<Welcome>(&mut stream).await.is_err());
+        assert_rejected(receive::<devmap::runtime::protocol::HelloReply>(&mut stream).await);
         let mut partial = raw_connect(&welcome.repository).await;
         partial.write_u32(100).await.unwrap();
         partial.write_all(b"{").await.unwrap();
-        assert!(receive::<Welcome>(&mut partial).await.is_err());
+        assert_rejected(receive::<devmap::runtime::protocol::HelloReply>(&mut partial).await);
         send(
             &mut survivor,
             &devmap::runtime::protocol::Request::Ping {
@@ -381,6 +381,7 @@ fn runtime_artifacts_never_enter_git_administration_even_with_temp_override() {
         .args(["--ping", "--idle-seconds", "1"])
         .env("TEMP", &admin)
         .env("TMP", &admin)
+        .env("USERPROFILE", &admin)
         .output()
         .unwrap();
     assert!(
@@ -419,4 +420,114 @@ fn idle_owner_exits_finitely_and_different_repository_has_distinct_owner() {
         assert!(Instant::now() < deadline, "idle owner did not exit");
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn assert_rejected(reply: std::io::Result<devmap::runtime::protocol::HelloReply>) {
+    match reply {
+        Ok(devmap::runtime::protocol::HelloReply::Rejected { .. }) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::ConnectionReset
+            ) => {}
+        other => panic!("expected explicit rejection or EOF, got {other:?}"),
+    }
+}
+#[test]
+#[should_panic(expected = "expected explicit rejection")]
+fn rejection_oracle_refuses_a_valid_accepted_reply() {
+    assert_rejected(Ok(devmap::runtime::protocol::HelloReply::Accepted {
+        welcome: Welcome {
+            protocol: VERSION,
+            repository: "repo".into(),
+            build: "build".into(),
+            owner_instance: "11111111111111111111111111111111".into(),
+            owner_pid: 1,
+            client_instance: "22222222222222222222222222222222".into(),
+        },
+    }));
+}
+
+#[cfg(windows)]
+#[test]
+fn untrusted_runtime_parents_are_rejected_before_creating_artifacts() {
+    let f = Fixture::new();
+    let parent = f.temp.path().join("unsafe-parent");
+    fs::create_dir(&parent).unwrap();
+    assert!(
+        Command::new("icacls")
+            .arg(&parent)
+            .args(["/grant", "*S-1-1-0:(OI)(CI)M"])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let out = Command::new(&f.exe)
+        .args(["runtime", "--source"])
+        .arg(&f.repo)
+        .arg("--ping")
+        .env("TEMP", &parent)
+        .env("TMP", &parent)
+        .env("USERPROFILE", &parent)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(fs::read_dir(&parent).unwrap().next().is_none());
+}
+
+#[cfg(windows)]
+#[test]
+fn safe_runtime_leaf_below_untrusted_grandparent_is_rejected() {
+    let f = Fixture::new();
+    let grandparent = f.temp.path().join("unsafe-grandparent");
+    let middle = grandparent.join("middle");
+    let leaf = middle.join("safe-leaf");
+    fs::create_dir_all(&leaf).unwrap();
+    let user_sid = Command::new("whoami")
+        .args(["/user", "/fo", "csv", "/nh"])
+        .output()
+        .unwrap();
+    assert!(user_sid.status.success());
+    let user_sid = String::from_utf8(user_sid.stdout).unwrap();
+    let sid = user_sid.split(',').nth(1).unwrap().trim().trim_matches('"');
+    for path in [&middle, &leaf] {
+        assert!(
+            Command::new("icacls")
+                .arg(path)
+                .args(["/inheritance:r", "/grant:r", &format!("*{sid}:(OI)(CI)F")])
+                .stdout(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        Command::new("icacls")
+            .arg(&grandparent)
+            .args(["/grant", "*S-1-1-0:(DC)"])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let output = Command::new(&f.exe)
+        .args(["runtime", "--source"])
+        .arg(&f.repo)
+        .args(["--ping", "--idle-seconds", "1"])
+        .env("TEMP", &leaf)
+        .env("TMP", &leaf)
+        .env("USERPROFILE", &leaf)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "an owner-only leaf must not conceal an ancestor granting untrusted DELETE_CHILD"
+    );
+    assert!(
+        fs::read_dir(&leaf).unwrap().next().is_none(),
+        "unsafe ancestor was checked after runtime artifact creation"
+    );
 }

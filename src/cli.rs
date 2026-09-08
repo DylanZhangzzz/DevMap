@@ -225,10 +225,12 @@ pub struct StatusArgs {
 pub struct RuntimeArgs {
     #[arg(long)]
     pub source: PathBuf,
-    #[arg(long, conflicts_with = "ping")]
+    #[arg(long, conflicts_with_all = ["ping", "identity"])]
     pub owner: bool,
     #[arg(long)]
     pub ping: bool,
+    #[arg(long, conflicts_with = "ping")]
+    pub identity: bool,
     #[arg(long, requires = "owner")]
     pub instance: Option<String>,
     #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=60))]
