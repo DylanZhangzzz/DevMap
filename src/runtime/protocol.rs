@@ -99,6 +99,9 @@ pub enum ExchangeReply {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub enum ApplicationRequest {
+    Mutate {
+        command: Box<crate::mutation::MutationCommand>,
+    },
     Query {
         query: crate::application::ClientQuery,
     },
@@ -110,14 +113,57 @@ pub enum ApplicationRequest {
     },
 }
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DomainError {
-    pub code: String,
-    pub message: String,
+#[serde(tag = "code", deny_unknown_fields)]
+pub enum DomainError {
+    #[serde(rename = "domain")]
+    Domain { message: String },
+    #[serde(rename = "response_limit")]
+    ResponseLimit { message: String },
+    #[serde(rename = "revision_conflict")]
+    RevisionConflict {
+        message: String,
+        current_revision: u64,
+        #[serde(deserialize_with = "required_current_plan")]
+        current_plan: Option<Box<crate::route_plan::RoutePlan>>,
+    },
+}
+fn required_current_plan<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Box<crate::route_plan::RoutePlan>>, D::Error> {
+    // A present null means no current plan; omission is a malformed conflict.
+    Option::deserialize(deserializer)
+}
+impl DomainError {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Domain { message }
+            | Self::ResponseLimit { message }
+            | Self::RevisionConflict { message, .. } => message,
+        }
+    }
+}
+impl From<crate::error::DevMapError> for DomainError {
+    fn from(error: crate::error::DevMapError) -> Self {
+        let message = error.to_string();
+        match error {
+            crate::error::DevMapError::RoutePlanConflict {
+                revision,
+                current_plan,
+            } => Self::RevisionConflict {
+                message,
+                current_revision: revision,
+                current_plan,
+            },
+            _ => Self::Domain { message },
+        }
+    }
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "result", deny_unknown_fields)]
 pub enum ApplicationResult {
+    Mutation {
+        mutation: crate::mutation::MutationResult,
+    },
     Snapshot {
         snapshot: Box<crate::application::ApplicationSnapshot>,
     },

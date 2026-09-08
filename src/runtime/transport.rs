@@ -256,8 +256,7 @@ mod exchange_tests {
                     assert_eq!(bytes.len(), 20000);
                     let result = bounded_json(
                         &ApplicationResult::Error {
-                            error: DomainError {
-                                code: "domain".into(),
+                            error: DomainError::Domain {
                                 message: "repository store: exact original diagnostic".into(),
                             },
                         },

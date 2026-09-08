@@ -168,3 +168,31 @@ Independent query proxy review approved this scope. Actual shared mutation
 routing, safe first-write activation, legacy cutover coordination, bounded Git
 operations, final large-repository resource budgets and final real-host checks
 remain open. No installed runtime or live repository data was migrated here.
+
+## Task 5: immutable mutation transport
+
+The authenticated serial owner now accepts closed typed mutation commands.
+PreparedMutation retains bounded private serialized bytes across reconnects;
+revision conflicts preserve their exact message, revision and required nullable
+current plan. Successful writes invalidate an existing projection without making
+map initialization a prerequisite for capture. This slice adds no automatic
+migration and does not yet route public MCP/hook writes through the owner.
+
+Real copied-executable tests cover route CAS, rejected/partial uploads, anonymous
+hook identity, and response abandonment after an independently observed SQLite
+commit. The retained owned child is terminated and reaped, HEAD changes, and a
+new authenticated owner receives the identical saved request. Complete SQL
+receipts remain unchanged. This proves abandonment before caller consumption;
+it does not claim the owner had not written into OS response buffers. Native
+Write retains its truthful ToolCompleted plus CaptureGap pair. The initially
+incorrect zero-gap test expectation and its failed log are preserved.
+
+The initial matrix passed five cases; the corrected six-command capture matrix
+passed separately in 52.28 seconds. Same-owner warm-query/write/query passed
+with generation+1. Subsequent regression checks passed 12 runtime unit tests,
+5 proxy tests, 5 application transport tests and 11 connection tests. After
+boxing the command to satisfy Clippy, protocol roundtrip, actual owner route
+dispatch and both immutable-preparation tests passed again. Scoped Clippy
+passed with warnings denied. Evidence is under target/verification in the
+task5-mutation-* and task5-prepared-mutation-final logs. Independent review
+approved this slice; full product and performance acceptance remain open.

@@ -195,8 +195,7 @@ mod tests {
         let result: Result<(), _> = bounded_retry(|_| {
             count += 1;
             Err(RuntimeCallError::Domain(
-                crate::runtime::protocol::DomainError {
-                    code: "invalid".into(),
+                crate::runtime::protocol::DomainError::Domain {
                     message: "original domain message".into(),
                 },
             ))

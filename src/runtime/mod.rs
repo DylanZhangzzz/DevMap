@@ -1,4 +1,4 @@
-//! Same-user, repository-scoped local owner. This slice only exposes diagnostics.
+//! Same-user, repository-scoped owner with bounded typed application exchanges.
 mod executor;
 mod owner;
 pub mod protocol;
@@ -552,7 +552,7 @@ impl std::fmt::Display for RuntimeCallError {
         match self {
             Self::Transport(e) => e.fmt(f),
             Self::Busy => f.write_str("runtime application busy"),
-            Self::Domain(e) => f.write_str(&e.message),
+            Self::Domain(e) => f.write_str(e.message()),
         }
     }
 }
@@ -562,7 +562,78 @@ impl From<io::Error> for RuntimeCallError {
         Self::Transport(e)
     }
 }
+/// An immutable, bounded application payload. Reuse across owner replacement;
+/// transfer identifiers change, but prepared domain identity and bytes do not.
+pub struct PreparedMutation {
+    bytes: Vec<u8>,
+    family: MutationFamily,
+}
+#[derive(Clone, Copy)]
+enum MutationFamily {
+    Route,
+    Capture,
+    Hook,
+}
+impl PreparedMutation {
+    pub fn new(command: &crate::mutation::MutationCommand) -> Result<Self, RuntimeCallError> {
+        use crate::mutation::MutationCommand;
+        #[derive(serde::Serialize)]
+        struct BorrowedMutation<'a> {
+            operation: &'static str,
+            command: &'a MutationCommand,
+        }
+        let family = match command {
+            MutationCommand::SetRoute { .. } => MutationFamily::Route,
+            MutationCommand::CaptureHook { .. } => MutationFamily::Hook,
+            _ => MutationFamily::Capture,
+        };
+        Ok(Self {
+            bytes: transport::bounded_json(
+                &BorrowedMutation {
+                    operation: "Mutate",
+                    command,
+                },
+                protocol::MAX_REQUEST,
+            )?,
+            family,
+        })
+    }
+    fn accept(
+        &self,
+        result: protocol::ApplicationResult,
+    ) -> Result<crate::mutation::MutationResult, RuntimeCallError> {
+        use crate::mutation::MutationResult;
+        match result {
+            protocol::ApplicationResult::Mutation { mutation }
+                if matches!(
+                    (&self.family, &mutation),
+                    (MutationFamily::Route, MutationResult::Route { .. })
+                        | (
+                            MutationFamily::Capture,
+                            MutationResult::CaptureAccepted { .. }
+                        )
+                        | (MutationFamily::Hook, MutationResult::HookAccepted { .. })
+                ) =>
+            {
+                Ok(mutation)
+            }
+            _ => Err(invalid("runtime mutation response kind mismatch").into()),
+        }
+    }
+}
 impl RuntimeClient {
+    pub fn mutate(
+        &mut self,
+        command: &crate::mutation::MutationCommand,
+    ) -> Result<crate::mutation::MutationResult, RuntimeCallError> {
+        self.mutate_prepared(&PreparedMutation::new(command)?)
+    }
+    pub fn mutate_prepared(
+        &mut self,
+        prepared: &PreparedMutation,
+    ) -> Result<crate::mutation::MutationResult, RuntimeCallError> {
+        prepared.accept(self.application_call_bytes(prepared.bytes.clone())?)
+    }
     pub fn query(
         &mut self,
         query: &crate::application::ClientQuery,
@@ -596,6 +667,12 @@ impl RuntimeClient {
         request: &protocol::ApplicationRequest,
     ) -> Result<protocol::ApplicationResult, RuntimeCallError> {
         let bytes = transport::bounded_json(request, protocol::MAX_REQUEST)?;
+        self.application_call_bytes(bytes)
+    }
+    fn application_call_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<protocol::ApplicationResult, RuntimeCallError> {
         self.next_request = self
             .next_request
             .checked_add(1)
@@ -607,5 +684,120 @@ impl RuntimeClient {
             self.next_request,
             bytes,
         ))
+    }
+}
+
+#[cfg(test)]
+mod prepared_mutation_tests {
+    use super::*;
+    use crate::mutation::{MutationCommand, MutationResult};
+
+    fn command() -> MutationCommand {
+        MutationCommand::SetRoute {
+            input: crate::route_plan::PlanInput {
+                delivery: Default::default(),
+                request_id: "fixed".into(),
+                route_id: None,
+                expected_revision: 0,
+                worktree_id: "worktree".into(),
+                goal: "goal".into(),
+                target_ref: None,
+                milestones: vec![],
+                source: "user".into(),
+                abandoned: false,
+            },
+        }
+    }
+
+    #[test]
+    fn opaque_preparation_retains_exact_bounded_bytes_and_rejects_wrong_result_family() {
+        let mut command = command();
+        let prepared = PreparedMutation::new(&command).unwrap();
+        let expected = serde_json::to_vec(&protocol::ApplicationRequest::Mutate {
+            command: Box::new(command.clone()),
+        })
+        .unwrap();
+        assert_eq!(prepared.bytes, expected);
+        let MutationCommand::SetRoute { input } = &mut command else {
+            unreachable!()
+        };
+        input.goal = "changed after preparation".into();
+        assert_eq!(prepared.bytes, expected);
+        assert!(matches!(
+            prepared.accept(protocol::ApplicationResult::Mutation {
+                mutation: MutationResult::HookAccepted { sha256: vec![] },
+            }),
+            Err(RuntimeCallError::Transport(_))
+        ));
+        input.goal = "x".repeat(protocol::MAX_REQUEST + 1);
+        assert!(matches!(
+            PreparedMutation::new(&command),
+            Err(RuntimeCallError::Transport(_))
+        ));
+
+        for (family, mutation) in [
+            (
+                MutationFamily::Capture,
+                MutationResult::CaptureAccepted {
+                    sha256: "hash".into(),
+                },
+            ),
+            (
+                MutationFamily::Hook,
+                MutationResult::HookAccepted {
+                    sha256: vec!["hash".into()],
+                },
+            ),
+        ] {
+            let expected = mutation.clone();
+            let prepared = PreparedMutation {
+                bytes: vec![],
+                family,
+            };
+            assert_eq!(
+                prepared
+                    .accept(protocol::ApplicationResult::Mutation { mutation })
+                    .unwrap(),
+                expected
+            );
+            let wrong = if matches!(family, MutationFamily::Hook) {
+                MutationResult::CaptureAccepted {
+                    sha256: "hash".into(),
+                }
+            } else {
+                MutationResult::HookAccepted { sha256: vec![] }
+            };
+            assert!(matches!(
+                prepared.accept(protocol::ApplicationResult::Mutation { mutation: wrong }),
+                Err(RuntimeCallError::Transport(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn structured_domain_conversion_keeps_null_plan_revision_and_exact_display() {
+        let original = crate::error::DevMapError::RoutePlanConflict {
+            revision: 3,
+            current_plan: None,
+        };
+        let message = original.to_string();
+        let error = RuntimeCallError::Domain(original.into());
+        assert_eq!(error.to_string(), message);
+        let RuntimeCallError::Domain(error) = error else {
+            unreachable!()
+        };
+        let value = serde_json::to_value(&error).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"code":"revision_conflict", "message":message, "current_revision":3, "current_plan":null})
+        );
+        let decoded: protocol::DomainError = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.message(), message);
+        let ordinary: protocol::DomainError =
+            crate::error::DevMapError::Store("original".into()).into();
+        assert_eq!(
+            serde_json::to_value(&ordinary).unwrap(),
+            serde_json::json!({"code":"domain","message":"repository store: original"})
+        );
     }
 }

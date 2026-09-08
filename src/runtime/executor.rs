@@ -50,14 +50,8 @@ impl Executor {
             .name("devmap-application".into())
             .spawn(move || {
                 for job in receiver {
-                    let result = execute(&job.identity, &job.bytes).unwrap_or_else(|e| {
-                        ApplicationResult::Error {
-                            error: DomainError {
-                                code: "domain".into(),
-                                message: e.to_string(),
-                            },
-                        }
-                    });
+                    let result = execute(&job.identity, &job.bytes)
+                        .unwrap_or_else(|e| ApplicationResult::Error { error: e.into() });
                     // Release the request before encoding the fixed result. The reservation
                     // moves into the response and survives a disconnected receiver until now.
                     drop(job.bytes);
@@ -65,8 +59,7 @@ impl Executor {
                         .unwrap_or_else(|e| {
                             transport::bounded_json(
                                 &ApplicationResult::Error {
-                                    error: DomainError {
-                                        code: "response_limit".into(),
+                                    error: DomainError::ResponseLimit {
                                         message: e.to_string(),
                                     },
                                 },
@@ -113,11 +106,19 @@ fn execute(
     {
         return Err(DevMapError::Store("authenticated source changed".into()));
     }
+    if let ApplicationRequest::Mutate { command } = request {
+        let mutation = command.execute(&workspace)?;
+        if let Some(app) = app {
+            app.reconcile();
+        }
+        return Ok(ApplicationResult::Mutation { mutation });
+    }
     if app.is_none() {
         *app = Some(RepositoryApplication::open(&workspace)?);
     }
     let app = app.as_mut().unwrap();
     match request {
+        ApplicationRequest::Mutate { .. } => unreachable!(),
         ApplicationRequest::Query { query } => Ok(ApplicationResult::Snapshot {
             snapshot: Box::new(app.project(&workspace, &query, OffsetDateTime::now_utc())?),
         }),
@@ -163,8 +164,7 @@ mod tests {
             entered_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             Ok(ApplicationResult::Error {
-                error: DomainError {
-                    code: "test".into(),
+                error: DomainError::Domain {
                     message: "completed".into(),
                 },
             })
