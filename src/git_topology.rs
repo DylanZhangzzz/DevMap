@@ -59,112 +59,114 @@ impl GitTopologyCollector {
         workspace: &SourceWorkspace,
         worktrees: &[WorktreeDescriptor],
     ) -> Result<TopologyGraph, DevMapError> {
-        let RefRows {
-            displayed: refs,
-            omitted: omitted_refs,
-            unsupported_oids: unsupported_ref_oids,
-        } = read_refs(&workspace.root)?;
-        let mut boundaries = BTreeMap::new();
-        for reference in &omitted_refs {
-            insert_boundary(&mut boundaries, &reference.oid, "history_limit");
-        }
-        for oid in &unsupported_ref_oids {
-            insert_boundary(&mut boundaries, oid, "missing");
-        }
-
-        let tips = refs
-            .iter()
-            .map(|reference| reference.oid.clone())
-            .chain(worktrees.iter().map(|worktree| worktree.head.clone()))
-            .filter(|oid| !oid.is_empty() && !oid.bytes().all(|byte| byte == b'0'))
-            .collect::<BTreeSet<_>>();
-        if tips.is_empty() {
-            return Ok(TopologyGraph {
-                commits: Vec::new(),
-                refs,
-                edges: Vec::new(),
-                complete: boundaries.is_empty(),
-                boundaries: boundaries.into_values().collect(),
-            });
-        }
-
-        let shallow_oids = read_shallow_oids(&workspace.root)?;
-        let rows = read_commit_rows(&workspace.root, &tips)?;
-        let history_truncated = rows.len() > MAX_COMMITS;
-        let retained_rows = &rows[..rows.len().min(MAX_COMMITS)];
-        let retained_oids = retained_rows
-            .iter()
-            .map(|row| row.oid.clone())
-            .collect::<BTreeSet<_>>();
-
-        if history_truncated {
-            for tip in tips.iter().filter(|tip| !retained_oids.contains(*tip)) {
-                insert_boundary(&mut boundaries, tip, "history_limit");
+        crate::git_process::with_operation(|| {
+            let RefRows {
+                displayed: refs,
+                omitted: omitted_refs,
+                unsupported_oids: unsupported_ref_oids,
+            } = read_refs(&workspace.root)?;
+            let mut boundaries = BTreeMap::new();
+            for reference in &omitted_refs {
+                insert_boundary(&mut boundaries, &reference.oid, "history_limit");
             }
-        }
-        for shallow_oid in shallow_oids
-            .iter()
-            .filter(|oid| retained_oids.contains(*oid))
-        {
-            insert_boundary(&mut boundaries, shallow_oid, "shallow");
-        }
+            for oid in &unsupported_ref_oids {
+                insert_boundary(&mut boundaries, oid, "missing");
+            }
 
-        let mut edges = Vec::new();
-        for row in retained_rows {
-            for parent in &row.parents {
-                edges.push(TopologyEdge {
-                    id: format!("edge:{parent}:{}", row.oid),
-                    from_oid: parent.clone(),
-                    to_oid: row.oid.clone(),
+            let tips = refs
+                .iter()
+                .map(|reference| reference.oid.clone())
+                .chain(worktrees.iter().map(|worktree| worktree.head.clone()))
+                .filter(|oid| !oid.is_empty() && !oid.bytes().all(|byte| byte == b'0'))
+                .collect::<BTreeSet<_>>();
+            if tips.is_empty() {
+                return Ok(TopologyGraph {
+                    commits: Vec::new(),
+                    refs,
+                    edges: Vec::new(),
+                    complete: boundaries.is_empty(),
+                    boundaries: boundaries.into_values().collect(),
                 });
-                if !retained_oids.contains(parent) {
-                    let reason = if history_truncated {
-                        "history_limit"
-                    } else {
-                        "missing"
-                    };
-                    insert_boundary(&mut boundaries, parent, reason);
+            }
+
+            let shallow_oids = read_shallow_oids(&workspace.root)?;
+            let rows = read_commit_rows(&workspace.root, &tips)?;
+            let history_truncated = rows.len() > MAX_COMMITS;
+            let retained_rows = &rows[..rows.len().min(MAX_COMMITS)];
+            let retained_oids = retained_rows
+                .iter()
+                .map(|row| row.oid.clone())
+                .collect::<BTreeSet<_>>();
+
+            if history_truncated {
+                for tip in tips.iter().filter(|tip| !retained_oids.contains(*tip)) {
+                    insert_boundary(&mut boundaries, tip, "history_limit");
                 }
             }
-        }
+            for shallow_oid in shallow_oids
+                .iter()
+                .filter(|oid| retained_oids.contains(*oid))
+            {
+                insert_boundary(&mut boundaries, shallow_oid, "shallow");
+            }
 
-        let enrichment = enrich_commits(&workspace.root, &retained_oids)?;
-        let commits = retained_rows
-            .iter()
-            .map(|row| {
-                let details = enrichment.get(&row.oid);
-                TopologyCommit {
-                    oid: row.oid.clone(),
-                    parents: row.parents.clone(),
-                    authored_at: details.map(|detail| detail.authored_at.clone()),
-                    subject: details.map(|detail| detail.subject.clone()),
+            let mut edges = Vec::new();
+            for row in retained_rows {
+                for parent in &row.parents {
+                    edges.push(TopologyEdge {
+                        id: format!("edge:{parent}:{}", row.oid),
+                        from_oid: parent.clone(),
+                        to_oid: row.oid.clone(),
+                    });
+                    if !retained_oids.contains(parent) {
+                        let reason = if history_truncated {
+                            "history_limit"
+                        } else {
+                            "missing"
+                        };
+                        insert_boundary(&mut boundaries, parent, reason);
+                    }
                 }
+            }
+
+            let enrichment = enrich_commits(&workspace.root, &retained_oids)?;
+            let commits = retained_rows
+                .iter()
+                .map(|row| {
+                    let details = enrichment.get(&row.oid);
+                    TopologyCommit {
+                        oid: row.oid.clone(),
+                        parents: row.parents.clone(),
+                        authored_at: details.map(|detail| detail.authored_at.clone()),
+                        subject: details.map(|detail| detail.subject.clone()),
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            for oid in retained_oids
+                .iter()
+                .filter(|oid| !enrichment.contains_key(*oid))
+            {
+                insert_boundary(&mut boundaries, oid, "missing");
+            }
+
+            let incomplete = history_truncated
+                || !omitted_refs.is_empty()
+                || !shallow_oids.is_empty()
+                || boundaries
+                    .values()
+                    .any(|boundary| boundary.reason == "missing");
+            if !incomplete {
+                mark_unrelated_components(&commits, &edges, &mut boundaries);
+            }
+
+            Ok(TopologyGraph {
+                commits,
+                refs,
+                edges,
+                boundaries: boundaries.into_values().collect(),
+                complete: !incomplete,
             })
-            .collect::<Vec<_>>();
-
-        for oid in retained_oids
-            .iter()
-            .filter(|oid| !enrichment.contains_key(*oid))
-        {
-            insert_boundary(&mut boundaries, oid, "missing");
-        }
-
-        let incomplete = history_truncated
-            || !omitted_refs.is_empty()
-            || !shallow_oids.is_empty()
-            || boundaries
-                .values()
-                .any(|boundary| boundary.reason == "missing");
-        if !incomplete {
-            mark_unrelated_components(&commits, &edges, &mut boundaries);
-        }
-
-        Ok(TopologyGraph {
-            commits,
-            refs,
-            edges,
-            boundaries: boundaries.into_values().collect(),
-            complete: !incomplete,
         })
     }
 }
@@ -188,23 +190,42 @@ struct RefRows {
 }
 
 fn read_refs(root: &Path) -> Result<RefRows, DevMapError> {
-    let output = checked_git(
+    let metadata = git_output(
         root,
         [
             "for-each-ref",
             "--count=257",
-            "--format=%(refname)%00%(objectname)",
+            "--format=%(refname)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)",
             "refs/heads",
             "refs/remotes",
             "refs/tags",
         ],
     )?;
+    // Object metadata can fail for missing/promised objects even though reading
+    // the ref names and OIDs is valid. Never fetch or treat missing type as commit.
+    let has_metadata = metadata.status.success();
+    let output = if has_metadata {
+        metadata
+    } else {
+        checked_git(
+            root,
+            [
+                "for-each-ref",
+                "--count=257",
+                "--format=%(refname)%00%(objectname)",
+                "refs/heads",
+                "refs/remotes",
+                "refs/tags",
+            ],
+        )?
+    };
     let text = git_stdout(&output, "git for-each-ref")?;
     let mut refs = Vec::new();
     let mut unsupported_oids = Vec::new();
+    let mut resolved = BTreeMap::<String, Option<String>>::new();
     for line in text.lines().filter(|line| !line.is_empty()) {
         let fields = line.split('\0').collect::<Vec<_>>();
-        if fields.len() != 2 {
+        if fields.len() != if has_metadata { 5 } else { 2 } {
             return Err(malformed_git("git for-each-ref"));
         }
         let Some((kind, display_name)) = ref_identity(fields[0]) else {
@@ -213,7 +234,33 @@ fn read_refs(root: &Path) -> Result<RefRows, DevMapError> {
         if fields[1].is_empty() {
             continue;
         }
-        let Some(oid) = resolve_ref_commit(root, fields[0])? else {
+        let commit = if has_metadata {
+            match fields[2] {
+                "commit" => Some(Some(fields[1].to_owned())),
+                "blob" | "tree" => Some(None),
+                "tag" if fields[4] == "commit" && !fields[3].is_empty() => {
+                    Some(Some(fields[3].to_owned()))
+                }
+                "tag" if matches!(fields[4], "blob" | "tree") => Some(None),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let commit = match commit {
+            Some(commit) => commit,
+            None => match resolved.get(fields[1]) {
+                Some(commit) => commit.clone(),
+                None => {
+                    // Resolve the immutable object observed in the enumeration,
+                    // not a moving ref name. Repeated refs share this resolution.
+                    let commit = resolve_ref_commit(root, fields[1])?;
+                    resolved.insert(fields[1].to_owned(), commit.clone());
+                    commit
+                }
+            },
+        };
+        let Some(oid) = commit else {
             unsupported_oids.push(fields[1].to_owned());
             continue;
         };
@@ -237,8 +284,8 @@ fn read_refs(root: &Path) -> Result<RefRows, DevMapError> {
     })
 }
 
-fn resolve_ref_commit(root: &Path, ref_name: &str) -> Result<Option<String>, DevMapError> {
-    let revision = format!("{ref_name}^{{commit}}");
+fn resolve_ref_commit(root: &Path, object: &str) -> Result<Option<String>, DevMapError> {
+    let revision = format!("{object}^{{commit}}");
     let args = [
         OsString::from("rev-parse"),
         OsString::from("--verify"),
@@ -464,14 +511,15 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Ok(Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_NO_LAZY_FETCH", "1")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .output()?)
+    Ok(crate::git_process::output(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_NO_LAZY_FETCH", "1")
+            .env("GIT_NO_REPLACE_OBJECTS", "1"),
+    )?)
 }
 
 fn git_stdout<'a>(output: &'a Output, command: &str) -> Result<&'a str, DevMapError> {

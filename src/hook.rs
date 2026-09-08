@@ -244,6 +244,47 @@ pub fn handle_hook(
     })
 }
 
+/// Executable-only entrypoint. Embedded callers retain the direct handler above.
+pub fn handle_hook_shared(
+    args: HookHandleArgs,
+    stdin: &mut dyn Read,
+) -> Result<CommandOutput, DevMapError> {
+    crate::git_process::with_operation(|| handle_hook_shared_inner(args, stdin))
+}
+fn handle_hook_shared_inner(
+    args: HookHandleArgs,
+    stdin: &mut dyn Read,
+) -> Result<CommandOutput, DevMapError> {
+    let mut bytes = Vec::with_capacity(4096);
+    stdin
+        .take((MAX_HOOK_BODY_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_HOOK_BODY_BYTES {
+        return Err(DevMapError::ResourceLimit {
+            resource: "native hook body",
+            limit: MAX_HOOK_BODY_BYTES,
+        });
+    }
+    let input = serde_json::from_slice(&bytes)?;
+    let workspace = SourceGitInspector::open(&args.source)?.workspace()?;
+    let prepared = PreparedHook::prepare(
+        args.host,
+        &args.event,
+        input,
+        &workspace,
+        OffsetDateTime::now_utc(),
+    )?;
+    let command = crate::mutation::MutationCommand::CaptureHook { prepared };
+    let mut proxy = crate::mutation_proxy::MutationProxy::new(crate::proxy::ProxyMode::Shared);
+    match proxy.execute(&workspace, &command)? {
+        crate::mutation::MutationResult::HookAccepted { .. } => Ok(CommandOutput {
+            stdout: "{}\n".into(),
+            exit_code: 0,
+        }),
+        _ => Err(DevMapError::InvalidDomain("native hook mutation result")),
+    }
+}
+
 pub fn normalize_hook_input(
     host: AdapterHost,
     event: &str,

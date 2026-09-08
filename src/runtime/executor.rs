@@ -1,4 +1,7 @@
 //! One bounded, serial application thread. Disconnect never cancels accepted work.
+#[cfg(all(test, windows))]
+#[path = "quarantine_tests.rs"]
+mod quarantine_tests;
 use super::{
     Identity,
     protocol::{self, ApplicationRequest, ApplicationResult, DomainError},
@@ -50,8 +53,12 @@ impl Executor {
             .name("devmap-application".into())
             .spawn(move || {
                 for job in receiver {
-                    let result = execute(&job.identity, &job.bytes)
-                        .unwrap_or_else(|e| ApplicationResult::Error { error: e.into() });
+                    let result = if crate::git_process::healthy() {
+                        execute(&job.identity, &job.bytes)
+                    } else {
+                        Err(crate::git_process::GitProcessError::CleanupFailed.into())
+                    }
+                    .unwrap_or_else(|e| ApplicationResult::Error { error: e.into() });
                     // Release the request before encoding the fixed result. The reservation
                     // moves into the response and survives a disconnected receiver until now.
                     drop(job.bytes);
@@ -94,6 +101,13 @@ impl Drop for Executor {
     }
 }
 fn execute(
+    app: &mut Option<RepositoryApplication>,
+    identity: &Identity,
+    bytes: &[u8],
+) -> Result<ApplicationResult, DevMapError> {
+    crate::git_process::with_operation(|| execute_inner(app, identity, bytes))
+}
+fn execute_inner(
     app: &mut Option<RepositoryApplication>,
     identity: &Identity,
     bytes: &[u8],

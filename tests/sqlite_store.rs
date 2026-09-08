@@ -152,7 +152,7 @@ fn hardlinked_database_and_sidecars_are_rejected() {
         let p = s.path().to_owned();
         drop(s);
         let candidate = std::path::PathBuf::from(format!("{}{suffix}", p.display()));
-        if suffix != "" {
+        if !suffix.is_empty() {
             fs::write(&candidate, b"sentinel").unwrap();
         }
         fs::hard_link(&candidate, d.path().join("alias")).unwrap();

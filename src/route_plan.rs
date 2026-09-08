@@ -136,9 +136,8 @@ impl RoutePlanStore {
     pub fn set(&self, input: PlanInput) -> Result<RoutePlan, DevMapError> {
         validate(&input)?;
         if let Some(target) = &input.target_ref {
-            let status = Command::new("git")
-                .args(["check-ref-format", target])
-                .output()?;
+            let status =
+                crate::git_process::output(Command::new("git").args(["check-ref-format", target]))?;
             if !status.status.success() {
                 return Err(invalid("invalid target_ref"));
             }

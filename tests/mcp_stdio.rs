@@ -18,6 +18,29 @@ use support::{committed_repo, git};
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
 const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
 
+fn candidate_executable() -> &'static Path {
+    static CANDIDATE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    CANDIDATE.get_or_init(|| {
+        // A shared owner can outlive this test process by its normal idle lease.
+        // Keep its executable in an owned fixture so it cannot pin Cargo's next
+        // build on Windows. Do not kill an owner merely to replace a build file.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/verification");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::Builder::new()
+            .prefix("mcp-stdio-candidate-")
+            .tempdir_in(root)
+            .unwrap()
+            .keep();
+        let destination = directory.join(if cfg!(windows) {
+            "devmap.exe"
+        } else {
+            "devmap"
+        });
+        fs::copy(env!("CARGO_BIN_EXE_devmap"), &destination).unwrap();
+        destination
+    })
+}
+
 fn request(id: Value, method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 }
@@ -558,7 +581,7 @@ fn concurrent_mcp_processes_persist_every_default_id_call_in_locked_sequence() {
             .map(|message| message.to_string())
             .collect::<Vec<_>>()
             .join("\n");
-            let mut child = Command::new(env!("CARGO_BIN_EXE_devmap"))
+            let mut child = Command::new(candidate_executable())
                 .args(["mcp", "--source", source.to_str().unwrap()])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
@@ -578,7 +601,11 @@ fn concurrent_mcp_processes_persist_every_default_id_call_in_locked_sequence() {
                 .map(|line| serde_json::from_str::<Value>(line).unwrap())
                 .collect::<Vec<_>>();
             assert_eq!(responses.len(), 2);
-            assert!(responses[1]["result"].get("isError").is_none());
+            assert!(
+                responses[1]["result"].get("isError").is_none(),
+                "concurrent call {call_index}: {}",
+                responses[1]
+            );
         }));
     }
     for worker in workers {
@@ -609,14 +636,30 @@ fn concurrent_mcp_processes_persist_every_default_id_call_in_locked_sequence() {
             .len(),
         CALLS
     );
+    // Generated IDs are opaque and prepared before transport so reconnects can
+    // replay one invocation. Verify every caller's actual content, independently
+    // of the old implementation's sequence-derived spelling. Sequence and ID
+    // uniqueness are still asserted above.
     assert_eq!(
         records
             .iter()
-            .map(|record| record.event.event_id().to_owned())
+            .map(|record| (
+                record.event.actor().agent_id().to_owned(),
+                record.event.payload()["requirement_trace"]["source"]["locator"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                record.event.payload()["requirement_trace"]["approved_quotation"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            ))
             .collect::<std::collections::BTreeSet<_>>(),
-        (1..=CALLS)
-            .map(|sequence| format!(
-                "mcp-devmap_record_requirement-concurrent-mcp-session-{sequence}"
+        (0..CALLS)
+            .map(|index| (
+                format!("agent-{index}"),
+                format!("call:{index}"),
+                format!("Approved concurrent quotation {index}."),
             ))
             .collect()
     );
@@ -749,7 +792,7 @@ fn identical_explicit_capture_input_produces_the_same_record_hash() {
 #[test]
 fn executable_writes_no_diagnostics_or_banners_to_stdout() {
     let repository = committed_repo();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_devmap"))
+    let mut child = Command::new(candidate_executable())
         .args(["mcp", "--source", repository.path().to_str().unwrap()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

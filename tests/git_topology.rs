@@ -391,6 +391,57 @@ fn non_commit_tags_are_explicitly_incomplete() {
 }
 
 #[test]
+fn nested_annotated_tags_peel_to_commits_and_keep_noncommit_boundaries() {
+    let repo = support::committed_repo();
+    let tip = support::git(repo.path(), ["rev-parse", "HEAD"]);
+    support::git(
+        repo.path(),
+        ["tag", "-a", "inner-commit", "-m", "inner commit"],
+    );
+    support::git(
+        repo.path(),
+        [
+            "tag",
+            "-a",
+            "outer-commit",
+            "inner-commit",
+            "-m",
+            "outer commit",
+        ],
+    );
+    let blob = support::git(repo.path(), ["hash-object", "README.md"]);
+    support::git(
+        repo.path(),
+        ["tag", "-a", "inner-blob", &blob, "-m", "inner blob"],
+    );
+    support::git(
+        repo.path(),
+        ["tag", "-a", "outer-blob", "inner-blob", "-m", "outer blob"],
+    );
+    let outer_blob = support::git(repo.path(), ["rev-parse", "refs/tags/outer-blob"]);
+    let graph = scan_read_only(repo.path());
+    for name in ["refs/tags/inner-commit", "refs/tags/outer-commit"] {
+        assert_eq!(
+            graph.refs.iter().find(|r| r.ref_name == name).unwrap().oid,
+            tip
+        );
+    }
+    assert!(
+        !graph
+            .refs
+            .iter()
+            .any(|r| r.ref_name == "refs/tags/outer-blob")
+    );
+    assert!(
+        graph
+            .boundaries
+            .iter()
+            .any(|b| b.oid == outer_blob && b.reason == "missing")
+    );
+    assert!(!graph.complete);
+}
+
+#[test]
 fn partial_clone_scan_does_not_lazy_fetch_a_promised_tag_target() {
     let source = support::committed_repo();
     let blob = support::git(source.path(), ["hash-object", "README.md"]);
@@ -399,6 +450,18 @@ fn partial_clone_scan_does_not_lazy_fetch_a_promised_tag_target() {
         source.path(),
         ["config", "uploadpack.allowAnySHA1InWant", "true"],
     );
+    support::git(
+        source.path(),
+        [
+            "tag",
+            "-a",
+            "annotated-promised",
+            &blob,
+            "-m",
+            "promised blob",
+        ],
+    );
+    let annotated = support::git(source.path(), ["rev-parse", "refs/tags/annotated-promised"]);
 
     let probe = promisor_clone_without_blob(source.path(), &blob);
     assert!(git_object_is_missing(probe.path(), &blob));
@@ -409,6 +472,12 @@ fn partial_clone_scan_does_not_lazy_fetch_a_promised_tag_target() {
     );
 
     let clone = promisor_clone_without_blob(source.path(), &blob);
+    copy_loose_object(source.path(), clone.path(), &annotated);
+    fs::write(
+        clone.path().join(".git/refs/tags/annotated-promised"),
+        format!("{annotated}\n"),
+    )
+    .unwrap();
     assert!(git_object_is_missing(clone.path(), &blob));
     let before = support::source_snapshot(clone.path());
     let before_objects = support::git(clone.path(), ["count-objects", "-v"]);
@@ -430,6 +499,18 @@ fn partial_clone_scan_does_not_lazy_fetch_a_promised_tag_target() {
             .boundaries
             .iter()
             .any(|boundary| { boundary.oid == blob && boundary.reason == "missing" })
+    );
+    assert!(
+        graph
+            .boundaries
+            .iter()
+            .any(|boundary| boundary.oid == annotated && boundary.reason == "missing")
+    );
+    assert!(
+        !graph
+            .refs
+            .iter()
+            .any(|reference| reference.ref_name == "refs/tags/annotated-promised")
     );
     assert_eq!(
         support::git(clone.path(), ["count-objects", "-v"]),

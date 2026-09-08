@@ -47,12 +47,13 @@ pub fn repository_id(workspace: &SourceWorkspace) -> String {
 
 impl WorktreeScanner {
     pub fn scan(workspace: &SourceWorkspace) -> Result<Vec<WorktreeDescriptor>, DevMapError> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&workspace.root)
-            .args(["worktree", "list", "--porcelain", "-z"])
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()?;
+        let output = crate::git_process::output(
+            Command::new("git")
+                .arg("-C")
+                .arg(&workspace.root)
+                .args(["worktree", "list", "--porcelain", "-z"])
+                .env("GIT_TERMINAL_PROMPT", "0"),
+        )?;
         if !output.status.success() {
             return Err(DevMapError::GitCommand {
                 command: "git worktree list --porcelain -z".into(),

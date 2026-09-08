@@ -157,20 +157,11 @@ fn shared_call<T>(
     })
 }
 
-/// At most two attempts. Domain failures are terminal; Busy has not accepted a
-/// command, while transport failure may have committed it. Caller payloads must
-/// therefore be immutable and domain-idempotent across both attempts.
+/// Shared bounded admission retries; caller payloads stay immutable throughout.
 fn bounded_retry<T>(
-    mut attempt: impl FnMut(bool) -> Result<T, RuntimeCallError>,
+    attempt: impl FnMut(bool) -> Result<T, RuntimeCallError>,
 ) -> Result<T, RuntimeCallError> {
-    match attempt(false) {
-        Err(RuntimeCallError::Transport(_)) => attempt(true),
-        Err(RuntimeCallError::Busy) => {
-            std::thread::sleep(Duration::from_millis(50));
-            attempt(false)
-        }
-        result => result,
-    }
+    crate::runtime::retry_application(attempt)
 }
 
 #[cfg(test)]
@@ -182,13 +173,16 @@ mod tests {
             let mut attempts = vec![];
             let result: Result<(), _> = bounded_retry(|reconnect| {
                 attempts.push(reconnect);
+                if busy && attempts.len() == 2 {
+                    return Ok(());
+                }
                 Err(if busy {
                     RuntimeCallError::Busy
                 } else {
                     RuntimeCallError::Transport(std::io::Error::other("lost response"))
                 })
             });
-            assert!(result.is_err());
+            assert_eq!(result.is_ok(), busy);
             assert_eq!(attempts, expected);
         }
         let mut count = 0;

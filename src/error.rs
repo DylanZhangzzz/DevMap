@@ -6,6 +6,8 @@ use std::path::PathBuf;
 #[derive(Debug, Error)]
 pub enum DevMapError {
     #[error(transparent)]
+    GitProcess(#[from] crate::git_process::GitProcessError),
+    #[error(transparent)]
     Runtime(#[from] crate::runtime::RuntimeCallError),
     #[error("repository store: {0}")]
     Store(String),

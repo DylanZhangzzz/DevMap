@@ -8,13 +8,14 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::CommandOutput;
-use crate::capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput};
+use crate::capture::{AgentDecisionInput, EvidenceInput, RequirementTraceInput};
 use crate::dock::{DockReadModel, ObservedTask};
 use crate::dock_asset::{DOCK_MIME_TYPE, DOCK_RESOURCE_URI, dock_html};
 use crate::error::DevMapError;
-use crate::events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities};
+use crate::events::host_capabilities;
 use crate::git::{SourceGitInspector, SourceWorkspace};
-use crate::journal::JournalStore;
+use crate::mutation::{CommonCaptureIdentity, MutationCommand, MutationResult};
+use crate::mutation_proxy::MutationProxy;
 use crate::presence::PresenceStatus;
 use crate::proxy::{ProxyMode, QueryProxy, SharedQueryProxy};
 use crate::viewer::{ViewerHandle, ViewerRuntime, start_live_viewer_with_proxy};
@@ -38,7 +39,6 @@ pub const MCP_TOOLS: [&str; 6] = [
 
 const LEGACY_PROTOCOL_VERSION: &str = "2025-11-25";
 const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
-const MCP_ADAPTER_VERSION: &str = "devmap-mcp/1";
 pub const MAX_MCP_LINE_BYTES: usize = 1024 * 1024;
 pub const MAX_MCP_METADATA_BYTES: usize = 64 * 1024;
 pub const MAX_MCP_ARGUMENT_BYTES: usize = 256 * 1024;
@@ -56,6 +56,7 @@ pub struct McpRuntime {
     workspace: SourceWorkspace,
     dock: Option<SharedQueryProxy>,
     proxy_mode: ProxyMode,
+    mutations: MutationProxy,
     browser_dock: Option<BrowserDock>,
     audit: TransportAudit,
     legacy_initialized: bool,
@@ -80,6 +81,7 @@ impl McpRuntime {
             workspace: SourceGitInspector::open(source)?.workspace_allow_unborn()?,
             dock: None,
             proxy_mode,
+            mutations: MutationProxy::new(proxy_mode),
             browser_dock: None,
             audit: TransportAudit::default(),
             legacy_initialized: false,
@@ -98,7 +100,7 @@ impl McpRuntime {
 
     pub fn handle(&mut self, message: &Value) -> Option<Value> {
         self.audit.stdio_messages = self.audit.stdio_messages.saturating_add(1);
-        handle_message(self, message)
+        crate::git_process::with_operation(|| handle_message(self, message))
     }
 
     pub fn audit(&self) -> &TransportAudit {
@@ -127,8 +129,8 @@ fn serve_runtime(
     mut reader: impl BufRead,
     mut writer: impl Write,
 ) -> Result<(), DevMapError> {
-    // Workspace identity is stable for the lifetime of this stdio process. Resolving it once
-    // avoids spawning multiple Git commands for every semantic capture.
+    // Presentation state survives calls; every new mutation captures its own
+    // current Git observation before its immutable transport request is prepared.
     loop {
         let response = match read_bounded_line(&mut reader)? {
             None => break,
@@ -767,7 +769,7 @@ fn call_tool_response(runtime: &mut McpRuntime, id: Value, params: Option<&Value
         };
     }
 
-    match call_tool(&runtime.workspace, name, &arguments) {
+    match call_tool(runtime, name, &arguments) {
         Ok(structured) => json_rpc_result(id, tool_result(structured)),
         Err(error) => json_rpc_result(id, tool_error(error)),
     }
@@ -784,7 +786,15 @@ fn map_tool_response(
             serde_json::from_value::<crate::route_plan::PlanInput>(Value::Object(arguments))
                 .map_err(|e| DevMapError::RoutePlan(e.to_string()))
                 .and_then(|input| {
-                    crate::route_plan::RoutePlanStore::open(&runtime.workspace)?.set(input)
+                    let workspace =
+                        SourceGitInspector::open(&runtime.workspace.root)?.workspace()?;
+                    match runtime
+                        .mutations
+                        .execute(&workspace, &MutationCommand::SetRoute { input })?
+                    {
+                        MutationResult::Route { plan } => Ok(*plan),
+                        _ => Err(DevMapError::InvalidDomain("route mutation result")),
+                    }
                 })
                 .and_then(|plan| Ok(tool_result(serde_json::to_value(plan)?)));
         return json_rpc_result(id, result.unwrap_or_else(tool_error));
@@ -821,7 +831,7 @@ fn map_tool_response(
         }
         return json_rpc_result(
             id,
-            call_tool(&runtime.workspace, "devmap_context", &Map::new())
+            call_tool(runtime, "devmap_context", &Map::new())
                 .map(tool_result)
                 .unwrap_or_else(tool_error),
         );
@@ -1205,12 +1215,13 @@ fn parse_subagents(
 }
 
 fn call_tool(
-    workspace: &SourceWorkspace,
+    runtime: &mut McpRuntime,
     name: &str,
     arguments: &Map<String, Value>,
 ) -> Result<Value, DevMapError> {
     if name == "devmap_context" {
         ensure_fields(arguments, &[])?;
+        let workspace = &runtime.workspace;
         return Ok(json!({
             "workspace": workspace.root.to_string_lossy(),
             "branch": workspace.branch.clone(),
@@ -1220,38 +1231,32 @@ fn call_tool(
         }));
     }
 
-    let common = CommonCaptureArgs::parse(arguments, name)?;
-    let journal = JournalStore::open(workspace, &common.session_id)?.with_presence_projection();
-    let kernel = CaptureKernel::new(
-        journal,
-        host_capabilities(crate::cli::AdapterHost::GenericMcp),
-        HostIdentity::new("generic_mcp", MCP_ADAPTER_VERSION)?,
-        ActorIdentity::new(common.agent_id, common.parent_agent_id)?,
-        SessionContext::new(
-            common.session_id,
-            common.route_id,
-            workspace.root.to_string_lossy(),
-            Some(workspace.root.to_string_lossy().into_owned()),
-            workspace.branch.clone(),
-            Some(workspace.head.clone()),
-        )?,
+    let args = CommonCaptureArgs::parse(arguments, name)?;
+    let workspace = SourceGitInspector::open(&runtime.workspace.root)?.workspace()?;
+    let common = CommonCaptureIdentity::prepare(
+        &workspace,
+        args.session_id,
+        args.agent_id,
+        args.parent_agent_id,
+        args.route_id,
+        args.event_id,
+        Some(args.occurred_at),
+        OffsetDateTime::now_utc(),
     )?;
-
-    let record = match name {
-        "devmap_record_requirement" => kernel.record_requirement_with_id(
-            common.event_id.as_deref(),
-            &common.occurred_at,
-            RequirementTraceInput {
+    let command = match name {
+        "devmap_record_requirement" => MutationCommand::RecordRequirement {
+            common,
+            input: RequirementTraceInput {
                 source_kind: required_string(arguments, "source_kind")?,
                 source_locator: optional_string(arguments, "source_locator")?,
                 quoted_text: required_string(arguments, "quoted_text")?,
             },
-            optional_bool(arguments, "raw_transcript_opt_in")?.unwrap_or(false),
-        )?,
-        "devmap_record_decision" => kernel.record_decision_with_id(
-            common.event_id.as_deref(),
-            &common.occurred_at,
-            AgentDecisionInput {
+            raw_transcript_opt_in: optional_bool(arguments, "raw_transcript_opt_in")?
+                .unwrap_or(false),
+        },
+        "devmap_record_decision" => MutationCommand::RecordDecision {
+            common,
+            input: AgentDecisionInput {
                 decision: required_string(arguments, "decision")?,
                 basis: required_string_array(arguments, "basis")?,
                 alternatives: required_string_array(arguments, "alternatives")?,
@@ -1260,20 +1265,22 @@ fn call_tool(
                 authority: required_string(arguments, "authority")?,
                 revisit_trigger: required_string(arguments, "revisit_trigger")?,
             },
-        )?,
-        "devmap_record_evidence" => kernel.record_evidence_with_id(
-            common.event_id.as_deref(),
-            &common.occurred_at,
-            EvidenceInput {
+        },
+        "devmap_record_evidence" => MutationCommand::RecordEvidence {
+            common,
+            input: EvidenceInput {
                 kind: required_string(arguments, "kind")?,
                 target: required_string(arguments, "target")?,
                 command: optional_string(arguments, "command")?,
                 outcome: required_string(arguments, "outcome")?,
             },
-        )?,
+        },
         _ => unreachable!("tool names were checked before dispatch"),
     };
-    Ok(json!({"sha256": record.sha256}))
+    match runtime.mutations.execute(&workspace, &command)? {
+        MutationResult::CaptureAccepted { sha256 } => Ok(json!({"sha256":sha256})),
+        _ => Err(DevMapError::InvalidDomain("semantic mutation result")),
+    }
 }
 
 struct CommonCaptureArgs {

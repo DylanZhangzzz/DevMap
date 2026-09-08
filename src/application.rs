@@ -249,6 +249,14 @@ impl RepositoryApplication {
         query: &ClientQuery,
         now: OffsetDateTime,
     ) -> Result<ApplicationSnapshot, DevMapError> {
+        crate::git_process::with_operation(|| self.project_inner(workspace, query, now))
+    }
+    fn project_inner(
+        &mut self,
+        workspace: &SourceWorkspace,
+        query: &ClientQuery,
+        now: OffsetDateTime,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
         query.validate()?;
         self.validate_client(&ClientView::new(workspace.clone()))?;
         let (generation, inputs) = self.storage.read(&self.workspace)?;
@@ -359,6 +367,18 @@ impl RepositoryApplication {
         self.accept_inventory_with_heads(view, tasks, complete, observed_at, &previous_heads)
     }
     fn accept_inventory_with_heads(
+        &mut self,
+        view: &mut ClientView,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+        previous_heads: &[dock::PreviousHead],
+    ) -> Result<(), DevMapError> {
+        crate::git_process::with_operation(|| {
+            self.accept_inventory_inner(view, tasks, complete, observed_at, previous_heads)
+        })
+    }
+    fn accept_inventory_inner(
         &mut self,
         view: &mut ClientView,
         mut tasks: Vec<ObservedTask>,

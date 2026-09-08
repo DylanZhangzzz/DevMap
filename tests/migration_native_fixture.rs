@@ -119,8 +119,7 @@ fn native_old_writer_is_detected_without_losing_either_store() {
     let legacy_after = fs::read(&legacy).unwrap();
     assert!(legacy_after.starts_with(&legacy_before) && legacy_after.len() > legacy_before.len());
     let error = migration::verify(&workspace)
-        .err()
-        .expect("late old writer must be diagnosed")
+        .expect_err("late old writer must be diagnosed")
         .to_string();
     assert!(error.contains("drift"), "{error}");
     assert_eq!(sql_state(), before);

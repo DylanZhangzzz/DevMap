@@ -361,36 +361,43 @@ impl<R: RouteProvider> DockReducer<R> {
         now: OffsetDateTime,
         observed_tasks: &[ObservedTask],
     ) -> Result<DockReadModel, DevMapError> {
-        // These independent read-only scans share the observed worktree inventory.
-        if !worktrees.iter().any(|worktree| worktree.is_current) {
-            return Err(DevMapError::InvalidPresence(
-                "current worktree is missing".into(),
-            ));
-        }
-        // Overlap Git process latency rather than serializing both scan pipelines.
-        let (topology, relationships) = std::thread::scope(|scope| {
-            let topology = scope.spawn(|| GitTopologyCollector::scan(workspace, &worktrees));
-            let relationships = GitRelationshipResolver::resolve(workspace, &worktrees);
-            Ok::<_, DevMapError>((
-                topology.join().expect("topology worker panicked")?,
-                relationships?,
-            ))
-        })?;
-        self.reduce_with_inputs(
-            workspace,
-            worktrees,
-            presence,
-            journals,
-            now,
-            observed_tasks,
-            TaskObservation {
-                scope: "unarchived_chats",
-                observed_at: None,
-                complete: false,
-            },
-            topology,
-            Some(relationships),
-        )
+        crate::git_process::with_operation(|| {
+            // These independent read-only scans share the observed worktree inventory.
+            if !worktrees.iter().any(|worktree| worktree.is_current) {
+                return Err(DevMapError::InvalidPresence(
+                    "current worktree is missing".into(),
+                ));
+            }
+            // Overlap Git process latency rather than serializing both scan pipelines.
+            let budget = crate::git_process::current_budget();
+            let (topology, relationships) = std::thread::scope(|scope| {
+                let topology = scope.spawn(|| {
+                    crate::git_process::with_budget(&budget, || {
+                        GitTopologyCollector::scan(workspace, &worktrees)
+                    })
+                });
+                let relationships = GitRelationshipResolver::resolve(workspace, &worktrees);
+                Ok::<_, DevMapError>((
+                    topology.join().expect("topology worker panicked")?,
+                    relationships?,
+                ))
+            })?;
+            self.reduce_with_inputs(
+                workspace,
+                worktrees,
+                presence,
+                journals,
+                now,
+                observed_tasks,
+                TaskObservation {
+                    scope: "unarchived_chats",
+                    observed_at: None,
+                    complete: false,
+                },
+                topology,
+                Some(relationships),
+            )
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -794,45 +801,48 @@ impl DockProjectionContext {
         workspace: &SourceWorkspace,
         plans: &[crate::route_plan::RoutePlan],
     ) -> Result<Self, DevMapError> {
-        let worktrees = WorktreeScanner::scan(workspace)?;
-        let before = topology_cache_key(workspace, &worktrees)?;
-        let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
-        let configured = GitRelationshipResolver::development_configuration(workspace)?;
-        let configuration_key = configured
-            .as_deref()
-            .map(|value| sha256_hex(value.as_bytes()));
-        let relationships = GitRelationshipResolver::resolve_with_configuration(
-            workspace,
-            &worktrees,
-            configured.as_deref(),
-        )?;
-        let mut targets = BTreeMap::new();
-        for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
-            if !targets.contains_key(target) {
-                let exists = Command::new("git")
-                    .arg("-C")
-                    .arg(&workspace.root)
-                    .args(["show-ref", "--verify", "--quiet", target])
-                    .output()?
+        crate::git_process::with_operation(|| {
+            let worktrees = WorktreeScanner::scan(workspace)?;
+            let before = topology_cache_key(workspace, &worktrees)?;
+            let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
+            let configured = GitRelationshipResolver::development_configuration(workspace)?;
+            let configuration_key = configured
+                .as_deref()
+                .map(|value| sha256_hex(value.as_bytes()));
+            let relationships = GitRelationshipResolver::resolve_with_configuration(
+                workspace,
+                &worktrees,
+                configured.as_deref(),
+            )?;
+            let mut targets = BTreeMap::new();
+            for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
+                if !targets.contains_key(target) {
+                    let exists = crate::git_process::output(
+                        Command::new("git")
+                            .arg("-C")
+                            .arg(&workspace.root)
+                            .args(["show-ref", "--verify", "--quiet", target]),
+                    )?
                     .status
                     .success();
-                targets.insert(target.clone(), exists);
+                    targets.insert(target.clone(), exists);
+                }
             }
-        }
-        let after_worktrees = WorktreeScanner::scan(workspace)?;
-        if worktrees != after_worktrees
-            || before != topology_cache_key(workspace, &after_worktrees)?
-        {
-            return Err(DevMapError::InvalidDomain("Git changed during collection"));
-        }
-        Ok(Self {
-            workspace: workspace.clone(),
-            worktrees,
-            topology,
-            relationships,
-            configuration_key,
-            client_relationships: BTreeMap::new(),
-            targets,
+            let after_worktrees = WorktreeScanner::scan(workspace)?;
+            if worktrees != after_worktrees
+                || before != topology_cache_key(workspace, &after_worktrees)?
+            {
+                return Err(DevMapError::InvalidDomain("Git changed during collection"));
+            }
+            Ok(Self {
+                workspace: workspace.clone(),
+                worktrees,
+                topology,
+                relationships,
+                configuration_key,
+                client_relationships: BTreeMap::new(),
+                targets,
+            })
         })
     }
 
@@ -842,34 +852,36 @@ impl DockProjectionContext {
         &'a mut self,
         workspace: &'a SourceWorkspace,
     ) -> Result<DockClientProjection<'a>, DevMapError> {
-        let configured = GitRelationshipResolver::development_configuration(workspace)?;
-        // Hash keys bound cache memory without normalizing invalid/empty values;
-        // the original value still goes through the existing resolver semantics.
-        let key = configured
-            .as_deref()
-            .map(|value| sha256_hex(value.as_bytes()));
-        let relationships = if key == self.configuration_key {
-            &self.relationships
-        } else {
-            if !self.client_relationships.contains_key(&key) {
-                let report = GitRelationshipResolver::resolve_with_configuration(
-                    workspace,
-                    &self.worktrees,
-                    configured.as_deref(),
-                )?;
-                if self.client_relationships.len() >= 16 {
-                    self.client_relationships.pop_first();
+        crate::git_process::with_operation(|| {
+            let configured = GitRelationshipResolver::development_configuration(workspace)?;
+            // Hash keys bound cache memory without normalizing invalid/empty values;
+            // the original value still goes through the existing resolver semantics.
+            let key = configured
+                .as_deref()
+                .map(|value| sha256_hex(value.as_bytes()));
+            let relationships = if key == self.configuration_key {
+                &self.relationships
+            } else {
+                if !self.client_relationships.contains_key(&key) {
+                    let report = GitRelationshipResolver::resolve_with_configuration(
+                        workspace,
+                        &self.worktrees,
+                        configured.as_deref(),
+                    )?;
+                    if self.client_relationships.len() >= 16 {
+                        self.client_relationships.pop_first();
+                    }
+                    self.client_relationships.insert(key.clone(), report);
                 }
-                self.client_relationships.insert(key.clone(), report);
-            }
-            self.client_relationships
-                .get(&key)
-                .expect("configuration inserted above")
-        };
-        Ok(DockClientProjection {
-            context: self,
-            workspace,
-            relationships,
+                self.client_relationships
+                    .get(&key)
+                    .expect("configuration inserted above")
+            };
+            Ok(DockClientProjection {
+                context: self,
+                workspace,
+                relationships,
+            })
         })
     }
 
@@ -1162,103 +1174,106 @@ impl DockService {
     }
 
     pub fn refresh(&mut self, now: OffsetDateTime) -> Result<&DockReadModel, DevMapError> {
-        let worktrees = WorktreeScanner::scan(&self.workspace)?;
-        let topology_key = topology_cache_key(&self.workspace, &worktrees)?;
-        let topology = match topology_key {
-            Some(key) if self.topology_cache_key.as_deref() == Some(&key) => self
-                .topology_cache
-                .clone()
-                .expect("topology cache key is only stored with a graph"),
-            Some(key) => {
-                let topology = GitTopologyCollector::scan(&self.workspace, &worktrees)?;
-                self.topology_cache_key = Some(key);
-                self.topology_cache = Some(topology.clone());
-                topology
-            }
-            None => {
-                self.topology_cache_key = None;
-                self.topology_cache = None;
-                GitTopologyCollector::scan(&self.workspace, &worktrees)?
-            }
-        };
-        let presence = PresenceStore::open_existing(&self.workspace)?
-            .map(|store| store.load_all())
-            .unwrap_or(PresenceLoadReport {
-                records: Vec::new(),
-                warnings: Vec::new(),
-                truncated: false,
-            });
-        let sessions = presence
-            .records
-            .iter()
-            .map(|record| record.session_id.clone())
-            .collect::<BTreeSet<_>>();
-        let journals = summarize_existing_sessions(&self.workspace, &sessions);
-        let task_observation = task_observation(
-            &self.observed_tasks,
-            self.task_inventory_synced_at.as_ref(),
-            self.task_inventory_complete,
-        );
-        let mut next = self.reducer.reduce_with_inputs(
-            &self.workspace,
-            worktrees,
-            presence,
-            journals,
-            now,
-            &self.observed_tasks,
-            task_observation,
-            topology,
-            None,
-        )?;
-        next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
-        let route_result = crate::route_plan::RoutePlanStore::open(&self.workspace)
-            .and_then(|store| store.list_with_starts());
-        let binding_result = if let Some(observed_at) = &self.task_inventory_synced_at {
-            let associations = self
-                .observed_tasks
+        crate::git_process::with_operation(|| {
+            let worktrees = WorktreeScanner::scan(&self.workspace)?;
+            let topology_key = topology_cache_key(&self.workspace, &worktrees)?;
+            let topology = match topology_key {
+                Some(key) if self.topology_cache_key.as_deref() == Some(&key) => self
+                    .topology_cache
+                    .clone()
+                    .expect("topology cache key is only stored with a graph"),
+                Some(key) => {
+                    let topology = GitTopologyCollector::scan(&self.workspace, &worktrees)?;
+                    self.topology_cache_key = Some(key);
+                    self.topology_cache = Some(topology.clone());
+                    topology
+                }
+                None => {
+                    self.topology_cache_key = None;
+                    self.topology_cache = None;
+                    GitTopologyCollector::scan(&self.workspace, &worktrees)?
+                }
+            };
+            let presence = PresenceStore::open_existing(&self.workspace)?
+                .map(|store| store.load_all())
+                .unwrap_or(PresenceLoadReport {
+                    records: Vec::new(),
+                    warnings: Vec::new(),
+                    truncated: false,
+                });
+            let sessions = presence
+                .records
                 .iter()
-                .filter(|task| task.lifecycle == TaskLifecycle::Present)
-                .filter_map(|task| {
-                    next.lanes
-                        .iter()
-                        .find(|lane| {
-                            same_workspace_path(
-                                &task.workspace_path,
-                                Path::new(&lane.workspace_path),
-                            )
-                        })
-                        .map(|lane| {
-                            (
-                                task.host.clone(),
-                                task.session_id.clone(),
-                                lane.worktree_id.clone(),
-                            )
-                        })
-                })
-                .collect::<Vec<_>>();
-            crate::journal::observe_task_bindings(&self.workspace, &associations, observed_at)
-        } else {
-            crate::journal::read_task_bindings(&self.workspace)
-        };
-        apply_storage_inputs(&mut next, route_result, binding_result, |target| {
-            Ok(Command::new("git")
-                .arg("-C")
-                .arg(&self.workspace.root)
-                .args(["show-ref", "--verify", "--quiet", target])
-                .output()?
+                .map(|record| record.session_id.clone())
+                .collect::<BTreeSet<_>>();
+            let journals = summarize_existing_sessions(&self.workspace, &sessions);
+            let task_observation = task_observation(
+                &self.observed_tasks,
+                self.task_inventory_synced_at.as_ref(),
+                self.task_inventory_complete,
+            );
+            let mut next = self.reducer.reduce_with_inputs(
+                &self.workspace,
+                worktrees,
+                presence,
+                journals,
+                now,
+                &self.observed_tasks,
+                task_observation,
+                topology,
+                None,
+            )?;
+            next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
+            let route_result = crate::route_plan::RoutePlanStore::open(&self.workspace)
+                .and_then(|store| store.list_with_starts());
+            let binding_result = if let Some(observed_at) = &self.task_inventory_synced_at {
+                let associations = self
+                    .observed_tasks
+                    .iter()
+                    .filter(|task| task.lifecycle == TaskLifecycle::Present)
+                    .filter_map(|task| {
+                        next.lanes
+                            .iter()
+                            .find(|lane| {
+                                same_workspace_path(
+                                    &task.workspace_path,
+                                    Path::new(&lane.workspace_path),
+                                )
+                            })
+                            .map(|lane| {
+                                (
+                                    task.host.clone(),
+                                    task.session_id.clone(),
+                                    lane.worktree_id.clone(),
+                                )
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                crate::journal::observe_task_bindings(&self.workspace, &associations, observed_at)
+            } else {
+                crate::journal::read_task_bindings(&self.workspace)
+            };
+            apply_storage_inputs(&mut next, route_result, binding_result, |target| {
+                Ok(crate::git_process::output(
+                    Command::new("git")
+                        .arg("-C")
+                        .arg(&self.workspace.root)
+                        .args(["show-ref", "--verify", "--quiet", target]),
+                )?
                 .status
                 .success())
-        })?;
-        next = finalize_projection(
-            &self.workspace,
-            self.snapshot.as_ref(),
-            next,
-            &mut self.revision,
-            &mut self.observation_revision,
-            &mut self.content_hash,
-        )?;
-        self.snapshot = Some(next);
-        Ok(self.snapshot())
+            })?;
+            next = finalize_projection(
+                &self.workspace,
+                self.snapshot.as_ref(),
+                next,
+                &mut self.revision,
+                &mut self.observation_revision,
+                &mut self.content_hash,
+            )?;
+            self.snapshot = Some(next);
+            Ok(self.snapshot())
+        })
     }
 
     pub fn snapshot(&self) -> &DockReadModel {
@@ -1329,11 +1344,13 @@ pub(crate) fn ancestry(
     old: &str,
     next: &str,
 ) -> Result<Option<HistoryWarning>, DevMapError> {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(&workspace.root)
-        .args(["merge-base", "--is-ancestor", old, next])
-        .output()?
+    let status =
+        crate::git_process::output(Command::new("git").arg("-C").arg(&workspace.root).args([
+            "merge-base",
+            "--is-ancestor",
+            old,
+            next,
+        ]))?
         .status;
     Ok(if status.success() {
         None
@@ -1437,14 +1454,15 @@ fn topology_cache_key(
         ],
     ];
     for (index, args) in inputs.into_iter().enumerate() {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&workspace.root)
-            .args(&args)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_NO_LAZY_FETCH", "1")
-            .env("GIT_NO_REPLACE_OBJECTS", "1")
-            .output()?;
+        let output = crate::git_process::output(
+            Command::new("git")
+                .arg("-C")
+                .arg(&workspace.root)
+                .args(&args)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("GIT_NO_LAZY_FETCH", "1")
+                .env("GIT_NO_REPLACE_OBJECTS", "1"),
+        )?;
         if !output.status.success() {
             return Err(DevMapError::GitCommand {
                 command: format!(

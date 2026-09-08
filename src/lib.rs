@@ -12,12 +12,14 @@ pub mod error;
 pub mod events;
 pub(crate) mod fs_security;
 pub mod git;
+mod git_process;
 pub mod git_relationship;
 pub mod git_topology;
 pub mod hook;
 pub mod journal;
 pub mod mcp;
 pub mod mutation;
+pub mod mutation_proxy;
 pub mod presence;
 pub mod proxy;
 pub mod route_plan;
@@ -86,7 +88,7 @@ fn dispatch_hook(command: HookCommand) -> Result<CommandOutput, DevMapError> {
     match command {
         HookCommand::Handle(args) => {
             let mut stdin = std::io::stdin();
-            hook::handle_hook(args, &mut stdin)
+            hook::handle_hook_shared(args, &mut stdin)
         }
     }
 }

@@ -223,3 +223,46 @@ its summary cache warm, in a debug build. Those are diagnostic baseline values,
 not optimized release acceptance. This change has not yet established the cold
 open, hot summary or RSS budgets; metadata and SQLite engine allocations are
 not a blanket bounded-memory guarantee.
+
+## Shared public writes and bounded Git execution
+
+Public MCP semantic/route writes and the CLI native hook now use immutable
+prepared commands through the authenticated shared owner. Embedded direct APIs
+retain their explicit legacy-compatible policy. Proxy identity binds to one
+canonical repository/worktree; reconnects reuse the same prepared command and
+preserve SHA receipts, route conflicts and anonymous invocation identity.
+Admission retries share an absolute 25-second budget with bounded backoff and
+one transport reconnect. Accepted exchanges retain their existing completion
+semantics; this is not cancellation of accepted writes.
+
+Read-only Git commands have a shared operation deadline, four-child admission,
+per-command limits and independently drained bounded output. Owned Windows Job
+Objects retain process-tree cleanup responsibility. Unconfirmed cleanup poisons
+the owner and prevents even queued work from executing while retaining its lock.
+Unix process-group containment is implemented but has not been executed here.
+A thread-local Tokio reactor experiment hung during thread teardown; the final
+runner explicitly drops its per-command reactor before returning. The owned
+fixture failure logs and behavioral quarantine RED remain available.
+
+Topology ref inspection batches commit type information and resolves unusual
+tag chains by captured immutable OID. The original 256-ref cap, missing-object
+boundaries and no-lazy-fetch behavior remain covered. A partial-clone missing
+annotated-tag target and a nested-tag case are included in 17 passing tests.
+
+Current integrated evidence in target/verification includes 50 library tests
+(3 ignored), 8 bounded-Git tests, the Windows quarantine test, 3 public mutation
+process tests, 4 retry tests and 17 topology tests. The final
+task5-final-domain-owned-candidate.log passes all 12 MCP stdio, 10 repository
+application and 4 worktree inventory tests. Twelve simultaneous real MCP
+processes preserve all records, contiguous sequence, unique opaque IDs and
+the exact actor/locator/quotation set. Earlier Busy failures and two corrected
+test-oracle mistakes remain recorded. Each real MCP test executable is now
+copied into its owned fixture so an idle shared owner cannot pin Cargo's output.
+
+Existing dock/map/hook/relationship/inspector regressions passed in the retained
+task5-integrated-compat logs. JavaScript tests pass 199/199; both frozen frontend
+asset SHA256s are unchanged. All-target Clippy passes with warnings denied;
+format and diff checks pass. Independent reviews approved the mutation adapter,
+bounded runner, topology correction and admission retry. Fresh automatic SQLite
+startup, final optimized performance/resource measurements and whole-branch
+browser/host acceptance remain open; these slice results do not close the goal.

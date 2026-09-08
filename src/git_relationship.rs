@@ -84,8 +84,10 @@ impl GitRelationshipResolver {
         workspace: &SourceWorkspace,
         worktrees: &[WorktreeDescriptor],
     ) -> Result<GitRelationshipReport, DevMapError> {
-        let configured = Self::development_configuration(workspace)?;
-        Self::resolve_with_configuration(workspace, worktrees, configured.as_deref())
+        crate::git_process::with_operation(|| {
+            let configured = Self::development_configuration(workspace)?;
+            Self::resolve_with_configuration(workspace, worktrees, configured.as_deref())
+        })
     }
 
     /// Read the effective configuration in the requesting worktree, including
@@ -104,110 +106,129 @@ impl GitRelationshipResolver {
         worktrees: &[WorktreeDescriptor],
         configured: Option<&str>,
     ) -> Result<GitRelationshipReport, DevMapError> {
-        let mut warnings = Vec::new();
-        let root_target = select_root_target(workspace)?;
-        let development_target =
-            select_development_target(workspace, configured, root_target.as_ref(), &mut warnings)?;
-        let target = development_target.clone().or_else(|| root_target.clone());
-        let integration_branches =
-            integration_branches(workspace, root_target.as_ref(), development_target.as_ref())?;
-        let mut by_worktree_id = BTreeMap::new();
+        crate::git_process::with_operation(|| {
+            let mut warnings = Vec::new();
+            let root_target = select_root_target(workspace)?;
+            let development_target = select_development_target(
+                workspace,
+                configured,
+                root_target.as_ref(),
+                &mut warnings,
+            )?;
+            let target = development_target.clone().or_else(|| root_target.clone());
+            let integration_branches =
+                integration_branches(workspace, root_target.as_ref(), development_target.as_ref())?;
+            let mut by_worktree_id = BTreeMap::new();
 
-        let mut unique = BTreeMap::<(std::path::PathBuf, String), Vec<&WorktreeDescriptor>>::new();
-        for worktree in worktrees {
-            unique
-                .entry((worktree.root.clone(), worktree.head.clone()))
-                .or_default()
-                .push(worktree);
-        }
-        let unique = unique.into_values().collect::<Vec<_>>();
-        let worker_count = std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1)
-            .saturating_mul(2)
-            .min(unique.len().max(1));
-        let chunk_size = unique.len().div_ceil(worker_count);
-        let resolved = std::thread::scope(|scope| {
-            unique
-                .chunks(chunk_size)
-                .map(|chunk| {
-                    scope.spawn(|| {
-                        chunk
-                            .iter()
-                            .map(|matches| {
-                                let status = dirty_state(&matches[0].root);
-                                (
-                                    matches.clone(),
-                                    match status {
-                                        Ok((dirty, changed_file_count)) => relationship_for(
-                                            matches[0],
-                                            target_for_worktree(
-                                                matches[0],
-                                                root_target.as_ref(),
-                                                development_target.as_ref(),
-                                            ),
-                                            dirty,
-                                            changed_file_count,
+            let mut unique =
+                BTreeMap::<(std::path::PathBuf, String), Vec<&WorktreeDescriptor>>::new();
+            for worktree in worktrees {
+                unique
+                    .entry((worktree.root.clone(), worktree.head.clone()))
+                    .or_default()
+                    .push(worktree);
+            }
+            let unique = unique.into_values().collect::<Vec<_>>();
+            let worker_count = std::thread::available_parallelism()
+                .map(usize::from)
+                .unwrap_or(1)
+                .saturating_mul(2)
+                .min(unique.len().max(1));
+            let chunk_size = unique.len().div_ceil(worker_count);
+            let budget = crate::git_process::current_budget();
+            let resolved = std::thread::scope(|scope| {
+                unique
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        let budget = budget.clone();
+                        let target_root = &root_target;
+                        let target_development = &development_target;
+                        scope.spawn(move || {
+                            crate::git_process::with_budget(&budget, || {
+                                chunk
+                                    .iter()
+                                    .map(|matches| {
+                                        let status = dirty_state(&matches[0].root);
+                                        (
+                                            matches.clone(),
+                                            match status {
+                                                Ok((dirty, changed_file_count)) => {
+                                                    relationship_for(
+                                                        matches[0],
+                                                        target_for_worktree(
+                                                            matches[0],
+                                                            target_root.as_ref(),
+                                                            target_development.as_ref(),
+                                                        ),
+                                                        dirty,
+                                                        changed_file_count,
+                                                    )
+                                                    .map_err(|error| {
+                                                        (error, Some((dirty, changed_file_count)))
+                                                    })
+                                                }
+                                                Err(error) => Err((error, None)),
+                                            },
                                         )
-                                        .map_err(|error| {
-                                            (error, Some((dirty, changed_file_count)))
-                                        }),
-                                        Err(error) => Err((error, None)),
-                                    },
-                                )
+                                    })
+                                    .collect::<Vec<_>>()
                             })
-                            .collect::<Vec<_>>()
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|worker| worker.join().expect("Git relationship worker panicked"))
-                .collect::<Vec<_>>()
-        });
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|worker| worker.join().expect("Git relationship worker panicked"))
+                    .collect::<Vec<_>>()
+            });
 
-        for (matches, result) in resolved {
-            for worktree in matches {
-                let relationship = match &result {
-                    Ok((relationship, warning_code)) => {
-                        if let Some(code) = warning_code {
+            for (matches, result) in resolved {
+                let result = match result {
+                    Err((error @ DevMapError::GitProcess(_), _)) => return Err(error),
+                    other => other,
+                };
+                for worktree in matches {
+                    let relationship = match &result {
+                        Ok((relationship, warning_code)) => {
+                            if let Some(code) = warning_code {
+                                warnings.push(GitRelationshipWarning {
+                                    code,
+                                    worktree_id: Some(worktree.worktree_id.clone()),
+                                });
+                            }
+                            relationship.clone()
+                        }
+                        Err((_, observed_status)) => {
                             warnings.push(GitRelationshipWarning {
-                                code,
+                                code: "git_relationship_unavailable",
                                 worktree_id: Some(worktree.worktree_id.clone()),
                             });
+                            let target = target_for_worktree(
+                                worktree,
+                                root_target.as_ref(),
+                                development_target.as_ref(),
+                            );
+                            observed_status.map_or_else(
+                                || unknown_relationship(target),
+                                |(dirty, changed_file_count)| {
+                                    unknown_relationship_with_observed_status(
+                                        target,
+                                        dirty,
+                                        changed_file_count,
+                                    )
+                                },
+                            )
                         }
-                        relationship.clone()
-                    }
-                    Err((_, observed_status)) => {
-                        warnings.push(GitRelationshipWarning {
-                            code: "git_relationship_unavailable",
-                            worktree_id: Some(worktree.worktree_id.clone()),
-                        });
-                        let target = target_for_worktree(
-                            worktree,
-                            root_target.as_ref(),
-                            development_target.as_ref(),
-                        );
-                        observed_status.map_or_else(
-                            || unknown_relationship(target),
-                            |(dirty, changed_file_count)| {
-                                unknown_relationship_with_observed_status(
-                                    target,
-                                    dirty,
-                                    changed_file_count,
-                                )
-                            },
-                        )
-                    }
-                };
-                by_worktree_id.insert(worktree.worktree_id.clone(), relationship);
+                    };
+                    by_worktree_id.insert(worktree.worktree_id.clone(), relationship);
+                }
             }
-        }
 
-        Ok(GitRelationshipReport {
-            target,
-            integration_branches,
-            by_worktree_id,
-            warnings,
+            Ok(GitRelationshipReport {
+                target,
+                integration_branches,
+                by_worktree_id,
+                warnings,
+            })
         })
     }
 }
@@ -256,10 +277,13 @@ fn select_development_target(
 ) -> Result<Option<DevelopmentTarget>, DevMapError> {
     if let Some(configured) = configured {
         let ref_name = configured_ref(configured);
-        if ref_name.as_deref().is_some_and(|candidate| {
-            root.is_none_or(|root| root.ref_name != candidate)
-                && ref_exists(&workspace.root, candidate).unwrap_or(false)
-        }) {
+        let exists = match ref_name.as_deref() {
+            Some(candidate) if root.is_none_or(|root| root.ref_name != candidate) => {
+                ref_exists(&workspace.root, candidate)?
+            }
+            _ => false,
+        };
+        if exists {
             return Ok(Some(DevelopmentTarget {
                 name: configured.to_owned(),
                 ref_name: ref_name.expect("validated configured ref"),
@@ -618,14 +642,15 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Ok(Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_NO_LAZY_FETCH", "1")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .output()?)
+    Ok(crate::git_process::output(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_NO_LAZY_FETCH", "1")
+            .env("GIT_NO_REPLACE_OBJECTS", "1"),
+    )?)
 }
 
 fn unknown_relationship_with_observed_status(

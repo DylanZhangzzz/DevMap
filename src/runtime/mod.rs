@@ -1,6 +1,8 @@
 //! Same-user, repository-scoped owner with bounded typed application exchanges.
 mod executor;
 mod owner;
+mod retry;
+pub(crate) use retry::retry_application;
 pub mod protocol;
 mod transport;
 #[cfg(unix)]
@@ -22,6 +24,8 @@ use transport::invalid;
 use unix as platform;
 #[cfg(windows)]
 use windows as platform;
+#[cfg(windows)]
+pub(crate) use windows::{IdentityTree as GitChildTree, prepare_identity as prepare_git_child};
 static IDENTITY_SHUTDOWN_FAILED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 const START_BUDGET: Duration = Duration::from_secs(15);
@@ -361,6 +365,9 @@ pub(crate) fn dispatch(
 mod bounded_identity_tests {
     use super::*;
     #[test]
+    // Intentional fault fixture: the parent exits while its descendant retains
+    // the pipe, so the external identity supervisor must clean the owned tree.
+    #[allow(clippy::zombie_processes)]
     fn identity_stall_fixture() {
         if std::env::var_os("DEVMAP_TEST_STALL_IDENTITY").is_some() {
             let mut descendant = Command::new(std::env::current_exe().unwrap());

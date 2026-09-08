@@ -86,8 +86,8 @@ Files: src/runtime/ module, CLI hidden runtime entry, mcp.rs, viewer.rs, hook.rs
 
 The shared owner is keyed by canonical common dir. IPC has bounded typed requests and response framing, repository/protocol handshake, serialized command acceptance, multiple reader clients and finite waits. Use same-user local IPC (Windows named pipe; Unix socket) with no arbitrary command execution. Keep existing MCP entrypoints and frontend URLs/resource schema compatible; browser remains read-only. Separate proxy/session from shared heavy state.
 
-- [ ] Write process tests first for simultaneous start (one owner), four clients, disconnection independence, wrong-repository/version rejection, owner termination/reconnect and same-id retry after lost response.
-- [ ] Implement startup election, liveness validation beyond PID alone, immutable handshake, bounded queue and idle exit; never kill unknown PID or silently create a second writer.
+- [x] Write process tests first for simultaneous start (one owner), four clients, disconnection independence, wrong-repository/version rejection, owner termination/reconnect and same-id retry after lost response.
+- [x] Implement startup election, liveness validation beyond PID alone, immutable handshake, bounded queue and idle exit; never kill unknown PID or silently create a second writer.
 - [ ] Route existing commands through common application services; avoid per-client duplicated Git scans/watchers. Preserve no-listener-on-MCP-before-explicit-browser contract.
 - [ ] Add on-connect catch-up, change hints and bounded Git ref reconciliation; report stale/partial/error per source. Snapshot reads pin generation and evaluated_at; paging detects generation drift.
 - [ ] Exercise startup migration and old-writer detection on disposable repos; failed pre-activation migration continues legacy without losing records, while post-activation failures preserve SQL and show diagnostics.

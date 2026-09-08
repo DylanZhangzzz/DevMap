@@ -25,6 +25,9 @@ pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Res
                 if super::IDENTITY_SHUTDOWN_FAILED.load(std::sync::atomic::Ordering::SeqCst) {
                     return Err(invalid("identity cleanup failed; owner stopping"));
                 }
+                if !crate::git_process::healthy() {
+                    return Err(invalid("Git cleanup unconfirmed; owner quarantined"));
+                }
                 // Idle timer starts only once all client tasks have completed. Each
                 // client task owns bounded frames; accepted work retains its reservation.
                 while jobs.try_join_next().is_some() {}
@@ -81,6 +84,9 @@ async fn serve(
     admission: super::executor::Admission,
 ) -> io::Result<()> {
     let hello: Hello = transport::read(&mut stream, Duration::from_secs(2)).await?;
+    if !crate::git_process::healthy() {
+        return Err(invalid("Git cleanup unconfirmed; hello refused"));
+    }
     if hello.protocol != protocol::VERSION
         || hello.repository != repository
         || hello.build != build
@@ -118,6 +124,9 @@ async fn serve(
     let mut last_request = 0;
     loop {
         let request: Request = transport::read(&mut stream, transport::IO_DEADLINE).await?;
+        if !crate::git_process::healthy() {
+            return Err(invalid("Git cleanup unconfirmed; admission refused"));
+        }
         match request {
             Request::Begin {
                 protocol: version,
@@ -177,6 +186,9 @@ async fn serve(
                         reservation,
                         reply,
                     };
+                    if !crate::git_process::healthy() {
+                        return Err(invalid("Git cleanup unconfirmed; dispatch refused"));
+                    }
                     match admission.sender.try_send(job) {
                         Ok(()) => {}
                         Err(std::sync::mpsc::TrySendError::Full(_)) => {
