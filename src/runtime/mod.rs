@@ -6,9 +6,9 @@ pub(crate) use retry::retry_application;
 pub mod protocol;
 mod transport;
 #[cfg(unix)]
-mod unix;
+pub(crate) mod unix;
 #[cfg(windows)]
-mod windows;
+pub(crate) mod windows;
 use fs2::FileExt;
 use protocol::{Hello, VERSION, Welcome};
 use sha2::{Digest, Sha256};
@@ -21,9 +21,9 @@ use std::{
 };
 use transport::invalid;
 #[cfg(unix)]
-use unix as platform;
+pub(crate) use unix as platform;
 #[cfg(windows)]
-use windows as platform;
+pub(crate) use windows as platform;
 #[cfg(windows)]
 pub(crate) use windows::{IdentityTree as GitChildTree, prepare_identity as prepare_git_child};
 static IDENTITY_SHUTDOWN_FAILED: std::sync::atomic::AtomicBool =

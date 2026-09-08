@@ -7,7 +7,10 @@ use crate::{
     capture::{AgentDecisionInput, CaptureKernel, EvidenceInput, RequirementTraceInput},
     cli::AdapterHost,
     error::DevMapError,
-    events::{ActorIdentity, HostIdentity, SessionContext, host_capabilities},
+    events::{
+        ActorIdentity, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity,
+        SessionContext, host_capabilities,
+    },
     git::SourceWorkspace,
     hook::PreparedHook,
     journal::JournalStore,
@@ -58,6 +61,11 @@ impl CommonCaptureIdentity {
     }
 
     fn validate(&self, workspace: &SourceWorkspace) -> Result<OffsetDateTime, DevMapError> {
+        if !crate::journal::is_normal_session_component(&self.session_id) {
+            return Err(DevMapError::JournalCorruption(
+                "session ID must be a non-empty path component".into(),
+            ));
+        }
         for (field, value) in [
             ("session_id", Some(self.session_id.as_str())),
             ("agent_id", Some(self.agent_id.as_str())),
@@ -139,17 +147,67 @@ pub enum MutationResult {
 }
 
 impl MutationCommand {
-    /// Revalidates deserialized commands. RoutePlanConflict is deliberately
-    /// returned unchanged so the adapter retains its structured current plan.
-    pub fn execute(&self, workspace: &SourceWorkspace) -> Result<MutationResult, DevMapError> {
+    /// Validate all prepared payload/envelope structure before any store setup.
+    /// Current route state and compare-and-swap remain transaction-authoritative.
+    pub fn validate_prepared(&self, workspace: &SourceWorkspace) -> Result<(), DevMapError> {
         if let Self::CaptureHook { prepared } = self {
-            return prepared.execute(workspace);
+            return prepared.validate_prepared(workspace);
         }
         if serde_json::to_vec(self)?.len() > 2 * 1024 * 1024 {
             return Err(DevMapError::ResourceLimit {
                 resource: "mutation command",
                 limit: 2 * 1024 * 1024,
             });
+        }
+        let capabilities = host_capabilities(AdapterHost::GenericMcp);
+        let (common, event_type, payload) = match self {
+            Self::SetRoute { input } => return crate::route_plan::validate_prepared_input(input),
+            Self::RecordRequirement {
+                common,
+                input,
+                raw_transcript_opt_in,
+            } => (
+                common,
+                EventType::InstructionObserved,
+                crate::capture::requirement_payload(
+                    &capabilities,
+                    input.clone(),
+                    *raw_transcript_opt_in,
+                )?,
+            ),
+            Self::RecordDecision { common, input } => (
+                common,
+                EventType::DecisionRecorded,
+                crate::capture::decision_payload(&capabilities, input.clone())?,
+            ),
+            Self::RecordEvidence { common, input } => (
+                common,
+                EventType::EvidenceRecorded,
+                crate::capture::evidence_payload(&capabilities, input.clone())?,
+            ),
+            Self::CaptureHook { .. } => unreachable!(),
+        };
+        common.validate(workspace)?;
+        EventEnvelope::new(
+            EVENT_SCHEMA_VERSION,
+            &common.event_id,
+            event_type,
+            1,
+            &common.occurred_at,
+            HostIdentity::new("generic_mcp", "devmap-mcp/1")?,
+            ActorIdentity::new(common.agent_id.clone(), common.parent_agent_id.clone())?,
+            common.context(workspace)?,
+            payload,
+        )?;
+        Ok(())
+    }
+
+    /// Revalidates deserialized commands. RoutePlanConflict is deliberately
+    /// returned unchanged so the adapter retains its structured current plan.
+    pub fn execute(&self, workspace: &SourceWorkspace) -> Result<MutationResult, DevMapError> {
+        self.validate_prepared(workspace)?;
+        if let Self::CaptureHook { prepared } = self {
+            return prepared.execute(workspace);
         }
         let record =
             match self {
@@ -227,4 +285,172 @@ pub(crate) fn validate_observation(
         head.map(str::to_owned),
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod prepared_validation_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn workspace() -> (tempfile::TempDir, SourceWorkspace) {
+        let temp = tempfile::tempdir().unwrap();
+        let git = temp.path().join(".git");
+        std::fs::create_dir(&git).unwrap();
+        let workspace = SourceWorkspace {
+            root: temp.path().to_owned(),
+            git_dir: git.clone(),
+            git_common_dir: git,
+            branch: Some("main".into()),
+            head: "a".repeat(40),
+        };
+        (temp, workspace)
+    }
+    fn common(workspace: &SourceWorkspace) -> CommonCaptureIdentity {
+        CommonCaptureIdentity::prepare(
+            workspace,
+            "session".into(),
+            "actor".into(),
+            None,
+            None,
+            Some("event".into()),
+            None,
+            OffsetDateTime::now_utc(),
+        )
+        .unwrap()
+    }
+    fn evidence(workspace: &SourceWorkspace) -> MutationCommand {
+        MutationCommand::RecordEvidence {
+            common: common(workspace),
+            input: EvidenceInput {
+                kind: "test".into(),
+                target: format!("commit:{}", workspace.head),
+                command: None,
+                outcome: "passed".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn invalid_semantic_execute_never_opens_legacy_journal() {
+        let (_temp, workspace) = workspace();
+        let mut command = evidence(&workspace);
+        let MutationCommand::RecordEvidence { input, .. } = &mut command else {
+            unreachable!()
+        };
+        input.target = "invalid target".into();
+        assert!(matches!(
+            command.validate_prepared(&workspace),
+            Err(DevMapError::InvalidEvidenceTarget(_))
+        ));
+        assert!(matches!(
+            command.execute(&workspace),
+            Err(DevMapError::InvalidEvidenceTarget(_))
+        ));
+        assert!(!workspace.git_dir.join("devmap").exists());
+    }
+
+    #[test]
+    fn complete_envelope_size_and_session_path_are_validated_before_storage() {
+        let (_temp, workspace) = workspace();
+        let mut command = evidence(&workspace);
+        let MutationCommand::RecordEvidence {
+            common: identity, ..
+        } = &mut command
+        else {
+            unreachable!()
+        };
+        identity.session_id = "../escape".into();
+        assert!(command.execute(&workspace).is_err());
+        let command = MutationCommand::RecordDecision {
+            common: common(&workspace),
+            input: AgentDecisionInput {
+                decision: "d".repeat(16 * 1024),
+                basis: vec!["basis".into()],
+                alternatives: vec!["other".into()],
+                rationale: "r".repeat(16 * 1024),
+                scope: "s".repeat(16 * 1024),
+                authority: "a".repeat(16 * 1024),
+                revisit_trigger: "later".into(),
+            },
+        };
+        assert!(matches!(
+            command.execute(&workspace),
+            Err(DevMapError::ResourceLimit { .. })
+        ));
+        assert!(!workspace.git_dir.join("devmap").exists());
+    }
+
+    #[test]
+    fn valid_semantic_and_native_gap_preflight_are_read_only() {
+        let (_temp, workspace) = workspace();
+        evidence(&workspace).validate_prepared(&workspace).unwrap();
+        let requirement = MutationCommand::RecordRequirement {
+            common: common(&workspace),
+            input: RequirementTraceInput {
+                source_kind: "user".into(),
+                source_locator: None,
+                quoted_text: "retain".into(),
+            },
+            raw_transcript_opt_in: false,
+        };
+        requirement.validate_prepared(&workspace).unwrap();
+        let hook = PreparedHook::prepare(
+            AdapterHost::Claude,
+            "PostToolUse",
+            json!({"event_id":"gap"}),
+            &workspace,
+            OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+        MutationCommand::CaptureHook { prepared: hook }
+            .validate_prepared(&workspace)
+            .unwrap();
+        assert!(!workspace.git_dir.join("devmap").exists());
+    }
+
+    #[test]
+    fn invalid_hook_session_and_route_structure_never_create_storage() {
+        let (_temp, workspace) = workspace();
+        let mut hook = PreparedHook::prepare(
+            AdapterHost::Claude,
+            "SessionStart",
+            json!({"session_id":"session"}),
+            &workspace,
+            OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+        hook.body.insert("session_id".into(), json!("../escape"));
+        assert!(
+            MutationCommand::CaptureHook { prepared: hook }
+                .execute(&workspace)
+                .is_err()
+        );
+        let mut input = PlanInput {
+            delivery: Default::default(),
+            request_id: "request".into(),
+            route_id: None,
+            expected_revision: 0,
+            worktree_id: "worktree".into(),
+            goal: String::new(),
+            target_ref: None,
+            milestones: vec![],
+            source: "user".into(),
+            abandoned: false,
+        };
+        assert!(
+            MutationCommand::SetRoute {
+                input: input.clone()
+            }
+            .execute(&workspace)
+            .is_err()
+        );
+        input.goal = "goal".into();
+        input.target_ref = Some("refs/heads/invalid..ref".into());
+        assert!(
+            MutationCommand::SetRoute { input }
+                .validate_prepared(&workspace)
+                .is_err()
+        );
+        assert!(!workspace.git_dir.join("devmap").exists());
+    }
 }

@@ -99,3 +99,7 @@ cargo install --locked --path .
 ```
 
 Source builds require Rust 1.96+. See [release maintenance](releasing.md) for automation and local package verification.
+
+The SQLite simplification candidate has separate [storage and recovery
+guidance](sqlite-storage.md). Its acceptance status does not change the published
+installation instructions above.

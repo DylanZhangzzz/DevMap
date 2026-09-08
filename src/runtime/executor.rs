@@ -121,6 +121,8 @@ fn execute_inner(
         return Err(DevMapError::Store("authenticated source changed".into()));
     }
     if let ApplicationRequest::Mutate { command } = request {
+        command.validate_prepared(&workspace)?;
+        crate::store::migration::prepare_first_write(&workspace)?;
         let mutation = command.execute(&workspace)?;
         if let Some(app) = app {
             app.reconcile();
@@ -145,7 +147,7 @@ fn execute_inner(
             let observed_at = OffsetDateTime::parse(&observed_at, &Rfc3339)
                 .map_err(|_| DevMapError::InvalidDomain("inventory observation time"))?;
             Ok(ApplicationResult::Inventory {
-                query: app.accept_inventory_query(
+                query: app.accept_inventory_query_shared(
                     &workspace,
                     prior,
                     tasks,

@@ -346,10 +346,45 @@ impl RepositoryApplication {
         complete: bool,
         observed_at: OffsetDateTime,
     ) -> Result<ClientQuery, DevMapError> {
+        self.accept_inventory_query_with_setup(
+            workspace,
+            prior,
+            tasks,
+            complete,
+            observed_at,
+            false,
+        )
+    }
+    pub(crate) fn accept_inventory_query_shared(
+        &mut self,
+        workspace: &SourceWorkspace,
+        prior: ClientQuery,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+    ) -> Result<ClientQuery, DevMapError> {
+        self.accept_inventory_query_with_setup(workspace, prior, tasks, complete, observed_at, true)
+    }
+    fn accept_inventory_query_with_setup(
+        &mut self,
+        workspace: &SourceWorkspace,
+        prior: ClientQuery,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+        setup: bool,
+    ) -> Result<ClientQuery, DevMapError> {
         let previous_heads = prior.previous_heads.clone();
         let mut view = ClientView::new(workspace.clone());
         view.apply_inventory(prior)?;
-        self.accept_inventory_with_heads(&mut view, tasks, complete, observed_at, &previous_heads)?;
+        self.accept_inventory_with_heads(
+            &mut view,
+            tasks,
+            complete,
+            observed_at,
+            &previous_heads,
+            setup,
+        )?;
         let mut accepted = view.query_input()?;
         accepted.previous_heads = previous_heads;
         Ok(accepted)
@@ -364,7 +399,7 @@ impl RepositoryApplication {
         observed_at: OffsetDateTime,
     ) -> Result<(), DevMapError> {
         let previous_heads = dock::previous_heads(view.snapshot.as_ref());
-        self.accept_inventory_with_heads(view, tasks, complete, observed_at, &previous_heads)
+        self.accept_inventory_with_heads(view, tasks, complete, observed_at, &previous_heads, false)
     }
     fn accept_inventory_with_heads(
         &mut self,
@@ -373,9 +408,10 @@ impl RepositoryApplication {
         complete: bool,
         observed_at: OffsetDateTime,
         previous_heads: &[dock::PreviousHead],
+        setup: bool,
     ) -> Result<(), DevMapError> {
         crate::git_process::with_operation(|| {
-            self.accept_inventory_inner(view, tasks, complete, observed_at, previous_heads)
+            self.accept_inventory_inner(view, tasks, complete, observed_at, previous_heads, setup)
         })
     }
     fn accept_inventory_inner(
@@ -385,6 +421,7 @@ impl RepositoryApplication {
         complete: bool,
         observed_at: OffsetDateTime,
         previous_heads: &[dock::PreviousHead],
+        setup: bool,
     ) -> Result<(), DevMapError> {
         self.validate_client(view)?;
         ClientQuery {
@@ -466,11 +503,14 @@ impl RepositoryApplication {
             previous_heads: previous_heads.to_vec(),
         }
         .validate()?;
-        crate::journal::observe_task_bindings(
-            &view.workspace,
-            &associations,
-            &observed_at.format(&Rfc3339)?,
-        )?;
+        let binding_time = observed_at.format(&Rfc3339)?;
+        crate::journal::validate_binding_observation(&associations, &binding_time)?;
+        if setup {
+            // Full merged input and source reports are validated before setup.
+            // Direct embedded callers retain their explicit legacy policy.
+            crate::store::migration::prepare_first_write(&view.workspace)?;
+        }
+        crate::journal::observe_task_bindings(&view.workspace, &associations, &binding_time)?;
         view.tasks = tasks;
         view.complete = complete;
         view.observed_at = Some(observed_at);

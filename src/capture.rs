@@ -100,25 +100,12 @@ impl CaptureKernel {
         input: RequirementTraceInput,
         raw_transcript_opt_in: bool,
     ) -> Result<JournalRecord, DevMapError> {
-        if raw_transcript_opt_in {
-            return Err(DevMapError::RawTranscriptDisabled);
-        }
-
-        let source_kind = required("requirement_trace.source_kind", input.source_kind)?;
-        let source_locator = optional("requirement_trace.source_locator", input.source_locator)?;
-        let quoted_text = required("requirement_trace.quoted_text", input.quoted_text)?;
         self.record(
             event_id,
             "devmap_record_requirement",
             EventType::InstructionObserved,
             occurred_at,
-            json!({
-                "capture_grade": self.capabilities.grade(),
-                "requirement_trace": {
-                    "source": {"kind": source_kind, "locator": source_locator},
-                    "approved_quotation": quoted_text,
-                },
-            }),
+            requirement_payload(&self.capabilities, input, raw_transcript_opt_in)?,
         )
     }
 
@@ -137,30 +124,12 @@ impl CaptureKernel {
         occurred_at: &str,
         input: AgentDecisionInput,
     ) -> Result<JournalRecord, DevMapError> {
-        let decision = required("agent_decision.decision", input.decision)?;
-        let basis = required_list("agent_decision.basis", input.basis)?;
-        let alternatives = required_list("agent_decision.alternatives", input.alternatives)?;
-        let rationale = required("agent_decision.rationale", input.rationale)?;
-        let scope = required("agent_decision.scope", input.scope)?;
-        let authority = required("agent_decision.authority", input.authority)?;
-        let revisit_trigger = required("agent_decision.revisit_trigger", input.revisit_trigger)?;
         self.record(
             event_id,
             "devmap_record_decision",
             EventType::DecisionRecorded,
             occurred_at,
-            json!({
-                "capture_grade": self.capabilities.grade(),
-                "agent_decision": {
-                    "decision": decision,
-                    "basis": basis,
-                    "alternatives": alternatives,
-                    "rationale": rationale,
-                    "scope": scope,
-                    "authority": authority,
-                    "revisit_trigger": revisit_trigger,
-                },
-            }),
+            decision_payload(&self.capabilities, input)?,
         )
     }
 
@@ -179,21 +148,12 @@ impl CaptureKernel {
         occurred_at: &str,
         input: EvidenceInput,
     ) -> Result<JournalRecord, DevMapError> {
-        let kind = required("evidence.kind", input.kind)?;
-        let target = validate_evidence_target(input.target)?;
-        let command = optional("evidence.command", input.command)?;
-        let outcome = required("evidence.outcome", input.outcome)?;
-        let provisional = target.starts_with("workspace:");
         self.record(
             event_id,
             "devmap_record_evidence",
             EventType::EvidenceRecorded,
             occurred_at,
-            json!({
-                "capture_grade": self.capabilities.grade(),
-                "evidence": {"kind": kind, "target": target, "command": command, "outcome": outcome},
-                "provisional": provisional,
-            }),
+            evidence_payload(&self.capabilities, input)?,
         )
     }
 
@@ -252,6 +212,63 @@ impl CaptureKernel {
         };
         Ok(records.remove(0))
     }
+}
+
+pub(crate) fn requirement_payload(
+    capabilities: &CaptureCapabilities,
+    input: RequirementTraceInput,
+    raw_transcript_opt_in: bool,
+) -> Result<serde_json::Value, DevMapError> {
+    if raw_transcript_opt_in {
+        return Err(DevMapError::RawTranscriptDisabled);
+    }
+    let source_kind = required("requirement_trace.source_kind", input.source_kind)?;
+    let source_locator = optional("requirement_trace.source_locator", input.source_locator)?;
+    let quoted_text = required("requirement_trace.quoted_text", input.quoted_text)?;
+    Ok(json!({
+        "capture_grade": capabilities.grade(),
+        "requirement_trace": {
+            "source": {"kind": source_kind, "locator": source_locator},
+            "approved_quotation": quoted_text,
+        },
+    }))
+}
+
+pub(crate) fn decision_payload(
+    capabilities: &CaptureCapabilities,
+    input: AgentDecisionInput,
+) -> Result<serde_json::Value, DevMapError> {
+    let decision = required("agent_decision.decision", input.decision)?;
+    let basis = required_list("agent_decision.basis", input.basis)?;
+    let alternatives = required_list("agent_decision.alternatives", input.alternatives)?;
+    let rationale = required("agent_decision.rationale", input.rationale)?;
+    let scope = required("agent_decision.scope", input.scope)?;
+    let authority = required("agent_decision.authority", input.authority)?;
+    let revisit_trigger = required("agent_decision.revisit_trigger", input.revisit_trigger)?;
+    Ok(json!({
+        "capture_grade": capabilities.grade(),
+        "agent_decision": {
+            "decision": decision, "basis": basis, "alternatives": alternatives,
+            "rationale": rationale, "scope": scope, "authority": authority,
+            "revisit_trigger": revisit_trigger,
+        },
+    }))
+}
+
+pub(crate) fn evidence_payload(
+    capabilities: &CaptureCapabilities,
+    input: EvidenceInput,
+) -> Result<serde_json::Value, DevMapError> {
+    let kind = required("evidence.kind", input.kind)?;
+    let target = validate_evidence_target(input.target)?;
+    let command = optional("evidence.command", input.command)?;
+    let outcome = required("evidence.outcome", input.outcome)?;
+    let provisional = target.starts_with("workspace:");
+    Ok(json!({
+        "capture_grade": capabilities.grade(),
+        "evidence": {"kind": kind, "target": target, "command": command, "outcome": outcome},
+        "provisional": provisional,
+    }))
 }
 
 fn required(field: &'static str, value: String) -> Result<String, DevMapError> {

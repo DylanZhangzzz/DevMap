@@ -396,15 +396,11 @@ pub(crate) fn binding_id(record: &TaskBindingObservation) -> Result<String, DevM
     Ok(sha256_hex(&serde_json::to_vec(record)?))
 }
 
-pub(crate) fn observe_task_bindings(
-    workspace: &SourceWorkspace,
+pub(crate) fn validate_binding_observation(
     associations: &[(String, String, String)],
     observed_at: &str,
-) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+) -> Result<time::OffsetDateTime, DevMapError> {
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-    if associations.is_empty() {
-        return read_task_bindings(workspace);
-    }
     let timestamp = OffsetDateTime::parse(observed_at, &Rfc3339)
         .map_err(|_| corruption("invalid binding observation time"))?;
     if associations.len() > MAX_BINDING_RECORDS
@@ -416,6 +412,18 @@ pub(crate) fn observe_task_bindings(
     {
         return Err(corruption("invalid task binding observation"));
     }
+    Ok(timestamp)
+}
+
+pub(crate) fn observe_task_bindings(
+    workspace: &SourceWorkspace,
+    associations: &[(String, String, String)],
+    observed_at: &str,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    if associations.is_empty() {
+        return read_task_bindings(workspace);
+    }
+    let timestamp = validate_binding_observation(associations, observed_at)?;
     crate::store::domain_write(workspace, |tx| {
         let repository = crate::worktrees::repository_id(workspace);
         if let Some(tx) = tx {
@@ -776,6 +784,7 @@ impl JournalStore {
             return Err(corruption("session ID must be a non-empty path component"));
         }
 
+        let _transition = crate::store::transition::Guard::acquire(workspace)?;
         if crate::store::active_existing(workspace)?.is_some() {
             let identity = checked_directory_identity(&workspace.git_dir)?;
             return Ok(Self {
@@ -844,7 +853,7 @@ impl JournalStore {
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
-        crate::store::domain_write(&self.workspace, |tx| {
+        crate::store::domain_write_guarded(&self.workspace, |tx, guard| {
             if let Some(tx) = tx {
                 let before: i64 = tx.query_row(
                     "SELECT generation FROM store_meta WHERE singleton=1",
@@ -872,8 +881,8 @@ impl JournalStore {
                 return Ok(records);
             }
             let records = self.append_legacy(build)?;
-            if let Err(error) =
-                crate::presence::PresenceStore::open(&self.workspace).and_then(|store| {
+            if let Err(error) = crate::presence::PresenceStore::open_guarded(&self.workspace, guard)
+                .and_then(|store| {
                     store.observe_legacy(
                         crate::presence::PresenceSignal::AcceptedRecords(&records),
                         now,
@@ -1586,7 +1595,7 @@ fn equivalent_retry(existing: &EventEnvelope, retried: &EventEnvelope) -> bool {
     existing == retried
 }
 
-fn is_normal_session_component(session_id: &str) -> bool {
+pub(crate) fn is_normal_session_component(session_id: &str) -> bool {
     if session_id.trim().is_empty()
         || session_id.contains(['/', '\\'])
         || (session_id.len() >= 2 && session_id.as_bytes()[1] == b':')

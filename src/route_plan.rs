@@ -134,14 +134,7 @@ impl RoutePlanStore {
     }
 
     pub fn set(&self, input: PlanInput) -> Result<RoutePlan, DevMapError> {
-        validate(&input)?;
-        if let Some(target) = &input.target_ref {
-            let status =
-                crate::git_process::output(Command::new("git").args(["check-ref-format", target]))?;
-            if !status.status.success() {
-                return Err(invalid("invalid target_ref"));
-            }
-        }
+        validate_prepared_input(&input)?;
         crate::store::domain_write(&self.workspace, |tx| {
             if let Some(tx) = tx {
                 let records = sql_records(tx, &repository_id(&self.workspace))?;
@@ -402,6 +395,18 @@ fn parse_records(bytes: &[u8], repository: &str) -> Result<Vec<Record>, DevMapEr
         return Err(invalid("route plan limit reached"));
     }
     Ok(records)
+}
+
+pub(crate) fn validate_prepared_input(input: &PlanInput) -> Result<(), DevMapError> {
+    validate(input)?;
+    if let Some(target) = &input.target_ref {
+        let status =
+            crate::git_process::output(Command::new("git").args(["check-ref-format", target]))?;
+        if !status.status.success() {
+            return Err(invalid("invalid target_ref"));
+        }
+    }
+    Ok(())
 }
 
 fn validate(input: &PlanInput) -> Result<(), DevMapError> {

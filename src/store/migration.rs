@@ -23,6 +23,9 @@ const MAX_BYTES: u64 = 512 * 1024 * 1024;
 const SNAPSHOT: &str = "@snapshot";
 const ACTIVATION: &str = "@activation";
 const FENCE: &str = "activation-intent.json";
+#[path = "startup.rs"]
+mod startup;
+pub use startup::{WriteBackend, prepare_first_write};
 fn fail(s: impl Into<String>) -> DevMapError {
     DevMapError::Store(s.into())
 }
@@ -158,11 +161,20 @@ pub fn freeze(
     destination: &Path,
     now: OffsetDateTime,
 ) -> Result<FrozenManifest, DevMapError> {
+    let guard = super::transition::Guard::acquire(workspace)?;
+    freeze_guarded(workspace, destination, now, &guard)
+}
+fn freeze_guarded(
+    workspace: &SourceWorkspace,
+    destination: &Path,
+    now: OffsetDateTime,
+    _guard: &super::transition::Guard,
+) -> Result<FrozenManifest, DevMapError> {
     outside_admin(workspace, destination)?;
     if safe::checked_metadata(destination)?.is_some() {
         return Err(fail("snapshot destination already exists"));
     }
-    let mut store = RepositoryStore::open(workspace)?;
+    let mut store = RepositoryStore::open_guarded(workspace, _guard)?;
     store.transaction(|tx| {
         if is_active(tx)? {
             return Err(fail("active store cannot be frozen for legacy reimport"));
@@ -224,10 +236,18 @@ pub fn import_shadow(
     workspace: &SourceWorkspace,
     snapshot: &Path,
 ) -> Result<StorageReport, DevMapError> {
+    let guard = super::transition::Guard::acquire(workspace)?;
+    import_shadow_guarded(workspace, snapshot, &guard)
+}
+fn import_shadow_guarded(
+    workspace: &SourceWorkspace,
+    snapshot: &Path,
+    _guard: &super::transition::Guard,
+) -> Result<StorageReport, DevMapError> {
     let CapturedSnapshot { manifest, files } = load_snapshot(workspace, snapshot)?;
     let parsed = parse(&manifest, &files)?;
     validate_counts(&manifest, &parsed)?;
-    let mut store = RepositoryStore::open(workspace)?;
+    let mut store = RepositoryStore::open_guarded(workspace, _guard)?;
     store.transaction(|tx| {
         if is_active(tx)? {
             check_legacy_drift(workspace, tx)?;
@@ -284,12 +304,20 @@ pub fn activate(
     workspace: &SourceWorkspace,
     snapshot: &Path,
 ) -> Result<StorageReport, DevMapError> {
+    let guard = super::transition::Guard::acquire(workspace)?;
+    activate_guarded(workspace, snapshot, &guard)
+}
+fn activate_guarded(
+    workspace: &SourceWorkspace,
+    snapshot: &Path,
+    _guard: &super::transition::Guard,
+) -> Result<StorageReport, DevMapError> {
     let CapturedSnapshot { manifest, files } = load_snapshot(workspace, snapshot)?;
     let parsed = parse(&manifest, &files)?;
     validate_counts(&manifest, &parsed)?;
     let context =
         crate::dock::DockProjectionContext::collect(workspace, &latest_routes(&parsed.routes).0)?;
-    let mut store = RepositoryStore::open(workspace)?;
+    let mut store = RepositoryStore::open_guarded(workspace, _guard)?;
     store.transaction(|tx| {
         if is_active(tx)? {
             check_legacy_drift(workspace, tx)?;
@@ -508,6 +536,7 @@ pub fn ensure(
     workspace: &SourceWorkspace,
     backup_dir: &Path,
 ) -> Result<StorageReport, DevMapError> {
+    let guard = super::transition::Guard::acquire(workspace)?;
     if RepositoryStore::open_existing(workspace)?
         .as_ref()
         .map(|s| is_active(s.connection()))
@@ -517,10 +546,10 @@ pub fn ensure(
         return verify(workspace);
     }
     if !backup_dir.join("manifest.json").exists() {
-        freeze(workspace, backup_dir, OffsetDateTime::now_utc())?;
+        freeze_guarded(workspace, backup_dir, OffsetDateTime::now_utc(), &guard)?;
     }
-    import_shadow(workspace, backup_dir)?;
-    activate(workspace, backup_dir)
+    import_shadow_guarded(workspace, backup_dir, &guard)?;
+    activate_guarded(workspace, backup_dir, &guard)
 }
 
 pub fn verify(workspace: &SourceWorkspace) -> Result<StorageReport, DevMapError> {
@@ -684,7 +713,26 @@ fn walk(
             .to_str()
             .ok_or_else(|| fail("non UTF8 legacy path"))?
             .replace('\\', "/");
+        if relative == super::transition::DIRECTORY {
+            if manifest.origins[origin].git_dir != manifest.common_dir {
+                return Err(fail("transition metadata outside common Git directory"));
+            }
+            super::transition::validate_directory(&path)?;
+            continue;
+        }
         if operational_bookkeeping(&relative) {
+            if manifest.origins[origin].git_dir != manifest.common_dir {
+                return Err(fail(
+                    "SQL operational metadata outside common Git directory",
+                ));
+            }
+            let metadata = safe::checked_metadata(&path)?
+                .ok_or_else(|| fail("operational metadata disappeared"))?;
+            if !metadata.is_file()
+                || super::link_count(&safe::checked_file(&path, false, false)?)? != 1
+            {
+                return Err(fail("unsafe SQL operational metadata"));
+            }
             continue;
         }
         let metadata =

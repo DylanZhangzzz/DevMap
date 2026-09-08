@@ -99,7 +99,7 @@ impl PreparedHook {
             },
             body,
         };
-        prepared.normalized(workspace, 1)?;
+        prepared.validate_prepared(workspace)?;
         Ok(prepared)
     }
 
@@ -126,18 +126,37 @@ impl PreparedHook {
         normalize_with_context(self.host.into(), &self.event, &self.body, context)
     }
 
+    pub(crate) fn validate_prepared(&self, workspace: &SourceWorkspace) -> Result<(), DevMapError> {
+        self.validated_session(workspace).map(|_| ())
+    }
+
+    fn validated_session(&self, workspace: &SourceWorkspace) -> Result<String, DevMapError> {
+        let validated = self.normalized(workspace, 1)?;
+        let session = validated
+            .first()
+            .ok_or(DevMapError::InvalidDomain("empty hook capture"))?
+            .context()
+            .session_id();
+        if !crate::journal::is_normal_session_component(session) {
+            return Err(DevMapError::JournalCorruption(
+                "session ID must be a non-empty path component".into(),
+            ));
+        }
+        if validated
+            .iter()
+            .any(|event| event.context().session_id() != session)
+        {
+            return Err(DevMapError::InvalidDomain("hook session_id"));
+        }
+        Ok(session.to_owned())
+    }
+
     pub(crate) fn execute(
         &self,
         workspace: &SourceWorkspace,
     ) -> Result<crate::mutation::MutationResult, DevMapError> {
         // Validate before any journal open and again after crossing the wire.
-        let validated = self.normalized(workspace, 1)?;
-        let session_id = validated
-            .first()
-            .ok_or(DevMapError::InvalidDomain("empty hook capture"))?
-            .context()
-            .session_id()
-            .to_owned();
+        let session_id = self.validated_session(workspace)?;
         let journal = JournalStore::open(workspace, &session_id)?;
         let records = journal.append_capture_batch_with(
             crate::mutation::parse_time(&self.identity.received_at)?,

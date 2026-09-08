@@ -28,9 +28,9 @@ The fixture harness refuses a different executable and passes a disposable
 | Migration | 16 migration tests and 37 related SQL tests; strict frozen sources, activation fence and drift checks | Task4 and both review fixes independently approved (`984f781` + `fab0af3`); 38 focused fix checks passed |
 | Real old-format input | Frozen executable creates routes, bindings and journals across two worktrees | Passed; native process fixture, not an observed Codex host lifecycle |
 | Complete model parity | Original saved native map, frozen legacy projection and SQL projection compared | Passed at one evaluation time with original task inventory metadata; only two process-local refresh counters normalized |
-| Browser parity | 24 comparisons across 1280, 560 and 360 pixel widths, details, zoom/pan and accepted refresh | Passed for migrated snapshot pair; actual shared-owner restart remains pending |
+| Browser parity | 24 comparisons across 1280, 560 and 360 pixel widths; actual shared-owner replacement preserves browser interaction state | Migrated snapshot and earlier shared candidate passed; final candidate rerun pending |
 | Late old writer | Actual old executable appends after activation; SQL verification diagnoses drift | Passed; SQL rows/generation, old append and frozen snapshot all retained |
-| Shared owner and IPC | Same-user local transport, one owner, independent clients, reconnect | Pending |
+| Shared owner and IPC | Same-user transport, authenticated owner/reconnect, immutable write retry, 12 simultaneous real MCP writers | Reviewed and passed through `425f6af`; final branch rerun pending |
 | Automatic startup and retirement | Safe setup, absent/replaced worktree reconciliation, no read-only DB creation | Pending |
 | Performance | Release scale, cold/warm latency, Git freshness, payload sizes, 10-minute idle CPU/RSS | Pending; smoke timings are not acceptance measurements |
 | Actual host loop | Ephemeral Codex CLI performed map → route → map against active SQLite; structured IDs/revision/readback verified | Direct MCP smoke passed; automatic hooks and final shared-runtime host rerun pending |
@@ -266,3 +266,67 @@ format and diff checks pass. Independent reviews approved the mutation adapter,
 bounded runner, topology correction and admission retry. Fresh automatic SQLite
 startup, final optimized performance/resource measurements and whole-branch
 browser/host acceptance remain open; these slice results do not close the goal.
+
+## Fresh shared-write startup and cooperative transition
+
+The first valid shared mutation or inventory acceptance now activates SQLite
+only after proving that every legacy origin is strictly empty. Query/Hello and
+invalid input do not create a database, backup, fence or transition directory.
+Existing legacy artifacts retain legacy authority. Candidate domain writes,
+legacy journal/presence directory creation and explicit maintenance transitions
+share one private transition guard. Internal guarded operations pass that token
+explicitly rather than recursively taking the same lock.
+
+Capture input and complete envelope validation now precede storage setup. The
+same payload builders remain authoritative in CaptureKernel and the new
+preflight. Inventory validates its fully merged future state and binding tuples
+before setup. Route input/ref syntax is prevalidated; current route state and CAS
+remain transaction-authoritative.
+
+Fresh activation retains an external owned attempt, empty frozen manifest,
+shadow provenance and durable activation fence. Automatic shadow recovery
+requires the exact owned manifest and an exact permitted table inventory;
+generation zero alone is insufficient. Independent review identified and closed
+an extra-registry/provenance-row hole. Incomplete or unowned state is retained
+for recovery. A verified pre-attempt backup PermissionDenied can preserve legacy;
+errors after activation do not fall back.
+
+Windows TEMP on this machine grants sandbox accounts Modify/DeleteChild. The
+first integrated startup run correctly rejected those parents (0/7, retained
+task5-startup-first-implementation.log). The same compiled binary passed 7/7 in
+78.65 seconds under a trusted fixture parent, without weakening ACL checks.
+Subsequent tests use TMP/TEMP and durable state roots scoped to the checkout's
+verification fixtures. Conventional Windows AppData is separately unsuitable
+for the private default backup here; default selection uses the validated user
+profile's .devmap-state directory. Redirected LOCALAPPDATA remains strict.
+The actual default selection was verified read-only, without creating user state.
+
+Final production-source evidence: 9 startup storage tests passed in 13.35 seconds
+and 4 pure validation tests in 0.16 seconds. The integrated regression log passes
+13 hook, 11 presence, 12 SQL journal, 17 migration and 7 public startup tests;
+the public group took 82.08 seconds. Four simultaneous first writes preserve all
+four exact receipts, one activation and generation four. A separate actual
+Windows PermissionDenied test passed in 9.22 seconds after correcting a test
+helper's PowerShell module-loading dependency. It confirms ACL restoration,
+exact event content, canonical SHA/hash chain, identical retry and continued
+legacy writes without DB/fence/attempt creation. The failed helper log remains.
+
+These tests do not yet prove every process-termination point in automatic
+startup or native Unix behavior. Worktree deletion/replacement is also a known
+open acceptance issue: a new real removal test reproduces the current global
+origin-drift read failure in 8.50 seconds while SQL and backups remain intact.
+Its tests-only file belongs to the next slice, not this startup implementation.
+
+## First optimized scale profile
+
+An optimized release binary built successfully in 52.11 seconds. Its SHA256 is
+4F0B592583CC6B25C3164B4D6BC476F225ECCC33E25D32FA448A5D2BA0A58B56.
+The preserved 20-worktree/100-session/100000-event fixture remained at generation
+zero. A single read-only component profile measured source resolution 739 ms,
+store open 22 ms, full legacy drift validation 3145 ms, cold SQL inputs 2192 ms,
+cached SQL inputs 1.86 ms, full Git collection 8058 ms, pure projection 13 ms and
+serialization 0.23 ms. Output was 206917 bytes.
+
+This is bottleneck attribution, not a p95 acceptance run. Cached SQL input time
+is not end-to-end hot query latency, and this full map is not a compact summary.
+The cold-open, hot-summary, default-payload and idle-resource gates remain open.

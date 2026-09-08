@@ -1,6 +1,7 @@
 //! Repository-local transactional storage. Creating a store does not activate it.
 pub mod migration;
 pub(crate) mod snapshot;
+pub(crate) mod transition;
 use crate::{error::DevMapError, fs_security, git::SourceWorkspace, worktrees};
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::{
@@ -17,6 +18,13 @@ pub struct RepositoryStore {
 impl RepositoryStore {
     /// Opens or creates a shadow store. Interrupted initialization is never repaired implicitly.
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
+        let guard = transition::Guard::acquire(workspace)?;
+        Self::open_guarded(workspace, &guard)
+    }
+    fn open_guarded(
+        workspace: &SourceWorkspace,
+        _guard: &transition::Guard,
+    ) -> Result<Self, DevMapError> {
         let (common, path) = location(workspace)?;
         fs_security::ensure_directory(path.parent().unwrap())?;
         let _initialization = initialization_lock(path.parent().unwrap())?;
@@ -438,16 +446,24 @@ pub(crate) fn domain_write<T>(
     workspace: &SourceWorkspace,
     f: impl FnOnce(Option<&Transaction<'_>>) -> Result<T, DevMapError>,
 ) -> Result<T, DevMapError> {
+    domain_write_guarded(workspace, |tx, _guard| f(tx))
+}
+
+pub(crate) fn domain_write_guarded<T>(
+    workspace: &SourceWorkspace,
+    f: impl FnOnce(Option<&Transaction<'_>>, &transition::Guard) -> Result<T, DevMapError>,
+) -> Result<T, DevMapError> {
+    let transition = transition::Guard::acquire(workspace)?;
     if RepositoryStore::open_existing(workspace)?.is_none() {
-        return f(None);
+        return f(None, &transition);
     }
-    let mut store = RepositoryStore::open(workspace)?;
+    let mut store = RepositoryStore::open_guarded(workspace, &transition)?;
     store.transaction(|tx| {
         if is_active(tx)? {
             migration::check_legacy_drift(workspace, tx)?;
-            f(Some(tx))
+            f(Some(tx), &transition)
         } else {
-            f(None)
+            f(None, &transition)
         }
     })
 }

@@ -144,6 +144,14 @@ pub struct PresenceStore {
 
 impl PresenceStore {
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
+        let guard = crate::store::transition::Guard::acquire(workspace)?;
+        Self::open_guarded(workspace, &guard)
+    }
+
+    pub(crate) fn open_guarded(
+        workspace: &SourceWorkspace,
+        _guard: &crate::store::transition::Guard,
+    ) -> Result<Self, DevMapError> {
         if crate::store::active_existing(workspace)?.is_some() {
             return Self::from_root(workspace, workspace.git_common_dir.clone());
         }
