@@ -196,3 +196,30 @@ dispatch and both immutable-preparation tests passed again. Scoped Clippy
 passed with warnings denied. Evidence is under target/verification in the
 task5-mutation-* and task5-prepared-mutation-final logs. Independent review
 approved this slice; full product and performance acceptance remain open.
+
+## Single-pass SQL journal summaries
+
+Cold summary reads now validate SQL journal rows once without reconstructing a
+full NDJSON buffer and decoding every event a second time. Full-record readers
+and the frozen migration parser remain unchanged. The summary path preserves
+registration/origin, canonical encoding, hashes, row and event identity,
+contiguous sequence, unique IDs, previous links, byte/count bounds and saved
+accepted extent. Indexed event IDs and record JSON are bounded before owned
+string allocation. Existing transaction pinning and data_version invalidation
+remain in place, including externally modified rows with unchanged generation.
+
+Five differential/corruption tests passed in 0.03 seconds
+(task6-stream-summary-final-green.log). Prior snapshot/tamper/activation tests
+also passed in the integrated 50-test library run. Independent review approved
+the corrected source; all-target Clippy passed with warnings denied
+(task5-integrated-clippy-verified.log). Two earlier fixture changes attempted to
+delete referenced SQL rows and were rejected by foreign keys; the corrected
+fixtures alter metadata while preserving those constraints. Failure logs are
+retained. The independent review also prompted the indexed-ID allocation bound.
+
+An earlier read-only component profile on the preserved 100,000-event fixture
+measured 50.845 seconds for the old cold SQL path and 22.879 milliseconds with
+its summary cache warm, in a debug build. Those are diagnostic baseline values,
+not optimized release acceptance. This change has not yet established the cold
+open, hot summary or RSS budgets; metadata and SQLite engine allocations are
+not a blanket bounded-memory guarantee.

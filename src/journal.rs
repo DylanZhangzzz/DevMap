@@ -15,6 +15,10 @@ use crate::fs_security::{
 };
 use crate::git::SourceWorkspace;
 
+#[cfg(test)]
+#[path = "journal_summary_tests.rs"]
+mod journal_summary_tests;
+
 pub const MAX_JOURNAL_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_SESSION_RECORDS: usize = 100_000;
 const MAX_INTENT_BYTES: usize = 1024 * 1024;
@@ -1845,6 +1849,99 @@ fn sql_session_exists(c: &rusqlite::Connection, id: &str) -> Result<bool, DevMap
         }
         Ok(false)
     }
+}
+
+/// Verify one SQL journal without retaining its full event payloads. The caller
+/// owns the read transaction, just as for `sql_records`.
+pub(crate) fn sql_summary(
+    c: &rusqlite::Connection,
+    id: &str,
+) -> Result<JournalSummary, DevMapError> {
+    if !is_normal_session_component(id) {
+        return Err(corruption("invalid frozen journal identity or size"));
+    }
+    let registered = sql_session_exists(c, id)?;
+    let mut stmt = c.prepare(
+        "SELECT sequence,CASE WHEN length(CAST(event_id AS BLOB))<=?2 THEN event_id END,CASE WHEN length(CAST(record_json AS BLOB))<=?2 THEN record_json END,byte_length FROM journal_records WHERE session_id=?1 ORDER BY sequence")?;
+    let mut rows = stmt.query(rusqlite::params![id, MAX_RECORD_BYTES as i64])?;
+    let mut count = 0usize;
+    let mut bytes = 0usize;
+    let mut previous_sha256 = None;
+    let mut event_ids = HashSet::new();
+    while let Some(row) = rows.next()? {
+        let sequence: i64 = row.get(0)?;
+        let event_id: String = row.get(1)?;
+        let json: String = row.get(2)?;
+        let size: i64 = row.get(3)?;
+        if json.len() as i64 != size {
+            return Err(corruption("journal byte length mismatch"));
+        }
+        // Count the NDJSON separator used by the authoritative saved extent.
+        bytes = bytes
+            .checked_add(json.len() + 1)
+            .ok_or_else(|| corruption("journal resource limit exceeded"))?;
+        count += 1;
+        if bytes > MAX_JOURNAL_BYTES || count > MAX_SESSION_RECORDS {
+            return Err(corruption("journal resource limit exceeded"));
+        }
+        let record = parse_record(json.as_bytes(), count)?;
+        if record.sequence as i64 != sequence
+            || record.event.event_id() != event_id
+            || record.event.context().session_id() != id
+        {
+            return Err(corruption("journal row identity mismatch"));
+        }
+        if record.sequence < count as u64 {
+            return Err(DevMapError::DuplicateSequence(record.sequence));
+        }
+        if record.sequence != count as u64 {
+            return Err(corruption(format!(
+                "expected sequence {count}, found {} at line {count}",
+                record.sequence
+            )));
+        }
+        if record.event.sequence() != record.sequence {
+            return Err(corruption(format!(
+                "event sequence does not match record sequence at line {count}"
+            )));
+        }
+        if !event_ids.insert(event_id) {
+            return Err(corruption(format!(
+                "duplicate event ID {}",
+                record.event.event_id()
+            )));
+        }
+        if record.previous_sha256 != previous_sha256 {
+            return Err(corruption(format!(
+                "previous SHA-256 link mismatch at line {count}"
+            )));
+        }
+        previous_sha256 = Some(record.sha256);
+    }
+    if registered {
+        let (saved_count, saved_hash, saved_bytes): (i64, Option<String>, i64) = c.query_row(
+            "SELECT record_count,last_sha256,byte_length FROM journal_heads WHERE session_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        if saved_count != count as i64
+            || saved_hash != previous_sha256
+            || saved_bytes != bytes as i64
+        {
+            return Err(corruption("journal accepted extent mismatch"));
+        }
+    }
+    Ok(JournalSummary {
+        session_id: id.to_owned(),
+        records: count as u64,
+        last_sequence: (count > 0).then_some(count as u64),
+        last_sha256: previous_sha256,
+        integrity: if registered {
+            JournalIntegrity::Verified
+        } else {
+            JournalIntegrity::Missing
+        },
+    })
 }
 
 pub(crate) fn sql_records(

@@ -232,18 +232,7 @@ fn sql_inputs(
             {
                 return Ok(summary.clone());
             }
-            let records = journal::sql_records(c, &p.session_id)?;
-            let summary = JournalSummary {
-                session_id: p.session_id.clone(),
-                records: records.len() as u64,
-                last_sequence: records.last().map(|r| r.sequence),
-                last_sha256: records.last().map(|r| r.sha256.clone()),
-                integrity: if present {
-                    JournalIntegrity::Verified
-                } else {
-                    JournalIntegrity::Missing
-                },
-            };
+            let summary = journal::sql_summary(c, &p.session_id)?;
             if let Some(head) = head {
                 summaries.insert(p.session_id.clone(), (head, summary.clone()));
             }
