@@ -283,6 +283,9 @@ impl RepositoryApplication {
             self.targets = targets;
             self.dirty = false;
         }
+        // Collection can finish after the caller sampled its projection clock.
+        // Keep evaluation at least as recent as those newly collected facts.
+        let now = now.max(self.git_at.unwrap());
         let mut next = self
             .git
             .as_mut()
@@ -295,6 +298,12 @@ impl RepositoryApplication {
                 query.inventory_observed_at.clone(),
                 query.complete,
             )?;
+        let git_observed_at = self.git_at.unwrap().format(&Rfc3339)?;
+        for facts in &mut next.workspace_facts {
+            if facts.git_observed_at.is_some() {
+                facts.git_observed_at = Some(git_observed_at.clone());
+            }
+        }
         dock::apply_history(&mut next, &query.previous_heads, |old, next| {
             let key = (old.to_owned(), next.to_owned());
             if let Some(cached) = self.ancestry.get(&key) {
@@ -315,7 +324,7 @@ impl RepositoryApplication {
                 .inputs_observed_at()
                 .map(|t| t.format(&Rfc3339))
                 .transpose()?,
-            git_observed_at: self.git_at.unwrap().format(&Rfc3339)?,
+            git_observed_at,
             git_cycle: self.cycle,
         })
     }
@@ -378,6 +387,7 @@ impl RepositoryApplication {
                 if report.source != "agent_report"
                     || stamp > observed_at + time::Duration::seconds(30)
                     || !std::path::Path::new(&report.path).is_absolute()
+                    || !std::path::Path::new(&report.path).is_dir()
                     || !worktrees
                         .iter()
                         .any(|w| dock::same_workspace_path(&report.path, &w.root))

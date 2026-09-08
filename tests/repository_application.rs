@@ -11,6 +11,53 @@ fn workspace(path: &std::path::Path) -> SourceWorkspace {
         .unwrap()
 }
 #[test]
+fn missing_registered_worktree_is_not_a_current_execution_report() {
+    let repo = support::committed_repo();
+    let directory = tempfile::tempdir().unwrap();
+    let linked = directory.path().join("linked");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "missing-report",
+            linked.to_str().unwrap(),
+        ],
+    );
+    let w = workspace(repo.path());
+    let mut app = RepositoryApplication::open(&w).unwrap();
+    let mut view = ClientView::new(w.clone());
+    // Move only this test's owned directory; retain Git's registered old path.
+    std::fs::rename(&linked, directory.path().join("moved")).unwrap();
+    let worktrees = devmap::worktrees::WorktreeScanner::scan(&w).unwrap();
+    let registered = worktrees
+        .iter()
+        .find(|row| row.root == linked && row.is_prunable)
+        .unwrap();
+    let now = OffsetDateTime::now_utc();
+    let mut row = task(&w, "missing-execution-report", now);
+    row.working_directory = Some(devmap::dock::WorkingDirectoryObservation {
+        path: registered.root.to_string_lossy().into(),
+        observed_at: now
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap(),
+        source: "agent_report".into(),
+    });
+    let result = app.accept_inventory(&mut view, vec![row], false, now);
+    assert!(
+        matches!(
+            result,
+            Err(devmap::error::DevMapError::InvalidDomain(
+                "codex_tasks.workingDirectory"
+            ))
+        ),
+        "{result:?}"
+    );
+    assert!(view.observed_tasks().is_empty());
+    assert!(view.inventory_observed_at().is_none());
+}
+#[test]
 fn four_views_share_git_but_keep_current_workspace_and_revisions() {
     let repo = support::committed_repo();
     let temp = tempfile::tempdir().unwrap();
@@ -47,6 +94,14 @@ fn four_views_share_git_but_keep_current_workspace_and_revisions() {
         .query(&mut views[0], now + time::Duration::seconds(1))
         .unwrap();
     assert_eq!(cached.git_observed_at, first.git_observed_at);
+    assert!(!cached.model.workspace_facts.is_empty());
+    for facts in &cached.model.workspace_facts {
+        assert_eq!(
+            facts.git_observed_at.as_deref(),
+            Some(first.git_observed_at.as_str()),
+            "public cached Git facts must retain their actual observation time"
+        );
+    }
     app.change_hint();
     assert_eq!(app.query(&mut views[0], now).unwrap().git_cycle, 2);
     let mut restarted = RepositoryApplication::open(&w).unwrap();
@@ -311,6 +366,12 @@ fn projection_behavior(model: &devmap::dock::DockReadModel) -> serde_json::Value
         .as_object_mut()
         .unwrap()
         .remove("observation_revision");
+    // These independent collectors observe at different actual times. Exact
+    // retained Git timestamps are checked by the shared-cycle test above.
+    value.as_object_mut().unwrap().remove("generated_at");
+    for facts in value["workspace_facts"].as_array_mut().unwrap() {
+        facts.as_object_mut().unwrap().remove("git_observed_at");
+    }
     value
 }
 #[test]

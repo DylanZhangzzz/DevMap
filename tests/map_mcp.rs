@@ -121,8 +121,19 @@ fn agent_and_map_share_identity_origin_and_binding_facts_at_same_revision() {
     );
     let mut map_facts = facts.clone();
     let mut agent_facts = agent["workspace_facts"].clone();
-    assert_eq!(map_facts["git_observed_at"], map["generated_at"]);
-    assert_eq!(agent_facts["git_observed_at"], agent["generated_at"]);
+    let parse_time = |value: &Value| {
+        time::OffsetDateTime::parse(
+            value.as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap()
+    };
+    // Projection refresh must not relabel cached Git facts as newly observed.
+    assert!(parse_time(&map_facts["git_observed_at"]) <= parse_time(&map["generated_at"]));
+    assert!(parse_time(&agent_facts["git_observed_at"]) <= parse_time(&agent["generated_at"]));
+    assert!(
+        parse_time(&agent_facts["git_observed_at"]) >= parse_time(&map_facts["git_observed_at"])
+    );
     map_facts.as_object_mut().unwrap().remove("git_observed_at");
     agent_facts
         .as_object_mut()
