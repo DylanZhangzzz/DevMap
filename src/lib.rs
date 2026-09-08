@@ -18,6 +18,7 @@ pub mod journal;
 pub mod mcp;
 pub mod presence;
 pub mod route_plan;
+pub mod runtime;
 pub mod store;
 pub mod viewer;
 pub mod worktrees;
@@ -43,6 +44,7 @@ where
     let cli = Cli::try_parse_from(args)?;
 
     match cli.command {
+        Command::Runtime(args) => runtime::dispatch(args),
         Command::Storage { command } => store::migration::dispatch(command),
         Command::Init(args) => commands::init(args),
         Command::CommonGround {

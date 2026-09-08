@@ -18,6 +18,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    #[command(hide = true)]
+    Runtime(RuntimeArgs),
     /// Inspect, migrate, verify, or back up repository storage.
     Storage {
         #[command(subcommand)]
@@ -217,4 +219,18 @@ pub struct StatusArgs {
     pub context: PathBuf,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RuntimeArgs {
+    #[arg(long)]
+    pub source: PathBuf,
+    #[arg(long, conflicts_with = "ping")]
+    pub owner: bool,
+    #[arg(long)]
+    pub ping: bool,
+    #[arg(long, requires = "owner")]
+    pub instance: Option<String>,
+    #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=60))]
+    pub idle_seconds: u64,
 }
