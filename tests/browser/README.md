@@ -53,3 +53,23 @@ the disposable source under `target/verification/scale-legacy-*` and prints a
 manifest path. `DEVMAP_SCALE_WORKTREES`, `DEVMAP_SCALE_SESSIONS` and
 `DEVMAP_SCALE_EVENTS` set smaller smoke sizes (events is per session). Corpus
 generation is not performance or real-host evidence.
+
+For a generated native fixture, set `DEVMAP_NATIVE_MANIFEST` to its manifest and
+run `cargo test --test migration_native_fixture export_native -- --ignored --nocapture`.
+This freezes at the saved baseline evaluation time, imports, compares complete
+legacy/SQL projections with the saved task inventory, exports `migration-legacy.json`
+and `migration-sql.json`, then activates and verifies. It also compares against
+the actual saved native baseline response, preserving inventory observation time
+and completeness and normalizing only its two process-local refresh counters to
+the initial projection values. Runtime restart monotonicity remains a separate
+gate. Use those two paths for the browser comparison. The legacy projection uses
+the unchanged shared reducer on frozen old-format inputs; it is not a second live
+run of the installed binary.
+
+Afterward, with the hash-verified `DEVMAP_BASELINE_EXE`, run
+`cargo test --test migration_native_fixture native_old_writer -- --ignored --nocapture`.
+It deliberately appends through the actual old MCP binary, asserts that SQL
+verification diagnoses drift, and verifies both stores and the frozen snapshot
+remain intact. This fixture is intentionally divergent afterward; generate a
+new fixture for a later migration run. Both tests refuse sources outside this
+checkout's disposable `target/verification` tree and stay ignored by default.
