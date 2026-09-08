@@ -83,3 +83,15 @@ The script never starts or stops a process. `--self-test --seconds 1 --interval 
 checks the observer itself; this is not candidate resource acceptance. A report
 with an exited owner explicitly distinguishes zero post-exit RSS from the
 resident owner's consumption. Use a new output path under `target/verification`.
+
+`codex-host-smoke.cjs` is an explicit model-backed real-host test. Set
+`DEVMAP_CANDIDATE_EXE` to a built candidate under this checkout's `target` and
+`DEVMAP_CODEX_EXE` to the installed Codex CLI. It creates and migrates a new
+disposable repository, then runs an ephemeral CLI session with user config
+excluded and only the candidate MCP server configured for the test. It saves
+actual MCP JSONL events and checks map → route → map structured results,
+repository/worktree identity and route revision. It does not edit global config,
+authentication or installed plugins. The child has a 180-second timeout.
+Automatic hooks, desktop navigation and shared-owner restart are separate gates.
+`DEVMAP_RECHECK_HOST_FIXTURE` rechecks saved events without another model run,
+including a wrong-route readback negative control, into a new validated report.

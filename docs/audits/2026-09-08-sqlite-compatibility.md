@@ -33,7 +33,7 @@ The fixture harness refuses a different executable and passes a disposable
 | Shared owner and IPC | Same-user local transport, one owner, independent clients, reconnect | Pending |
 | Automatic startup and retirement | Safe setup, absent/replaced worktree reconciliation, no read-only DB creation | Pending |
 | Performance | Release scale, cold/warm latency, Git freshness, payload sizes, 10-minute idle CPU/RSS | Pending; smoke timings are not acceptance measurements |
-| Actual host loop | Isolated configuration and observed lifecycle | Pending; synthetic task inventory does not satisfy this gate |
+| Actual host loop | Ephemeral Codex CLI performed map → route → map against active SQLite; structured IDs/revision/readback verified | Direct MCP smoke passed; automatic hooks and final shared-runtime host rerun pending |
 | Final branch checks | Full Rust/JS, formatting, packaging and independent whole-branch review | Pending |
 
 ## Reproduction and interpretation
