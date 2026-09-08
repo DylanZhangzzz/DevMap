@@ -13,6 +13,8 @@ pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Res
     let lock = platform::lock_file(&location.directory.join("owner.lock"))?;
     lock.try_lock_exclusive()?;
     // Rebind after the acquired lock: panic unwinding also drops the reactor first.
+    let executor = super::executor::Executor::start()?;
+    let admission = executor.admission();
     let owned_reactor = reactor;
     let result = super::build().and_then(|build| {
         owned_reactor.block_on(async move {
@@ -24,7 +26,7 @@ pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Res
                     return Err(invalid("identity cleanup failed; owner stopping"));
                 }
                 // Idle timer starts only once all client tasks have completed. Each
-                // client task owns one bounded frame, so no unbounded executor queue.
+                // client task owns bounded frames; accepted work retains its reservation.
                 while jobs.try_join_next().is_some() {}
                 let accept_budget = if jobs.is_empty() {
                     Duration::from_secs(idle_seconds)
@@ -41,9 +43,10 @@ pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Res
                         let repo = id.repository.clone();
                         let build = build.clone();
                         let instance = instance.clone();
+                        let admission = admission.clone();
                         jobs.spawn(async move {
                             let _permit = permit;
-                            let _ = serve(stream, repo, build, instance).await;
+                            let _ = serve(stream, repo, build, instance, admission).await;
                         });
                     }
                     Ok(Err(e)) => return Err(e),
@@ -53,17 +56,19 @@ pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Res
             }
         })
     });
-    finish_owner(owned_reactor, lock, result)
+    finish_owner(owned_reactor, lock, result, executor)
 }
 
-fn finish_owner(
+pub(super) fn finish_owner(
     reactor: tokio::runtime::Runtime,
     lock: std::fs::File,
     result: io::Result<()>,
+    executor: impl Sized,
 ) -> io::Result<()> {
     // Pending task destructors may still own child/process/IPC resources. Keep
     // repository ownership until they have been dropped on either result path.
     drop(reactor);
+    drop(executor);
     drop(lock);
     result
 }
@@ -73,6 +78,7 @@ async fn serve(
     repository: String,
     build: String,
     instance: String,
+    admission: super::executor::Admission,
 ) -> io::Result<()> {
     let hello: Hello = transport::read(&mut stream, Duration::from_secs(2)).await?;
     if hello.protocol != protocol::VERSION
@@ -113,6 +119,101 @@ async fn serve(
     loop {
         let request: Request = transport::read(&mut stream, transport::IO_DEADLINE).await?;
         match request {
+            Request::Begin {
+                protocol: version,
+                repository: repo,
+                client_instance,
+                request_id,
+                owner_instance,
+                total,
+                digest,
+            } => {
+                if version != protocol::VERSION
+                    || repo != repository
+                    || client_instance != hello.client_instance
+                    || request_id <= last_request
+                    || owner_instance != instance
+                {
+                    return Err(invalid("runtime request identity rejected"));
+                }
+                last_request = request_id;
+                let tag = protocol::Transfer {
+                    request_id,
+                    owner_instance,
+                    total,
+                    digest,
+                };
+                transport::validate_transfer(&tag, protocol::MAX_REQUEST)?;
+                let Ok(reservation) = admission
+                    .memory
+                    .clone()
+                    .try_acquire_many_owned(protocol::EXCHANGE_RESERVATION as u32)
+                else {
+                    transport::write(
+                        &mut stream,
+                        &protocol::ExchangeReply::Busy {
+                            request_id,
+                            owner_instance: instance.clone(),
+                        },
+                    )
+                    .await?;
+                    continue;
+                };
+                tokio::time::timeout(transport::EXCHANGE_DEADLINE, async {
+                    transport::write(
+                        &mut stream,
+                        &protocol::ExchangeReply::Ready {
+                            request_id,
+                            owner_instance: instance.clone(),
+                        },
+                    )
+                    .await?;
+                    let bytes =
+                        transport::receive_bytes(&mut stream, &tag, protocol::MAX_REQUEST).await?;
+                    let (reply, receiver) = tokio::sync::oneshot::channel();
+                    let job = super::executor::Job {
+                        identity: id.clone(),
+                        bytes,
+                        reservation,
+                        reply,
+                    };
+                    match admission.sender.try_send(job) {
+                        Ok(()) => {}
+                        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                            transport::write(
+                                &mut stream,
+                                &protocol::ExchangeReply::Busy {
+                                    request_id,
+                                    owner_instance: instance.clone(),
+                                },
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                            return Err(io::Error::other("runtime executor unavailable"));
+                        }
+                    }
+                    let completed = receiver
+                        .await
+                        .map_err(|_| io::Error::other("runtime executor stopped"))?;
+                    let result_tag = transport::transfer(&completed.bytes, request_id, &instance);
+                    transport::write(
+                        &mut stream,
+                        &protocol::ExchangeReply::Result {
+                            transfer: result_tag.clone(),
+                        },
+                    )
+                    .await?;
+                    transport::send_bytes(&mut stream, &result_tag, &completed.bytes).await?;
+                    drop(completed);
+                    Ok(())
+                })
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "runtime exchange deadline")
+                })??;
+            }
             Request::Ping {
                 protocol,
                 repository: repo,
@@ -190,7 +291,7 @@ mod cleanup_tests {
             } else {
                 Ok(())
             };
-            assert_eq!(finish_owner(reactor, lock, result).is_err(), fail);
+            assert_eq!(finish_owner(reactor, lock, result, ()).is_err(), fail);
             assert!(
                 retained.load(Ordering::SeqCst),
                 "reactor task cleanup ran after ownership lock release"

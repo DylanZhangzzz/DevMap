@@ -2,8 +2,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 pub const VERSION: u32 = 1;
-// Diagnostic messages need no bulk payload. Sixteen admitted connections hold
-// at most 256 KiB of frame buffers; no application queue exists in this slice.
+// Every physical message stays bounded; application aggregates additionally require
+// one of the two explicit exchange reservations before upload.
 pub const MAX_FRAME: usize = 16 * 1024;
 pub const MAX_CONNECTIONS: usize = 16;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +30,15 @@ pub struct Welcome {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub enum Request {
+    Begin {
+        protocol: u32,
+        repository: String,
+        client_instance: String,
+        request_id: u64,
+        owner_instance: String,
+        total: usize,
+        digest: String,
+    },
     Ping {
         protocol: u32,
         repository: String,
@@ -49,4 +58,73 @@ pub struct Response {
 pub enum HelloReply {
     Accepted { welcome: Welcome },
     Rejected { reason: String },
+}
+
+// Every admitted transfer reserves space before any aggregate allocation.
+pub const MAX_REQUEST: usize = 4 * 1024 * 1024 + 64 * 1024;
+pub const MAX_RESULT: usize = 3 * 1024 * 1024;
+pub const CHUNK_BYTES: usize = 2048;
+pub const EXCHANGE_RESERVATION: usize = 24 * 1024 * 1024;
+pub const MAX_EXCHANGES: usize = 2;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Transfer {
+    pub request_id: u64,
+    pub owner_instance: String,
+    pub total: usize,
+    pub digest: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chunk {
+    pub transfer: Transfer,
+    pub offset: usize,
+    pub bytes: Vec<u8>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", deny_unknown_fields)]
+pub enum ExchangeReply {
+    Ready {
+        request_id: u64,
+        owner_instance: String,
+    },
+    Busy {
+        request_id: u64,
+        owner_instance: String,
+    },
+    Result {
+        transfer: Transfer,
+    },
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "operation", deny_unknown_fields)]
+pub enum ApplicationRequest {
+    Query {
+        query: crate::application::ClientQuery,
+    },
+    AcceptInventory {
+        prior: crate::application::ClientQuery,
+        tasks: Vec<crate::dock::ObservedTask>,
+        complete: bool,
+        observed_at: String,
+    },
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DomainError {
+    pub code: String,
+    pub message: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "result", deny_unknown_fields)]
+pub enum ApplicationResult {
+    Snapshot {
+        snapshot: Box<crate::application::ApplicationSnapshot>,
+    },
+    Inventory {
+        query: crate::application::ClientQuery,
+    },
+    Error {
+        error: DomainError,
+    },
 }

@@ -1,4 +1,5 @@
 //! Same-user, repository-scoped local owner. This slice only exposes diagnostics.
+mod executor;
 mod owner;
 pub mod protocol;
 mod transport;
@@ -537,5 +538,74 @@ async fn reap_identity(child: &mut tokio::process::Child) -> io::Result<()> {
                 _ => Err(invalid("identity process reap deadline")),
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum RuntimeCallError {
+    Transport(io::Error),
+    Busy,
+    Domain(protocol::DomainError),
+}
+impl std::fmt::Display for RuntimeCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Transport(e) => e.fmt(f),
+            Self::Busy => f.write_str("runtime application busy"),
+            Self::Domain(e) => f.write_str(&e.message),
+        }
+    }
+}
+impl std::error::Error for RuntimeCallError {}
+impl From<io::Error> for RuntimeCallError {
+    fn from(e: io::Error) -> Self {
+        Self::Transport(e)
+    }
+}
+impl RuntimeClient {
+    pub fn query(
+        &mut self,
+        query: &crate::application::ClientQuery,
+    ) -> Result<crate::application::ApplicationSnapshot, RuntimeCallError> {
+        match self.application_call(&protocol::ApplicationRequest::Query {
+            query: query.clone(),
+        })? {
+            protocol::ApplicationResult::Snapshot { snapshot } => Ok(*snapshot),
+            _ => Err(invalid("runtime query response kind mismatch").into()),
+        }
+    }
+    pub fn accept_inventory(
+        &mut self,
+        prior: &crate::application::ClientQuery,
+        tasks: &[crate::dock::ObservedTask],
+        complete: bool,
+        observed_at: &str,
+    ) -> Result<crate::application::ClientQuery, RuntimeCallError> {
+        match self.application_call(&protocol::ApplicationRequest::AcceptInventory {
+            prior: prior.clone(),
+            tasks: tasks.to_vec(),
+            complete,
+            observed_at: observed_at.to_owned(),
+        })? {
+            protocol::ApplicationResult::Inventory { query } => Ok(query),
+            _ => Err(invalid("runtime inventory response kind mismatch").into()),
+        }
+    }
+    fn application_call(
+        &mut self,
+        request: &protocol::ApplicationRequest,
+    ) -> Result<protocol::ApplicationResult, RuntimeCallError> {
+        let bytes = transport::bounded_json(request, protocol::MAX_REQUEST)?;
+        self.next_request = self
+            .next_request
+            .checked_add(1)
+            .ok_or_else(|| invalid("runtime request counter exhausted"))?;
+        self.reactor.block_on(transport::exchange(
+            &mut self.stream,
+            &self.hello,
+            &self.welcome,
+            self.next_request,
+            bytes,
+        ))
     }
 }
