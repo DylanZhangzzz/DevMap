@@ -1,4 +1,5 @@
 //! Repository-local transactional storage. Creating a store does not activate it.
+pub mod migration;
 use crate::{error::DevMapError, fs_security, git::SourceWorkspace, worktrees};
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::{
@@ -24,6 +25,7 @@ impl RepositoryStore {
                 Self::open_existing(workspace)?.ok_or_else(|| err("database disappeared"))?;
             probe.integrity_check()?;
         } else {
+            migration::refuse_missing_database(workspace)?;
             reject_sidecars(&path)?;
             fs_security::ensure_directory(path.parent().unwrap())?;
             check_files(&path)?;
@@ -59,6 +61,7 @@ impl RepositoryStore {
         fs_security::checked_canonical_directory(path.parent().unwrap())?;
         check_files(&path)?;
         if fs_security::checked_metadata(&path)?.is_none() {
+            migration::refuse_missing_database(workspace)?;
             return Ok(None);
         }
         // SQLite may maintain locking/WAL-index sidecars, but this handle cannot
@@ -404,7 +407,15 @@ pub(crate) fn is_active(connection: &Connection) -> Result<bool, DevMapError> {
     )?;
     match state.as_str() {
         "active" => Ok(true),
-        "shadow" => Ok(false),
+        "shadow" => {
+            let evidence:i64=connection.query_row("SELECT generation+(SELECT count(*) FROM migration_sources WHERE source_path='@activation') FROM store_meta WHERE singleton=1",[],|r|r.get(0))?;
+            if evidence != 0 {
+                return Err(err(
+                    "shadow selector conflicts with accepted SQL history; downgrade refused",
+                ));
+            }
+            Ok(false)
+        }
         _ => Err(err("unknown backend state")),
     }
 }
@@ -415,6 +426,7 @@ pub(crate) fn active_existing(
         return Ok(None);
     };
     if is_active(store.connection())? {
+        migration::check_legacy_drift(workspace, store.connection())?;
         Ok(Some(store))
     } else {
         Ok(None)
@@ -429,7 +441,14 @@ pub(crate) fn domain_write<T>(
         return f(None);
     }
     let mut store = RepositoryStore::open(workspace)?;
-    store.transaction(|tx| if is_active(tx)? { f(Some(tx)) } else { f(None) })
+    store.transaction(|tx| {
+        if is_active(tx)? {
+            migration::check_legacy_drift(workspace, tx)?;
+            f(Some(tx))
+        } else {
+            f(None)
+        }
+    })
 }
 
 /// Lock order for legacy writes and activation: SQLite IMMEDIATE, then domain files.

@@ -43,6 +43,7 @@ where
     let cli = Cli::try_parse_from(args)?;
 
     match cli.command {
+        Command::Storage { command } => store::migration::dispatch(command),
         Command::Init(args) => commands::init(args),
         Command::CommonGround {
             command: CommonGroundCommand::Approve(args),

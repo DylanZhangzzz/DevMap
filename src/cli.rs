@@ -18,6 +18,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Inspect, migrate, verify, or back up repository storage.
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommand,
+    },
     /// Create a reviewable Common Ground draft.
     Init(InitArgs),
     /// Review and approve Common Ground.
@@ -43,6 +48,35 @@ pub enum Command {
     },
     /// Run the generic MCP capture endpoint.
     Mcp(McpArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StorageCommand {
+    Inspect(StorageSourceArgs),
+    Migrate(StorageMigrateArgs),
+    Verify(StorageSourceArgs),
+    Backup(StorageBackupArgs),
+}
+#[derive(Debug, Args)]
+pub struct StorageSourceArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+}
+#[derive(Debug, Args)]
+pub struct StorageMigrateArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+    /// New frozen backup directory outside Git administration.
+    #[arg(long)]
+    pub backup_dir: PathBuf,
+}
+#[derive(Debug, Args)]
+pub struct StorageBackupArgs {
+    #[arg(long, default_value = ".")]
+    pub source: PathBuf,
+    /// New database file in an existing directory outside Git administration.
+    #[arg(long)]
+    pub destination: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
