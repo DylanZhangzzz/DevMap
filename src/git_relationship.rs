@@ -84,10 +84,30 @@ impl GitRelationshipResolver {
         workspace: &SourceWorkspace,
         worktrees: &[WorktreeDescriptor],
     ) -> Result<GitRelationshipReport, DevMapError> {
+        let configured = Self::development_configuration(workspace)?;
+        Self::resolve_with_configuration(workspace, worktrees, configured.as_deref())
+    }
+
+    /// Read the effective configuration in the requesting worktree, including
+    /// extensions.worktreeConfig. Keep its original spelling and invalid values.
+    pub(crate) fn development_configuration(
+        workspace: &SourceWorkspace,
+    ) -> Result<Option<String>, DevMapError> {
+        optional_text(
+            &workspace.root,
+            ["config", "--get", "devmap.developmentTarget"],
+        )
+    }
+
+    pub(crate) fn resolve_with_configuration(
+        workspace: &SourceWorkspace,
+        worktrees: &[WorktreeDescriptor],
+        configured: Option<&str>,
+    ) -> Result<GitRelationshipReport, DevMapError> {
         let mut warnings = Vec::new();
         let root_target = select_root_target(workspace)?;
         let development_target =
-            select_development_target(workspace, root_target.as_ref(), &mut warnings)?;
+            select_development_target(workspace, configured, root_target.as_ref(), &mut warnings)?;
         let target = development_target.clone().or_else(|| root_target.clone());
         let integration_branches =
             integration_branches(workspace, root_target.as_ref(), development_target.as_ref())?;
@@ -230,20 +250,18 @@ fn select_root_target(
 
 fn select_development_target(
     workspace: &SourceWorkspace,
+    configured: Option<&str>,
     root: Option<&DevelopmentTarget>,
     warnings: &mut Vec<GitRelationshipWarning>,
 ) -> Result<Option<DevelopmentTarget>, DevMapError> {
-    if let Some(configured) = optional_text(
-        &workspace.root,
-        ["config", "--get", "devmap.developmentTarget"],
-    )? {
-        let ref_name = configured_ref(&configured);
+    if let Some(configured) = configured {
+        let ref_name = configured_ref(configured);
         if ref_name.as_deref().is_some_and(|candidate| {
             root.is_none_or(|root| root.ref_name != candidate)
                 && ref_exists(&workspace.root, candidate).unwrap_or(false)
         }) {
             return Ok(Some(DevelopmentTarget {
-                name: configured,
+                name: configured.to_owned(),
                 ref_name: ref_name.expect("validated configured ref"),
                 source: TargetSource::Config,
             }));

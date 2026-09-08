@@ -227,3 +227,192 @@ fn active_errors_never_fall_back_to_legacy() {
         b"{\n"
     );
 }
+fn binding_state(w: &SourceWorkspace) -> (u64, Vec<String>, Vec<String>) {
+    let store = devmap::store::RepositoryStore::open_existing(w)
+        .unwrap()
+        .unwrap();
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    let rows = |sql: &str| {
+        connection
+            .prepare(sql)
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    (
+        store.generation().unwrap(),
+        rows("SELECT record_json FROM binding_records ORDER BY observation_id"),
+        rows("SELECT record_json FROM binding_watermarks ORDER BY source_scope"),
+    )
+}
+fn rejected_partial_preserves_all_state(large_titles: bool) {
+    let repo = support::committed_repo();
+    let w = workspace(repo.path());
+    let backup = tempfile::tempdir().unwrap();
+    devmap::store::migration::ensure(&w, &backup.path().join("frozen")).unwrap();
+    let mut app = RepositoryApplication::open(&w).unwrap();
+    let mut view = ClientView::new(w.clone());
+    let now = OffsetDateTime::now_utc();
+    app.accept_inventory(&mut view, vec![task(&w, "baseline", now)], true, now)
+        .unwrap();
+    app.query(&mut view, now).unwrap();
+    let mut prior = view.query_input().unwrap();
+    let mut incoming = task(&w, "new-task", now);
+    if large_titles {
+        let mut old = task(&w, "old-task", now);
+        old.display_title = "x".repeat(1100 * 1024);
+        incoming.display_title = "y".repeat(1100 * 1024);
+        prior.tasks = vec![old];
+    } else {
+        prior.tasks = (0..2048)
+            .map(|i| task(&w, &format!("old-{i}"), now))
+            .collect();
+    }
+    view.apply_inventory(prior).unwrap();
+    let before_bindings = binding_state(&w);
+    let before_view = serde_json::to_value(view.query_input().unwrap()).unwrap();
+    let before_model = serde_json::to_value(view.snapshot()).unwrap();
+    let result = app.accept_inventory(
+        &mut view,
+        vec![incoming],
+        false,
+        now + time::Duration::seconds(1),
+    );
+    assert!(
+        result.is_err(),
+        "the merged partial inventory must be rejected before accepting bindings"
+    );
+    assert_eq!(
+        binding_state(&w),
+        before_bindings,
+        "generation, binding records and watermarks must be unchanged"
+    );
+    assert_eq!(
+        serde_json::to_value(view.query_input().unwrap()).unwrap(),
+        before_view
+    );
+    assert_eq!(serde_json::to_value(view.snapshot()).unwrap(), before_model);
+}
+#[test]
+fn partial_inventory_count_overflow_is_atomic() {
+    rejected_partial_preserves_all_state(false);
+}
+#[test]
+fn partial_inventory_byte_overflow_is_atomic() {
+    rejected_partial_preserves_all_state(true);
+}
+
+fn projection_behavior(model: &devmap::dock::DockReadModel) -> serde_json::Value {
+    let mut value = serde_json::to_value(model).unwrap();
+    value.as_object_mut().unwrap().remove("revision");
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("observation_revision");
+    value
+}
+#[test]
+fn worktree_specific_targets_match_dock_service_for_either_owner_and_after_reconcile() {
+    let repo = support::committed_repo();
+    let temp = tempfile::tempdir().unwrap();
+    let linked = temp.path().join("linked");
+    support::git(repo.path(), ["branch", "target-a"]);
+    support::git(repo.path(), ["branch", "target-b"]);
+    support::git(
+        repo.path(),
+        ["worktree", "add", "-b", "linked", linked.to_str().unwrap()],
+    );
+    support::git(repo.path(), ["config", "extensions.worktreeConfig", "true"]);
+    support::git(
+        repo.path(),
+        [
+            "config",
+            "--worktree",
+            "devmap.developmentTarget",
+            "target-a",
+        ],
+    );
+    support::git(
+        &linked,
+        [
+            "config",
+            "--worktree",
+            "devmap.developmentTarget",
+            "target-b",
+        ],
+    );
+    let main = workspace(repo.path());
+    let child = workspace(&linked);
+    let now = OffsetDateTime::now_utc();
+    for owner in [&main, &child] {
+        let mut app = RepositoryApplication::open(owner)
+            .unwrap()
+            .with_git_max_age(std::time::Duration::from_secs(60))
+            .unwrap();
+        for (source, expected) in [(&main, "target-a"), (&child, "target-b")] {
+            let mut view = ClientView::new(source.clone());
+            let actual = app.query(&mut view, now).unwrap().model;
+            let mut direct = devmap::dock::DockService::open(&source.root).unwrap();
+            let expected_model = direct.refresh(now).unwrap();
+            assert_eq!(actual.development_target.as_ref().unwrap().name, expected);
+            assert_eq!(
+                projection_behavior(&actual),
+                projection_behavior(expected_model)
+            );
+        }
+        support::git(
+            &linked,
+            [
+                "config",
+                "--worktree",
+                "devmap.developmentTarget",
+                "target-a",
+            ],
+        );
+        app.reconcile();
+        let mut view = ClientView::new(child.clone());
+        let actual = app.query(&mut view, now).unwrap().model;
+        let mut direct = devmap::dock::DockService::open(&linked).unwrap();
+        assert_eq!(actual.development_target.as_ref().unwrap().name, "target-a");
+        assert_eq!(
+            projection_behavior(&actual),
+            projection_behavior(direct.refresh(now).unwrap())
+        );
+        support::git(
+            &linked,
+            [
+                "config",
+                "--worktree",
+                "devmap.developmentTarget",
+                "target-b",
+            ],
+        );
+    }
+}
+#[test]
+fn inventory_ipc_acceptance_retains_original_previous_heads() {
+    let repo = support::committed_repo();
+    let w = workspace(repo.path());
+    let mut app = RepositoryApplication::open(&w).unwrap();
+    let mut view = ClientView::new(w.clone());
+    let now = OffsetDateTime::now_utc();
+    app.query(&mut view, now).unwrap();
+    let prior = view.query_input().unwrap();
+    assert!(!prior.previous_heads.is_empty());
+    let expected = serde_json::to_value(&prior.previous_heads).unwrap();
+    let accepted = app
+        .accept_inventory_query(&w, prior, vec![task(&w, "new-task", now)], false, now)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&accepted.previous_heads).unwrap(),
+        expected
+    );
+    assert_eq!(accepted.tasks.len(), 1);
+    view.apply_inventory(accepted).unwrap();
+    assert_eq!(
+        serde_json::to_value(view.query_input().unwrap().previous_heads).unwrap(),
+        expected
+    );
+}

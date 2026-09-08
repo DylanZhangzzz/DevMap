@@ -283,14 +283,18 @@ impl RepositoryApplication {
             self.targets = targets;
             self.dirty = false;
         }
-        let mut next = self.git.as_ref().unwrap().project_for(
-            workspace,
-            inputs,
-            now,
-            &query.tasks,
-            query.inventory_observed_at.clone(),
-            query.complete,
-        )?;
+        let mut next = self
+            .git
+            .as_mut()
+            .unwrap()
+            .prepare_client(workspace)?
+            .project(
+                inputs,
+                now,
+                &query.tasks,
+                query.inventory_observed_at.clone(),
+                query.complete,
+            )?;
         dock::apply_history(&mut next, &query.previous_heads, |old, next| {
             let key = (old.to_owned(), next.to_owned());
             if let Some(cached) = self.ancestry.get(&key) {
@@ -325,19 +329,33 @@ impl RepositoryApplication {
         complete: bool,
         observed_at: OffsetDateTime,
     ) -> Result<ClientQuery, DevMapError> {
+        let previous_heads = prior.previous_heads.clone();
         let mut view = ClientView::new(workspace.clone());
         view.apply_inventory(prior)?;
-        self.accept_inventory(&mut view, tasks, complete, observed_at)?;
-        view.query_input()
+        self.accept_inventory_with_heads(&mut view, tasks, complete, observed_at, &previous_heads)?;
+        let mut accepted = view.query_input()?;
+        accepted.previous_heads = previous_heads;
+        Ok(accepted)
     }
     /// Only this explicit acceptance operation writes binding observations. Older
     /// inventories cannot roll the client watermark back; partial reports merge.
     pub fn accept_inventory(
         &mut self,
         view: &mut ClientView,
+        tasks: Vec<ObservedTask>,
+        complete: bool,
+        observed_at: OffsetDateTime,
+    ) -> Result<(), DevMapError> {
+        let previous_heads = dock::previous_heads(view.snapshot.as_ref());
+        self.accept_inventory_with_heads(view, tasks, complete, observed_at, &previous_heads)
+    }
+    fn accept_inventory_with_heads(
+        &mut self,
+        view: &mut ClientView,
         mut tasks: Vec<ObservedTask>,
         complete: bool,
         observed_at: OffsetDateTime,
+        previous_heads: &[dock::PreviousHead],
     ) -> Result<(), DevMapError> {
         self.validate_client(view)?;
         ClientQuery {
@@ -401,11 +419,6 @@ impl RepositoryApplication {
                     .map(|w| (t.host.clone(), t.session_id.clone(), w.worktree_id.clone()))
             })
             .collect::<Vec<_>>();
-        crate::journal::observe_task_bindings(
-            &view.workspace,
-            &associations,
-            &observed_at.format(&Rfc3339)?,
-        )?;
         if !complete {
             for old in &view.tasks {
                 if !tasks.iter().any(|t| t.session_id == old.session_id) {
@@ -414,6 +427,20 @@ impl RepositoryApplication {
             }
         }
         tasks.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        // Validate the complete future transport state before any durable effect.
+        // Retained partial tasks and history headers both count against the budget.
+        ClientQuery {
+            tasks: tasks.clone(),
+            inventory_observed_at: Some(observed_at.format(&Rfc3339)?),
+            complete,
+            previous_heads: previous_heads.to_vec(),
+        }
+        .validate()?;
+        crate::journal::observe_task_bindings(
+            &view.workspace,
+            &associations,
+            &observed_at.format(&Rfc3339)?,
+        )?;
         view.tasks = tasks;
         view.complete = complete;
         view.observed_at = Some(observed_at);

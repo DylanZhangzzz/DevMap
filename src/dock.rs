@@ -785,6 +785,8 @@ pub(crate) struct DockProjectionContext {
     worktrees: Vec<WorktreeDescriptor>,
     topology: TopologyGraph,
     relationships: GitRelationshipReport,
+    configuration_key: Option<String>,
+    client_relationships: BTreeMap<Option<String>, GitRelationshipReport>,
     targets: BTreeMap<String, bool>,
 }
 impl DockProjectionContext {
@@ -795,7 +797,15 @@ impl DockProjectionContext {
         let worktrees = WorktreeScanner::scan(workspace)?;
         let before = topology_cache_key(workspace, &worktrees)?;
         let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
-        let relationships = GitRelationshipResolver::resolve(workspace, &worktrees)?;
+        let configured = GitRelationshipResolver::development_configuration(workspace)?;
+        let configuration_key = configured
+            .as_deref()
+            .map(|value| sha256_hex(value.as_bytes()));
+        let relationships = GitRelationshipResolver::resolve_with_configuration(
+            workspace,
+            &worktrees,
+            configured.as_deref(),
+        )?;
         let mut targets = BTreeMap::new();
         for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
             if !targets.contains_key(target) {
@@ -820,7 +830,46 @@ impl DockProjectionContext {
             worktrees,
             topology,
             relationships,
+            configuration_key,
+            client_relationships: BTreeMap::new(),
             targets,
+        })
+    }
+
+    /// Only target-dependent relationships vary by effective client config.
+    /// Worktree descriptors and topology remain shared across all variants.
+    pub(crate) fn prepare_client<'a>(
+        &'a mut self,
+        workspace: &'a SourceWorkspace,
+    ) -> Result<DockClientProjection<'a>, DevMapError> {
+        let configured = GitRelationshipResolver::development_configuration(workspace)?;
+        // Hash keys bound cache memory without normalizing invalid/empty values;
+        // the original value still goes through the existing resolver semantics.
+        let key = configured
+            .as_deref()
+            .map(|value| sha256_hex(value.as_bytes()));
+        let relationships = if key == self.configuration_key {
+            &self.relationships
+        } else {
+            if !self.client_relationships.contains_key(&key) {
+                let report = GitRelationshipResolver::resolve_with_configuration(
+                    workspace,
+                    &self.worktrees,
+                    configured.as_deref(),
+                )?;
+                if self.client_relationships.len() >= 16 {
+                    self.client_relationships.pop_first();
+                }
+                self.client_relationships.insert(key.clone(), report);
+            }
+            self.client_relationships
+                .get(&key)
+                .expect("configuration inserted above")
+        };
+        Ok(DockClientProjection {
+            context: self,
+            workspace,
+            relationships,
         })
     }
 
@@ -834,26 +883,31 @@ impl DockProjectionContext {
         inventory_observed_at: Option<String>,
         complete: bool,
     ) -> Result<DockReadModel, DevMapError> {
-        self.project_for(
-            &self.workspace,
-            inputs,
-            now,
-            tasks,
-            inventory_observed_at,
-            complete,
-        )
+        DockClientProjection {
+            context: self,
+            workspace: &self.workspace,
+            relationships: &self.relationships,
+        }
+        .project(inputs, now, tasks, inventory_observed_at, complete)
     }
+}
 
-    pub(crate) fn project_for(
+pub(crate) struct DockClientProjection<'a> {
+    context: &'a DockProjectionContext,
+    workspace: &'a SourceWorkspace,
+    relationships: &'a GitRelationshipReport,
+}
+impl DockClientProjection<'_> {
+    pub(crate) fn project(
         &self,
-        workspace: &SourceWorkspace,
         inputs: DockStorageInputs,
         now: OffsetDateTime,
         tasks: &[ObservedTask],
         inventory_observed_at: Option<String>,
         complete: bool,
     ) -> Result<DockReadModel, DevMapError> {
-        let mut worktrees = self.worktrees.clone();
+        let workspace = self.workspace;
+        let mut worktrees = self.context.worktrees.clone();
         for wt in &mut worktrees {
             wt.is_current = same_workspace_path(&workspace.root.to_string_lossy(), &wt.root);
         }
@@ -865,12 +919,13 @@ impl DockProjectionContext {
             now,
             tasks,
             task_observation(tasks, inventory_observed_at.as_ref(), complete),
-            self.topology.clone(),
+            self.context.topology.clone(),
             Some(self.relationships.clone()),
         )?;
         next.task_inventory_synced_at = inventory_observed_at;
         apply_storage_inputs(&mut next, inputs.routes, inputs.bindings, |target| {
-            self.targets
+            self.context
+                .targets
                 .get(target)
                 .copied()
                 .ok_or(DevMapError::InvalidDomain("route target not collected"))
