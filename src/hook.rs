@@ -1,5 +1,6 @@
 use std::io::Read;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -18,6 +19,194 @@ use crate::journal::JournalStore;
 const ADAPTER_VERSION: &str = "devmap-hook/1";
 const MAX_IDENTIFIER_BYTES: usize = 512;
 pub const MAX_HOOK_BODY_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreparedHookHost {
+    Codex,
+    Claude,
+    GenericMcp,
+}
+impl From<AdapterHost> for PreparedHookHost {
+    fn from(host: AdapterHost) -> Self {
+        match host {
+            AdapterHost::Codex => Self::Codex,
+            AdapterHost::Claude => Self::Claude,
+            AdapterHost::GenericMcp => Self::GenericMcp,
+        }
+    }
+}
+impl From<PreparedHookHost> for AdapterHost {
+    fn from(host: PreparedHookHost) -> Self {
+        match host {
+            PreparedHookHost::Codex => Self::Codex,
+            PreparedHookHost::Claude => Self::Claude,
+            PreparedHookHost::GenericMcp => Self::GenericMcp,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreparedHookIdentity {
+    pub event_id: String,
+    pub occurred_at: String,
+    pub received_at: String,
+    pub branch: Option<String>,
+    pub head: String,
+}
+
+/// Immutable invocation data. Paths are deliberately absent. Native body fields
+/// remain data interpreted by the same normalizer used by direct hook capture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreparedHook {
+    pub host: PreparedHookHost,
+    pub event: String,
+    pub body: Map<String, Value>,
+    pub identity: PreparedHookIdentity,
+}
+impl PreparedHook {
+    pub fn prepare(
+        host: AdapterHost,
+        event: &str,
+        input: Value,
+        workspace: &SourceWorkspace,
+        received_at: OffsetDateTime,
+    ) -> Result<Self, DevMapError> {
+        let map = input.as_object().ok_or_else(|| {
+            DevMapError::MalformedAdapterConfig("hook input must be one JSON object".into())
+        })?;
+        validate_body(map)?;
+        let body = require_object(input)?;
+        let session_id =
+            identifier_field(&body, &["session_id"]).unwrap_or_else(|| "missing-session".into());
+        let event_id = if source_identifier(event, &body).is_some() {
+            stable_event_id(event, &session_id, &body)
+        } else {
+            crate::mutation::random_event_id("hook-invocation")?
+        };
+        let received_at = received_at.format(&Rfc3339)?;
+        let prepared = Self {
+            host: host.into(),
+            event: event.into(),
+            identity: PreparedHookIdentity {
+                event_id,
+                occurred_at: native_timestamp(&body).unwrap_or_else(|| received_at.clone()),
+                received_at,
+                branch: workspace.branch.clone(),
+                head: workspace.head.clone(),
+            },
+            body,
+        };
+        prepared.normalized(workspace, 1)?;
+        Ok(prepared)
+    }
+
+    fn normalized(
+        &self,
+        workspace: &SourceWorkspace,
+        sequence: u64,
+    ) -> Result<Vec<EventEnvelope>, DevMapError> {
+        use crate::mutation::{bounded_text, parse_time, validate_observation};
+        bounded_text("native hook event", &self.event, 512)?;
+        validate_body(&self.body)?;
+        bounded_text("native hook event id", &self.identity.event_id, 512)?;
+        parse_time(&self.identity.occurred_at)?;
+        parse_time(&self.identity.received_at)?;
+        validate_observation(self.identity.branch.as_deref(), Some(&self.identity.head))?;
+        let mut historical = workspace.clone();
+        historical.branch = self.identity.branch.clone();
+        historical.head = self.identity.head.clone();
+        let mut context =
+            NormalizedContext::from_input(self.host.into(), &self.event, &self.body, &historical)?;
+        context.event_id = self.identity.event_id.clone();
+        context.occurred_at = self.identity.occurred_at.clone();
+        context.sequence = sequence;
+        normalize_with_context(self.host.into(), &self.event, &self.body, context)
+    }
+
+    pub(crate) fn execute(
+        &self,
+        workspace: &SourceWorkspace,
+    ) -> Result<crate::mutation::MutationResult, DevMapError> {
+        // Validate before any journal open and again after crossing the wire.
+        let validated = self.normalized(workspace, 1)?;
+        let session_id = validated
+            .first()
+            .ok_or(DevMapError::InvalidDomain("empty hook capture"))?
+            .context()
+            .session_id()
+            .to_owned();
+        let journal = JournalStore::open(workspace, &session_id)?;
+        let records = journal.append_capture_batch_with(
+            crate::mutation::parse_time(&self.identity.received_at)?,
+            |sequence| self.normalized(workspace, sequence),
+        )?;
+        Ok(crate::mutation::MutationResult::HookAccepted {
+            sha256: records.into_iter().map(|record| record.sha256).collect(),
+        })
+    }
+}
+
+fn validate_body(input: &Map<String, Value>) -> Result<(), DevMapError> {
+    // Check structure before recursive serialization/normalization. Inbound IPC
+    // separately caps its frame and aggregate upload allocation.
+    if input.len() > 16384 {
+        return Err(DevMapError::ResourceLimit {
+            resource: "native hook structure",
+            limit: 16384,
+        });
+    }
+    let mut pending: Vec<_> = input.values().map(|value| (value, 1usize)).collect();
+    let mut text_bytes: usize = input.keys().map(String::len).sum();
+    let mut nodes = 0usize;
+    while let Some((value, depth)) = pending.pop() {
+        nodes += 1;
+        if depth > 32 || nodes > 16384 {
+            return Err(DevMapError::ResourceLimit {
+                resource: "native hook structure",
+                limit: 16384,
+            });
+        }
+        match value {
+            Value::Array(values) => {
+                if nodes + pending.len() + values.len() > 16384 {
+                    return Err(DevMapError::ResourceLimit {
+                        resource: "native hook array",
+                        limit: 16384,
+                    });
+                }
+                pending.extend(values.iter().map(|value| (value, depth + 1)));
+            }
+            Value::Object(values) => {
+                if nodes + pending.len() + values.len() > 16384 {
+                    return Err(DevMapError::ResourceLimit {
+                        resource: "native hook object",
+                        limit: 16384,
+                    });
+                }
+                text_bytes += values.keys().map(String::len).sum::<usize>();
+                pending.extend(values.values().map(|value| (value, depth + 1)));
+            }
+            Value::String(value) => text_bytes += value.len(),
+            _ => {}
+        }
+        if text_bytes > MAX_HOOK_BODY_BYTES {
+            return Err(DevMapError::ResourceLimit {
+                resource: "native hook body",
+                limit: MAX_HOOK_BODY_BYTES,
+            });
+        }
+    }
+    if serde_json::to_vec(input)?.len() > MAX_HOOK_BODY_BYTES {
+        return Err(DevMapError::ResourceLimit {
+            resource: "native hook body",
+            limit: MAX_HOOK_BODY_BYTES,
+        });
+    }
+    Ok(())
+}
 
 pub fn handle_hook(
     args: HookHandleArgs,
@@ -63,14 +252,23 @@ pub fn normalize_hook_input(
 ) -> Result<Vec<EventEnvelope>, DevMapError> {
     let input = require_object(input)?;
     let context = NormalizedContext::from_input(host, event, &input, workspace)?;
-    let Some(event_types) = event_types(host, event, &input) else {
-        return context.gap("unsupported_host_event", status_payload(event, &input));
+    normalize_with_context(host, event, &input, context)
+}
+
+fn normalize_with_context(
+    host: AdapterHost,
+    event: &str,
+    input: &Map<String, Value>,
+    context: NormalizedContext,
+) -> Result<Vec<EventEnvelope>, DevMapError> {
+    let Some(event_types) = event_types(host, event, input) else {
+        return context.gap("unsupported_host_event", status_payload(event, input));
     };
-    let Some(payload_event) = identifier_field(&input, &["hook_event_name"]) else {
-        return context.gap("missing_hook_event_name", status_payload(event, &input));
+    let Some(payload_event) = identifier_field(input, &["hook_event_name"]) else {
+        return context.gap("missing_hook_event_name", status_payload(event, input));
     };
     let Some(payload_event) = canonical_event_name(&payload_event) else {
-        return context.gap("invalid_hook_event_name", status_payload(event, &input));
+        return context.gap("invalid_hook_event_name", status_payload(event, input));
     };
     if canonical_event_name(event) != Some(payload_event) {
         return context.gap(
@@ -82,7 +280,7 @@ pub fn normalize_hook_input(
         );
     }
     if context.missing_session {
-        return context.gap("missing_mandatory_context", status_payload(event, &input));
+        return context.gap("missing_mandatory_context", status_payload(event, input));
     }
 
     event_types
@@ -92,7 +290,7 @@ pub fn normalize_hook_input(
             context.envelope(
                 event_type.clone(),
                 offset as u64,
-                event_payload(host, event, &event_type, &input),
+                event_payload(host, event, &event_type, input),
             )
         })
         .collect()
@@ -356,16 +554,7 @@ fn status_payload(event: &str, input: &Map<String, Value>) -> Value {
 
 fn stable_event_id(event: &str, session_id: &str, input: &Map<String, Value>) -> String {
     let normalized = normalize_event_name(event);
-    let source_identifier = identifier_field(input, &["event_id", "hook_event_id"]).or_else(|| {
-        match normalized.as_str() {
-            "pretooluse" | "posttooluse" => identifier_field(input, &["tool_use_id"]),
-            "subagentstart" | "subagentstop" => identifier_field(input, &["agent_id"]),
-            "userpromptsubmit" | "precompact" | "postcompact" | "stop" => {
-                identifier_field(input, &["turn_id", "prompt_id"])
-            }
-            _ => None,
-        }
-    });
+    let source_identifier = source_identifier(event, input);
     let fallback = serde_json::to_vec(input).unwrap_or_default();
     let material = match source_identifier {
         Some(identifier) => format!("{normalized}\0{session_id}\0{identifier}").into_bytes(),
@@ -376,6 +565,18 @@ fn stable_event_id(event: &str, session_id: &str, input: &Map<String, Value>) ->
         }
     };
     format!("hook-{}", sha256_hex(&material))
+}
+
+fn source_identifier(event: &str, input: &Map<String, Value>) -> Option<String> {
+    let normalized = normalize_event_name(event);
+    identifier_field(input, &["event_id", "hook_event_id"]).or_else(|| match normalized.as_str() {
+        "pretooluse" | "posttooluse" => identifier_field(input, &["tool_use_id"]),
+        "subagentstart" | "subagentstop" => identifier_field(input, &["agent_id"]),
+        "userpromptsubmit" | "precompact" | "postcompact" | "stop" => {
+            identifier_field(input, &["turn_id", "prompt_id"])
+        }
+        _ => None,
+    })
 }
 
 fn native_timestamp(input: &Map<String, Value>) -> Option<String> {

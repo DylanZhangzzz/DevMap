@@ -1,4 +1,6 @@
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use time::OffsetDateTime;
 
 use crate::error::DevMapError;
 use crate::events::{
@@ -11,14 +13,16 @@ pub const MAX_CAPTURE_STRING_BYTES: usize = 16 * 1024;
 pub const MAX_CAPTURE_LIST_ITEMS: usize = 64;
 const MAX_CAPTURE_LIST_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequirementTraceInput {
     pub source_kind: String,
     pub source_locator: Option<String>,
     pub quoted_text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentDecisionInput {
     pub decision: String,
     pub basis: Vec<String>,
@@ -29,7 +33,8 @@ pub struct AgentDecisionInput {
     pub revisit_trigger: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvidenceInput {
     pub kind: String,
     pub target: String,
@@ -44,6 +49,7 @@ pub struct CaptureKernel {
     host: HostIdentity,
     actor: ActorIdentity,
     context: SessionContext,
+    received_at: Option<OffsetDateTime>,
 }
 
 impl CaptureKernel {
@@ -66,7 +72,15 @@ impl CaptureKernel {
             host,
             actor,
             context,
+            received_at: None,
         })
+    }
+
+    /// Freeze acceptance time before dispatch; opts into atomic presence projection.
+    /// Existing direct callers keep their original journal/presence behavior.
+    pub fn with_received_at(mut self, received_at: OffsetDateTime) -> Self {
+        self.received_at = Some(received_at);
+        self
     }
 
     pub fn record_requirement(
@@ -213,7 +227,7 @@ impl CaptureKernel {
         occurred_at: &str,
         payload: serde_json::Value,
     ) -> Result<JournalRecord, DevMapError> {
-        let mut records = self.journal.append_batch_with(|sequence| {
+        let build = |sequence| {
             let event_id = event_id.map(str::to_owned).unwrap_or_else(|| {
                 format!(
                     "mcp-{default_event_kind}-{}-{sequence}",
@@ -231,7 +245,11 @@ impl CaptureKernel {
                 self.context.clone(),
                 payload,
             )?])
-        })?;
+        };
+        let mut records = match self.received_at {
+            Some(received_at) => self.journal.append_capture_batch_with(received_at, build)?,
+            None => self.journal.append_batch_with(build)?,
+        };
         Ok(records.remove(0))
     }
 }

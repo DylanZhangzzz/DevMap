@@ -17,6 +17,7 @@ pub mod git_topology;
 pub mod hook;
 pub mod journal;
 pub mod mcp;
+pub mod mutation;
 pub mod presence;
 pub mod route_plan;
 pub mod runtime;
