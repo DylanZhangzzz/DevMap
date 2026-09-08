@@ -62,11 +62,11 @@ Files: src/journal.rs, src/presence.rs, src/capture.rs/hook.rs/mcp.rs at accepta
 
 Keeps JournalStore::open/append/append_batch_with/replay/session_id, CaptureKernel constructors, PresenceStore APIs and JournalSummary. Store wrappers retain workspace/session identity instead of creating legacy directories when SQL active. Accept each journal batch once; preserve event hash chain and sequence. SQL summaries do not repair state. Imported explicit presence is durable enough to preserve waiting states not derivable from event history.
 
-- [ ] Write RED tests for generated sequence, hash chain, retry with changed occurred_at, changed payload rejection, partially repeated batch rejection and restart summary.
-- [ ] Implement SQL append/replay with existing validation/hash helpers; read session registrations across common/linked worktrees, detect duplicate session origins rather than choose one.
-- [ ] Add acceptance/projection transaction seam so duplicate records do not increment gap counts or renew leases. Preserve explicit host signals and record their accepted projection state. Document this specific duplicate-projection bug correction separately from equivalence checks.
-- [ ] Test crash/rollback boundaries, tampered records, session mismatch, retired worktree identity, missing/corrupt summaries and leases at fixed time.
-- [ ] Run journal_flow, final_review_journal, presence_store, final_review_capture and new focused suites; review then commit.
+- [x] Write RED tests for generated sequence, hash chain, retry with changed occurred_at, changed payload rejection, partially repeated batch rejection and restart summary.
+- [x] Implement SQL append/replay with existing validation/hash helpers; read session registrations across common/linked worktrees, detect duplicate session origins rather than choose one.
+- [x] Add acceptance/projection transaction seam so duplicate records do not increment gap counts or renew leases. Preserve explicit host signals and record their accepted projection state. Document this specific duplicate-projection bug correction separately from equivalence checks.
+- [x] Test crash/rollback boundaries, tampered records, session mismatch, retired worktree identity, missing/corrupt summaries and leases at fixed time.
+- [x] Run journal_flow, final_review_journal, presence_store, final_review_capture and new focused suites; review then commit.
 
 ## Task 4: Frozen snapshot import, verification, activation and recovery
 

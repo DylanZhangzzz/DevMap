@@ -695,6 +695,215 @@ impl DockReadModel {
     }
 }
 
+type DockRoutePlans = (
+    Vec<crate::route_plan::RoutePlan>,
+    BTreeMap<String, (String, String)>,
+);
+
+/// Durable inputs already read from one validated storage snapshot.
+pub(crate) struct DockStorageInputs {
+    pub presence: PresenceLoadReport,
+    pub journals: BTreeMap<String, JournalSummary>,
+    pub routes: Result<DockRoutePlans, DevMapError>,
+    pub bindings: Result<Vec<crate::journal::TaskBindingObservation>, DevMapError>,
+}
+
+/// Git observations collected once before a migration write transaction.
+pub(crate) struct DockProjectionContext {
+    workspace: SourceWorkspace,
+    worktrees: Vec<WorktreeDescriptor>,
+    topology: TopologyGraph,
+    relationships: GitRelationshipReport,
+    targets: BTreeMap<String, bool>,
+}
+impl DockProjectionContext {
+    pub(crate) fn collect(
+        workspace: &SourceWorkspace,
+        plans: &[crate::route_plan::RoutePlan],
+    ) -> Result<Self, DevMapError> {
+        let worktrees = WorktreeScanner::scan(workspace)?;
+        let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
+        let relationships = GitRelationshipResolver::resolve(workspace, &worktrees)?;
+        let mut targets = BTreeMap::new();
+        for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
+            if !targets.contains_key(target) {
+                let exists = Command::new("git")
+                    .arg("-C")
+                    .arg(&workspace.root)
+                    .args(["show-ref", "--verify", "--quiet", target])
+                    .output()?
+                    .status
+                    .success();
+                targets.insert(target.clone(), exists);
+            }
+        }
+        Ok(Self {
+            workspace: workspace.clone(),
+            worktrees,
+            topology,
+            relationships,
+            targets,
+        })
+    }
+
+    /// Initial full dock/4 projection: no Git commands or storage access/writes.
+    /// Existing workspace-path normalization may read filesystem metadata.
+    pub(crate) fn project(
+        &self,
+        inputs: DockStorageInputs,
+        now: OffsetDateTime,
+        tasks: &[ObservedTask],
+        inventory_observed_at: Option<String>,
+        complete: bool,
+    ) -> Result<DockReadModel, DevMapError> {
+        let mut next = DockReducer::new(NoRoutes).reduce_with_inputs(
+            &self.workspace,
+            self.worktrees.clone(),
+            inputs.presence,
+            inputs.journals,
+            now,
+            tasks,
+            task_observation(tasks, inventory_observed_at.as_ref(), complete),
+            self.topology.clone(),
+            Some(self.relationships.clone()),
+        )?;
+        next.task_inventory_synced_at = inventory_observed_at;
+        apply_storage_inputs(&mut next, inputs.routes, inputs.bindings, |target| {
+            self.targets
+                .get(target)
+                .copied()
+                .ok_or(DevMapError::InvalidDomain("route target not collected"))
+        })?;
+        next = bound_model(next)?;
+        next.revision = 1;
+        next.observation_revision = 1;
+        Ok(next)
+    }
+}
+
+fn task_observation(
+    tasks: &[ObservedTask],
+    synced_at: Option<&String>,
+    complete: bool,
+) -> TaskObservation {
+    TaskObservation {
+        scope: "unarchived_chats",
+        // A fresh host inventory cannot freshen an older execution-location report.
+        observed_at: synced_at
+            .into_iter()
+            .chain(
+                tasks
+                    .iter()
+                    .filter_map(|task| task.working_directory.as_ref().map(|r| &r.observed_at)),
+            )
+            .min_by_key(|stamp| event_instant_from_text(stamp))
+            .cloned(),
+        complete,
+    }
+}
+
+fn apply_storage_inputs(
+    next: &mut DockReadModel,
+    routes: Result<DockRoutePlans, DevMapError>,
+    bindings: Result<Vec<crate::journal::TaskBindingObservation>, DevMapError>,
+    mut target_exists: impl FnMut(&str) -> Result<bool, DevMapError>,
+) -> Result<(), DevMapError> {
+    match routes {
+        Ok((plans, starts)) => {
+            for plan in &plans {
+                if let Some(facts) = next
+                    .workspace_facts
+                    .iter_mut()
+                    .find(|f| f.worktree_id == plan.worktree_id)
+                {
+                    let (event_at, source) =
+                        starts
+                            .get(&plan.route_id)
+                            .ok_or(DevMapError::InvalidDomain(
+                                "route creation evidence missing",
+                            ))?;
+                    facts.origin.plan_starts.push(OriginEvidence {
+                        kind: "plan_start",
+                        oid: Some(plan.start_commit.clone()),
+                        source: Some(source.clone()),
+                        event_at: Some(event_at.clone()),
+                        route_id: Some(plan.route_id.clone()),
+                    });
+                }
+            }
+            next.route_plans = plans;
+        }
+        Err(_) => next.warnings.push(DockWarning {
+            code: "route_plans_unavailable".into(),
+            subject_id: None,
+        }),
+    }
+    match bindings {
+        Ok(bindings) => {
+            for facts in &mut next.workspace_facts {
+                let matches = bindings
+                    .iter()
+                    .filter(|binding| {
+                        binding.worktree_id == facts.worktree_id
+                            || binding.from_worktree_id.as_deref() == Some(&facts.worktree_id)
+                    })
+                    .collect::<Vec<_>>();
+                facts.bindings_complete = matches.len() <= 32;
+                facts.bindings = matches.into_iter().rev().take(32).rev().cloned().collect();
+            }
+            if next
+                .workspace_facts
+                .iter()
+                .any(|facts| !facts.bindings_complete)
+            {
+                next.truncated = true;
+                next.warnings.push(DockWarning {
+                    code: "task_binding_history_truncated".into(),
+                    subject_id: None,
+                });
+            }
+        }
+        Err(_) => {
+            for facts in &mut next.workspace_facts {
+                facts.bindings_complete = false;
+            }
+            next.warnings.push(DockWarning {
+                code: "task_binding_history_unavailable".into(),
+                subject_id: None,
+            });
+        }
+    }
+    let mut target_cache = BTreeMap::new();
+    for plan in &next.route_plans {
+        if !next
+            .lanes
+            .iter()
+            .any(|lane| lane.worktree_id == plan.worktree_id)
+        {
+            next.warnings.push(DockWarning {
+                code: "planned_workspace_unavailable".into(),
+                subject_id: Some(plan.route_id.clone()),
+            });
+        }
+        if let Some(target) = &plan.target_ref {
+            let exists = if let Some(exists) = target_cache.get(target) {
+                *exists
+            } else {
+                let exists = target_exists(target)?;
+                target_cache.insert(target.clone(), exists);
+                exists
+            };
+            if !exists {
+                next.warnings.push(DockWarning {
+                    code: "planned_target_unavailable".into(),
+                    subject_id: Some(plan.route_id.clone()),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 pub struct DockService {
     workspace: SourceWorkspace,
     reducer: DockReducer<NoRoutes>,
@@ -829,24 +1038,11 @@ impl DockService {
             .map(|record| record.session_id.clone())
             .collect::<BTreeSet<_>>();
         let journals = summarize_existing_sessions(&self.workspace, &sessions);
-        let task_observation = TaskObservation {
-            scope: "unarchived_chats",
-            // The combined placement snapshot is only as fresh as its oldest
-            // location report. A new host inventory cannot freshen execution evidence.
-            // Keep the actual host inventory timestamp separately below.
-            observed_at: self
-                .task_inventory_synced_at
-                .as_ref()
-                .into_iter()
-                .chain(
-                    self.observed_tasks
-                        .iter()
-                        .filter_map(|task| task.working_directory.as_ref().map(|r| &r.observed_at)),
-                )
-                .min_by_key(|stamp| event_instant_from_text(stamp))
-                .cloned(),
-            complete: self.task_inventory_complete,
-        };
+        let task_observation = task_observation(
+            &self.observed_tasks,
+            self.task_inventory_synced_at.as_ref(),
+            self.task_inventory_complete,
+        );
         let mut next = self.reducer.reduce_with_inputs(
             &self.workspace,
             worktrees,
@@ -859,33 +1055,8 @@ impl DockService {
             None,
         )?;
         next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
-        match crate::route_plan::RoutePlanStore::open(&self.workspace)
-            .and_then(|store| store.list_with_starts())
-        {
-            Ok((plans, starts)) => {
-                for plan in &plans {
-                    if let Some(facts) = next
-                        .workspace_facts
-                        .iter_mut()
-                        .find(|f| f.worktree_id == plan.worktree_id)
-                    {
-                        let (event_at, source) = &starts[&plan.route_id];
-                        facts.origin.plan_starts.push(OriginEvidence {
-                            kind: "plan_start",
-                            oid: Some(plan.start_commit.clone()),
-                            source: Some(source.clone()),
-                            event_at: Some(event_at.clone()),
-                            route_id: Some(plan.route_id.clone()),
-                        });
-                    }
-                }
-                next.route_plans = plans;
-            }
-            Err(_) => next.warnings.push(DockWarning {
-                code: "route_plans_unavailable".into(),
-                subject_id: None,
-            }),
-        }
+        let route_result = crate::route_plan::RoutePlanStore::open(&self.workspace)
+            .and_then(|store| store.list_with_starts());
         let binding_result = if let Some(observed_at) = &self.task_inventory_synced_at {
             let associations = self
                 .observed_tasks
@@ -913,75 +1084,15 @@ impl DockService {
         } else {
             crate::journal::read_task_bindings(&self.workspace)
         };
-        match binding_result {
-            Ok(bindings) => {
-                for facts in &mut next.workspace_facts {
-                    let matches = bindings
-                        .iter()
-                        .filter(|binding| {
-                            binding.worktree_id == facts.worktree_id
-                                || binding.from_worktree_id.as_deref() == Some(&facts.worktree_id)
-                        })
-                        .collect::<Vec<_>>();
-                    facts.bindings_complete = matches.len() <= 32;
-                    facts.bindings = matches.into_iter().rev().take(32).rev().cloned().collect();
-                }
-                if next
-                    .workspace_facts
-                    .iter()
-                    .any(|facts| !facts.bindings_complete)
-                {
-                    next.truncated = true;
-                    next.warnings.push(DockWarning {
-                        code: "task_binding_history_truncated".into(),
-                        subject_id: None,
-                    });
-                }
-            }
-            Err(_) => {
-                for facts in &mut next.workspace_facts {
-                    facts.bindings_complete = false;
-                }
-                next.warnings.push(DockWarning {
-                    code: "task_binding_history_unavailable".into(),
-                    subject_id: None,
-                });
-            }
-        }
-        let mut target_cache = BTreeMap::new();
-        for plan in &next.route_plans {
-            if !next
-                .lanes
-                .iter()
-                .any(|lane| lane.worktree_id == plan.worktree_id)
-            {
-                next.warnings.push(DockWarning {
-                    code: "planned_workspace_unavailable".into(),
-                    subject_id: Some(plan.route_id.clone()),
-                });
-            }
-            if let Some(target) = &plan.target_ref {
-                let exists = if let Some(exists) = target_cache.get(target) {
-                    *exists
-                } else {
-                    let exists = std::process::Command::new("git")
-                        .arg("-C")
-                        .arg(&self.workspace.root)
-                        .args(["show-ref", "--verify", "--quiet", target])
-                        .output()?
-                        .status
-                        .success();
-                    target_cache.insert(target.clone(), exists);
-                    exists
-                };
-                if !exists {
-                    next.warnings.push(DockWarning {
-                        code: "planned_target_unavailable".into(),
-                        subject_id: Some(plan.route_id.clone()),
-                    });
-                }
-            }
-        }
+        apply_storage_inputs(&mut next, route_result, binding_result, |target| {
+            Ok(Command::new("git")
+                .arg("-C")
+                .arg(&self.workspace.root)
+                .args(["show-ref", "--verify", "--quiet", target])
+                .output()?
+                .status
+                .success())
+        })?;
         if let Some(previous) = &self.snapshot {
             for lane in &next.lanes {
                 let Some(old) = previous
@@ -1934,5 +2045,96 @@ mod budget_tests {
                 .any(|boundary| boundary.oid == head && boundary.reason == "history_limit")
         );
         assert!(canonical_json(&bounded).unwrap().len() <= MAX_DOCK_MODEL_BYTES);
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+    #[test]
+    fn explicit_inputs_match_full_service_and_do_not_read_storage() {
+        let repo = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.name", "Fixture"],
+            vec!["config", "user.email", "fixture@example.invalid"],
+            vec!["commit", "--allow-empty", "-m", "Base"],
+        ] {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(repo.path())
+                    .args(args)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
+        }
+        let workspace = SourceGitInspector::open(repo.path())
+            .unwrap()
+            .workspace()
+            .unwrap();
+        let store = crate::route_plan::RoutePlanStore::open(&workspace).unwrap();
+        store
+            .set(crate::route_plan::PlanInput {
+                delivery: Default::default(),
+                request_id: "projection".into(),
+                route_id: None,
+                expected_revision: 0,
+                worktree_id: WorktreeScanner::scan(&workspace).unwrap()[0]
+                    .worktree_id
+                    .clone(),
+                goal: "Projection parity".into(),
+                target_ref: Some("refs/heads/missing".into()),
+                milestones: vec![],
+                source: "fixture".into(),
+                abandoned: false,
+            })
+            .unwrap();
+        let (plans, starts) = store.list_with_starts().unwrap();
+        let context = DockProjectionContext::collect(&workspace, &plans).unwrap();
+        let expected = DockService::open(repo.path()).unwrap().snapshot().clone();
+        let now = OffsetDateTime::parse(&expected.generated_at, &Rfc3339).unwrap();
+        // Projection must use the captured target/Git view, not reread newer refs.
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(["branch", "missing"])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let legacy = workspace.git_common_dir.join("devmap/route-plans.jsonl");
+        std::fs::write(&legacy, b"unreadable live source").unwrap();
+        let actual = context
+            .project(
+                DockStorageInputs {
+                    presence: PresenceLoadReport {
+                        records: vec![],
+                        warnings: vec![],
+                        truncated: false,
+                    },
+                    journals: BTreeMap::new(),
+                    routes: Ok((plans, starts)),
+                    bindings: Ok(vec![]),
+                },
+                now,
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert!(
+            actual
+                .warnings
+                .iter()
+                .any(|w| w.code == "planned_target_unavailable")
+        );
+        assert_eq!(std::fs::read(legacy).unwrap(), b"unreadable live source");
+        assert!(!workspace.git_common_dir.join("devmap/devmap.db").exists());
     }
 }
