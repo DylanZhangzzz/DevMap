@@ -48,7 +48,29 @@ for(let i=0;i<2;i++) {
 const snapshot=tool(repo,'devmap_read_map',{codex_tasks:inventory,codex_tasks_complete:true});
 assert.equal(snapshot.route_plans[0].revision,2);
 assert.equal(fs.existsSync(path.join(repo,'.git/devmap/devmap.db')),false);
-const manifest={scope:'legacy_native_process_fixture',baseline_sha256:hash,fixture_root:fixtureRoot,source:repo,linked_source:linked,inventory,created_at:new Date().toISOString(),note:'Disposable legacy fixture generated through frozen MCP process. Host integration and migrated parity remain separate gates.'};
+const frozenSources=[];
+for(const [index,source] of [repo,linked].entries()) {
+  const original=path.join(git(source,'rev-parse','--absolute-git-dir'),'devmap');
+  const destination=path.join(fixtureRoot,'frozen',String(index));
+  const files=[];
+  function copy(directory,relative='') {
+    for(const name of fs.readdirSync(directory).sort()) {
+      const from=path.join(directory,name), rel=path.join(relative,name);
+      const meta=fs.lstatSync(from);
+      assert.equal(meta.isSymbolicLink(),false,'Unexpected fixture symlink');
+      if(meta.isDirectory()) copy(from,rel);
+      else {
+        assert.ok(meta.isFile());
+        const bytes=fs.readFileSync(from), to=path.join(destination,rel);
+        fs.mkdirSync(path.dirname(to),{recursive:true});fs.writeFileSync(to,bytes,{flag:'wx'});
+        files.push({relative:rel,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')});
+      }
+    }
+  }
+  copy(original);
+  frozenSources.push({original,destination,files});
+}
+const manifest={scope:'legacy_native_process_fixture',baseline_sha256:hash,fixture_root:fixtureRoot,source:repo,linked_source:linked,inventory,frozen_sources:frozenSources,created_at:new Date().toISOString(),note:'Disposable legacy fixture generated through frozen MCP process. Host integration and migrated parity remain separate gates.'};
 fs.writeFileSync(path.join(fixtureRoot,'manifest.json'),JSON.stringify(manifest,null,2));
 fs.writeFileSync(path.join(fixtureRoot,'baseline-snapshot.json'),JSON.stringify(snapshot,null,2));
 fs.writeFileSync(path.join(fixtureRoot,'exchanges.json'),JSON.stringify(exchanges,null,2));

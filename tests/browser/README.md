@@ -29,7 +29,8 @@ acceptance checks; the fixture pass does not establish them.
 creates a separate repository and linked worktree under `target/verification`.
 It verifies the baseline executable hash and uses real MCP processes to write
 route revisions, bindings and events in the old format. It saves the complete
-request/response exchanges, inventory, snapshot and source locations. The
+request/response exchanges, inventory, snapshot and source locations, plus
+frozen copies of both legacy storage roots with per-file hashes. The
 script never runs the binary against the working repository. These disposable
 sources are available for the later migration test; generating them alone is
 not a migration pass.
