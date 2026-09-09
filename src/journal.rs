@@ -506,7 +506,7 @@ fn update_sql_bindings(
                 continue;
             }
         }
-        let destination = origin_links::register_origin(tx, admission.current_origin(worktree)?)?;
+        let destination = origin_links::register_origin(tx, &admission.current_origin(worktree)?)?;
         let previous = snapshot
             .records
             .iter()
@@ -1815,26 +1815,10 @@ impl JournalStore {
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
-        use rusqlite::OptionalExtension;
         let current_origin = admission.sql_origin();
         self.validate_sql_origin_at(tx, &current_origin)?;
-        // Registry identity is authoritative even before this session is registered.
-        // Validate it under the acceptance transaction before invoking the builder.
-        let registry: Option<(String, String, Option<String>)> = tx.query_row(
-            "SELECT git_dir,workspace_path,retired_at FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
-            rusqlite::params![current_origin.0, current_origin.1],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ).optional()?;
-        if let Some((git_dir, workspace_path, retired_at)) = registry {
-            if git_dir != current_origin.2
-                || workspace_path != self.workspace.root.to_string_lossy()
-            {
-                return Err(corruption("worktree registry origin mismatch"));
-            }
-            if retired_at.is_some() {
-                return Err(corruption("retired worktree incarnation cannot append"));
-            }
-        }
+        // Validate immutable registration using the admission's reciprocal proof.
+        admission.validate_registry(tx)?;
         let existing = sql_records(tx, &self.session_id)?;
         let events = build(existing.len() as u64 + 1)?;
         if events.is_empty() {

@@ -180,7 +180,7 @@ fn optional(
 }
 pub(crate) fn register_origin(
     c: &Connection,
-    origin: &FrozenOrigin,
+    origin: &super::migration::VerifiedCurrentOrigin,
 ) -> Result<OriginLink, DevMapError> {
     let link = OriginLink {
         worktree_id: origin.worktree_id.clone(),
@@ -197,7 +197,7 @@ pub(crate) fn register_origin(
     )?;
     if exists != 0 {
         let (saved, retired) = registered_origin(c, &origin.worktree_id, &origin.incarnation)?;
-        if saved != *origin || retired.is_some() {
+        if !origin.matches(&saved) || retired.is_some() {
             return Err(fail("origin registry mismatch or retired incarnation"));
         }
     } else {

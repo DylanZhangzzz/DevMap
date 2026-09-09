@@ -158,7 +158,7 @@ impl RoutePlanStore {
                     } else {
                         crate::store::origin_links::register_origin(
                             tx,
-                            admission.current_origin(&record.plan.worktree_id)?,
+                            &admission.current_origin(&record.plan.worktree_id)?,
                         )?
                     };
                     let size = records.iter().chain(std::iter::once(&record)).try_fold(

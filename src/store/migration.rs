@@ -28,7 +28,8 @@ mod origin_observation;
 #[path = "startup.rs"]
 mod startup;
 pub(crate) use origin_observation::{
-    ActiveOriginReport, observe_active_journal_origins, observe_active_read_origins,
+    ActiveOriginReport, VerifiedCurrentOrigin, application_anchor, observe_active_journal_origins,
+    observe_active_read_origins,
 };
 pub(crate) use startup::prepare_first_journal_write;
 pub(crate) use startup::prepare_first_origin_write;

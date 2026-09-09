@@ -39,6 +39,9 @@ fn git(path: &Path, args: &[&str]) -> String {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_moving_anchor(false)
+    }
+    fn with_moving_anchor(moving: bool) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let exe = temp.path().join(if cfg!(windows) {
             "devmap.exe"
@@ -62,9 +65,27 @@ impl Fixture {
                 "initial",
             ],
         );
+        let source = if moving {
+            let linked = temp.path().join("linked");
+            git(
+                &repo,
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    "moving-owner",
+                    linked.to_str().unwrap(),
+                ],
+            );
+            seed_move_history(&repo, &linked, &temp.path().join("backup"));
+            linked
+        } else {
+            repo.clone()
+        };
         let owner = Command::new(&exe)
             .args(["runtime", "--owner", "--source"])
-            .arg(&repo)
+            .arg(&source)
+            .current_dir(temp.path())
             .args([
                 "--instance",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -106,6 +127,9 @@ type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
 #[cfg(unix)]
 type Stream = tokio::net::UnixStream;
 async fn connect(f: &Fixture, w: &Welcome) -> Stream {
+    connect_source(f, w, &f.repo).await
+}
+async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut s = loop {
         #[cfg(windows)]
@@ -138,8 +162,8 @@ async fn connect(f: &Fixture, w: &Welcome) -> Stream {
             protocol: VERSION,
             repository: w.repository.clone(),
             build: format!("{:x}", Sha256::digest(fs::read(&f.exe).unwrap())),
-            source: fs::canonicalize(&f.repo).unwrap(),
-            git_dir: fs::canonicalize(git(&f.repo, &["rev-parse", "--absolute-git-dir"])).unwrap(),
+            source: fs::canonicalize(source).unwrap(),
+            git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
             client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
         },
     )
@@ -295,4 +319,304 @@ fn oversized_begin_is_rejected_before_upload_or_domain_write() {
         assert!(tokio::time::timeout(Duration::from_secs(5),s.read_u32()).await.unwrap().is_err());
     });
     assert!(!f.repo.join(".git/devmap").exists());
+}
+
+use devmap::{
+    events::{
+        ActorIdentity, EVENT_SCHEMA_VERSION, EventEnvelope, EventType, HostIdentity, SessionContext,
+    },
+    git::{SourceGitInspector, SourceWorkspace},
+    journal::JournalStore,
+    presence::{PresenceSignal, PresenceStore},
+    store::migration,
+};
+use std::collections::BTreeMap;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+fn workspace(path: &Path) -> SourceWorkspace {
+    SourceGitInspector::open(path).unwrap().workspace().unwrap()
+}
+fn capture(w: &SourceWorkspace, session: &str) {
+    let now = OffsetDateTime::now_utc();
+    let record = JournalStore::open(w, session)
+        .unwrap()
+        .append(
+            EventEnvelope::new(
+                EVENT_SCHEMA_VERSION,
+                format!("{session}-event"),
+                EventType::SessionStarted,
+                1,
+                now.format(&Rfc3339).unwrap(),
+                HostIdentity::new("test", "1").unwrap(),
+                ActorIdentity::new("actor", None).unwrap(),
+                SessionContext::new(
+                    session,
+                    None,
+                    w.root.to_string_lossy(),
+                    Some(w.root.to_string_lossy().into_owned()),
+                    w.branch.clone(),
+                    Some(w.head.clone()),
+                )
+                .unwrap(),
+                serde_json::json!({"activity":"session_started"}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    PresenceStore::open(w)
+        .unwrap()
+        .observe(PresenceSignal::AcceptedRecords(&[record]), now)
+        .unwrap();
+}
+type SqlRows = BTreeMap<String, Vec<Vec<rusqlite::types::Value>>>;
+fn sql_rows(w: &SourceWorkspace) -> SqlRows {
+    let c = rusqlite::Connection::open_with_flags(
+        w.git_common_dir.join("devmap/devmap.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    c.execute_batch("BEGIN").unwrap();
+    let mut output = BTreeMap::new();
+    for table in [
+        "store_meta",
+        "worktree_registry",
+        "journal_sessions",
+        "journal_records",
+        "journal_heads",
+        "presence_records",
+        "presence_projection",
+        "route_records",
+        "binding_records",
+        "binding_watermarks",
+        "migration_sources",
+        "route_origin_links",
+        "binding_origin_links",
+        "binding_origin_cursors",
+    ] {
+        let mut statement = c
+            .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+            .unwrap();
+        let width = statement.column_count();
+        let rows = statement
+            .query_map([], |row| {
+                (0..width)
+                    .map(|index| row.get(index))
+                    .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        output.insert(table.into(), rows);
+    }
+    output
+}
+
+fn backup_tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+    fn visit(root: &Path, directory: &Path, output: &mut BTreeMap<PathBuf, Option<Vec<u8>>>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            assert!(!metadata.file_type().is_symlink());
+            let relative = path.strip_prefix(root).unwrap().to_path_buf();
+            if metadata.is_dir() {
+                output.insert(relative, None);
+                visit(root, &path, output);
+            } else {
+                output.insert(relative, Some(fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut output = BTreeMap::new();
+    visit(root, root, &mut output);
+    output
+}
+
+fn seed_move_history(main: &Path, linked: &Path, backup: &Path) {
+    let main = workspace(main);
+    let linked = workspace(linked);
+    capture(&linked, "moving-owner-session");
+    migration::freeze(&main, backup, OffsetDateTime::now_utc()).unwrap();
+    migration::import_shadow(&main, backup).unwrap();
+    migration::activate(&main, backup).unwrap();
+}
+
+fn owned_process_move(foreign: bool) {
+    let mut f = Fixture::with_moving_anchor(true);
+    let w = f.welcome();
+    let old_path = f._temp.path().join("linked");
+    let moved_path = f._temp.path().join("moved");
+    let old = workspace(&old_path);
+    let main = workspace(&f.repo);
+    let old_id = devmap::worktrees::WorktreeScanner::scan(&main)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.root == old.root)
+        .unwrap()
+        .worktree_id;
+    let backup = f._temp.path().join("backup");
+    let legacy_path = old
+        .git_dir
+        .join("devmap/sessions/moving-owner-session/events.ndjson");
+    let legacy = fs::read(&legacy_path).unwrap();
+    let sql = sql_rows(&main);
+    let frozen = backup_tree(&backup);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        // The first actual Query (not just owner --source) establishes A as app anchor.
+        let mut stale = connect_source(&f, &w, &old_path).await;
+        let warm = call(
+            &mut stale,
+            &w,
+            1,
+            json!({"operation":"Query","query":empty_query()}),
+        )
+        .await;
+        assert_eq!(warm["result"], "Snapshot", "{warm}");
+        assert_eq!(warm["snapshot"]["model"]["current_worktree_id"], old_id);
+        assert_eq!(sql_rows(&main), sql);
+        git(
+            &f.repo,
+            &[
+                "worktree",
+                "move",
+                old_path.to_str().unwrap(),
+                moved_path.to_str().unwrap(),
+            ],
+        );
+        if foreign {
+            fs::create_dir(&old_path).unwrap();
+            git(&old_path, &["init", "--quiet"]);
+            git(
+                &old_path,
+                &[
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "foreign",
+                ],
+            );
+        } else {
+            git(
+                &f.repo,
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    "owner-occupant",
+                    old_path.to_str().unwrap(),
+                ],
+            );
+        }
+        let moved = workspace(&moved_path);
+        assert_eq!(moved.git_dir, old.git_dir);
+        assert_eq!(moved.head, old.head);
+        assert_eq!(moved.branch, old.branch);
+        let occupant = workspace(&old_path);
+        assert_ne!(occupant.git_dir, old.git_dir);
+        let foreign_bytes = foreign.then(|| backup_tree(&occupant.git_dir));
+        // Direct connection to the original endpoint cannot auto-start a new owner.
+        let mut fresh = connect_source(&f, &w, &moved_path).await;
+        let result = call(
+            &mut fresh,
+            &w,
+            1,
+            json!({"operation":"Query","query":empty_query()}),
+        )
+        .await;
+        assert_eq!(sql_rows(&main), sql);
+        assert_eq!(backup_tree(&backup), frozen);
+        assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
+        assert_eq!(result["result"], "Snapshot", "{result}");
+        assert_eq!(
+            result["snapshot"]["store_generation"],
+            warm["snapshot"]["store_generation"]
+        );
+        assert!(
+            result["snapshot"]["git_cycle"].as_u64().unwrap()
+                > warm["snapshot"]["git_cycle"].as_u64().unwrap()
+        );
+        let model = &result["snapshot"]["model"];
+        assert_eq!(model["current_worktree_id"], old_id);
+        let lane = model["lanes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["worktree_id"] == old_id)
+            .unwrap();
+        assert_eq!(
+            lane["workspace_path"],
+            moved.root.to_string_lossy().as_ref()
+        );
+        assert!(
+            lane["chats"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["session_id"] == "moving-owner-session")
+        );
+        for lane in model["lanes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["worktree_id"] != old_id)
+        {
+            assert!(
+                !lane["chats"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["session_id"] == "moving-owner-session")
+            );
+        }
+        // This stream retains A's original authenticated Hello; do not construct A2 identity.
+        let rejected = call(
+            &mut stale,
+            &w,
+            2,
+            json!({"operation":"Query","query":empty_query()}),
+        )
+        .await;
+        assert_eq!(rejected["result"], "Error", "{rejected}");
+        assert!(
+            rejected
+                .to_string()
+                .contains("authenticated source changed"),
+            "{rejected}"
+        );
+        let mut main_stream = connect_source(&f, &w, &f.repo).await;
+        let main_result = call(
+            &mut main_stream,
+            &w,
+            1,
+            json!({"operation":"Query","query":empty_query()}),
+        )
+        .await;
+        assert_eq!(main_result["result"], "Snapshot", "{main_result}");
+        assert_eq!(sql_rows(&main), sql);
+        assert_eq!(backup_tree(&backup), frozen);
+        assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
+        assert_eq!(workspace(&moved_path).head, moved.head);
+        assert_eq!(workspace(&moved_path).branch, moved.branch);
+        if let Some(bytes) = foreign_bytes {
+            assert_eq!(backup_tree(&occupant.git_dir), bytes);
+        }
+    });
+    drop(rt);
+    assert!(f.owner.as_mut().unwrap().try_wait().unwrap().is_none());
+    assert_eq!(f.owner.as_ref().unwrap().id(), w.owner_pid);
+    // Fixture Drop kills and waits only the exact retained Child.
+}
+#[test]
+fn same_owned_owner_serves_moved_source_after_same_repo_reoccupation() {
+    owned_process_move(false);
+}
+#[test]
+fn same_owned_owner_serves_moved_source_after_foreign_reoccupation() {
+    owned_process_move(true);
 }

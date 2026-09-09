@@ -211,17 +211,15 @@ fn qualify_origins(
                     "presence session registration corrupt".into(),
                 ));
             }
+            let (historical, _) = super::origin_links::registered_origin(c, &id, &incarnation)?;
             retired.is_none()
-                && origins.current.get(&id).is_some_and(|current| {
-                    current.incarnation == incarnation
-                        && current.git_dir.to_string_lossy() == origin
-                        && Some(current.workspace_path.to_string_lossy().as_ref())
-                            == root.as_deref()
-                })
+                && origins
+                    .current_origin(&id)
+                    .is_some_and(|current| current.matches(&historical))
         } else {
             // Imported presence without a journal remains supported, but cannot
             // acquire a known replacement's physical identity by path alone.
-            origins.current.contains_key(&record.worktree_id)
+            origins.current().contains_key(&record.worktree_id)
                 && !replaced.contains(&record.worktree_id)
         };
         if matched {
@@ -313,7 +311,7 @@ fn link_availability(
     let Some(incarnation) = &link.incarnation else {
         // Unknown identity may remain historical intent for a missing target;
         // it cannot become attached merely because that path ID is now live.
-        return Ok(if origins.current.contains_key(&link.worktree_id) {
+        return Ok(if origins.current().contains_key(&link.worktree_id) {
             LinkAvailability::Unavailable
         } else {
             LinkAvailability::Missing
@@ -327,14 +325,13 @@ fn link_availability(
         );
     }
     let (registered, retired) = &registry[&key];
-    let Some(current) = origins.current.get(&link.worktree_id) else {
+    let Some(current) = origins.current_origin(&link.worktree_id) else {
         return Ok(LinkAvailability::Missing);
     };
     if current.incarnation != *incarnation || retired.is_some() {
         return Ok(LinkAvailability::Unavailable);
     }
-    if registered.git_dir != current.git_dir || registered.workspace_path != current.workspace_path
-    {
+    if !current.matches(registered) {
         return Err(DevMapError::Store(
             "current origin registry paths mismatch".into(),
         ));

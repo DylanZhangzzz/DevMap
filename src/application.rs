@@ -173,6 +173,8 @@ pub struct ApplicationSnapshot {
 pub struct RepositoryApplication {
     workspace: SourceWorkspace,
     common_dir: PathBuf,
+    common_identity: crate::fs_security::FileIdentity,
+    anchor: crate::store::migration::VerifiedCurrentOrigin,
     storage: InputReader,
     git: Option<DockProjectionContext>,
     git_at: Option<OffsetDateTime>,
@@ -188,6 +190,10 @@ impl RepositoryApplication {
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
         Ok(Self {
             workspace: workspace.clone(),
+            anchor: crate::store::migration::application_anchor(workspace)?,
+            common_identity: crate::fs_security::checked_directory_identity(
+                &workspace.git_common_dir,
+            )?,
             common_dir: crate::fs_security::checked_canonical_directory(&workspace.git_common_dir)?,
             storage: InputReader::new(),
             git: None,
@@ -261,14 +267,50 @@ impl RepositoryApplication {
     ) -> Result<ApplicationSnapshot, DevMapError> {
         query.validate()?;
         let actual = self.validate_client(&ClientView::new(workspace.clone()))?;
-        // The owner may outlive the worktree that first opened it. A surviving
-        // authenticated client supplies a fresh source in the same repository.
-        // Only proven absence enables reanchoring; access/identity errors remain
-        // errors and never authorize reading a different repository.
-        if crate::fs_security::checked_metadata(&self.workspace.root)?.is_none() {
-            self.workspace = actual;
+        if crate::fs_security::checked_directory_identity(&self.common_dir)? != self.common_identity
+        {
+            return Err(DevMapError::InvalidDomain(
+                "application common identity changed",
+            ));
+        }
+        let location = self.anchor.application_location(&self.common_dir)?;
+        let replacement = match location {
+            Some(location) if location.workspace_path != self.anchor.workspace_path => {
+                // Never invoke Git at an unverified old-path occupant.
+                let relocated = crate::git::SourceGitInspector::open(&location.workspace_path)?
+                    .workspace_allow_unborn()?;
+                let checked = crate::store::migration::application_anchor(&relocated)?;
+                if checked != location
+                    || crate::fs_security::checked_canonical_directory(&relocated.git_common_dir)?
+                        != self.common_dir
+                {
+                    return Err(DevMapError::InvalidDomain(
+                        "application relocated anchor changed",
+                    ));
+                }
+                Some((relocated, checked))
+            }
+            Some(_) => None,
+            None => {
+                // Genuine disappearance retains the surviving-client fallback.
+                let anchor = crate::store::migration::application_anchor(&actual)?;
+                Some((actual, anchor))
+            }
+        };
+        if crate::fs_security::checked_directory_identity(&self.common_dir)? != self.common_identity
+        {
+            return Err(DevMapError::InvalidDomain(
+                "application common identity changed during relocation",
+            ));
+        }
+        if let Some((workspace, anchor)) = replacement {
+            self.workspace = workspace;
+            self.anchor = anchor;
             self.dirty = true;
+            self.storage.invalidate();
             self.ancestry.clear();
+            self.git = None;
+            self.collected = None;
         }
         let (generation, inputs) = self.storage.read(&self.workspace)?;
         let origin_fingerprint = self.storage.origin_fingerprint().map(str::to_owned);

@@ -20,17 +20,102 @@ pub(crate) struct OriginObservation {
     pub availability: Availability,
 }
 pub(crate) struct ActiveOriginReport {
-    pub current: BTreeMap<String, FrozenOrigin>,
+    current: BTreeMap<String, FrozenOrigin>,
     pub unavailable: Vec<OriginObservation>,
     pub fingerprint: String,
 }
+/// Constructed only from reciprocally verified current origins. The saved root
+/// pathname is historical; relocation requires the complete physical identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VerifiedCurrentOrigin(FrozenOrigin);
+impl std::ops::Deref for VerifiedCurrentOrigin {
+    type Target = FrozenOrigin;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl VerifiedCurrentOrigin {
+    pub(crate) fn matches(&self, historical: &FrozenOrigin) -> bool {
+        self.worktree_id == historical.worktree_id
+            && self.git_dir == historical.git_dir
+            && self.incarnation == historical.incarnation
+    }
+}
 impl ActiveOriginReport {
+    pub(crate) fn current(&self) -> &BTreeMap<String, FrozenOrigin> {
+        &self.current
+    }
+    pub(crate) fn current_origin(&self, id: &str) -> Option<VerifiedCurrentOrigin> {
+        self.current.get(id).cloned().map(VerifiedCurrentOrigin)
+    }
     pub(crate) fn replaced_worktrees(&self) -> BTreeSet<String> {
         self.unavailable
             .iter()
             .filter(|observation| observation.availability == Availability::Replaced)
             .map(|observation| observation.origin.worktree_id.clone())
             .collect()
+    }
+}
+
+/// Establish an application anchor without accepting caller-supplied identity.
+pub(crate) fn application_anchor(
+    w: &SourceWorkspace,
+) -> Result<VerifiedCurrentOrigin, DevMapError> {
+    let mut current = w.clone();
+    current.root = safe::checked_canonical_directory(&w.root)?;
+    current.git_dir = safe::checked_canonical_directory(&w.git_dir)?;
+    let incarnation = journal::worktree_incarnation(&current)?;
+    validate_origin_links(&current)?;
+    if journal::worktree_incarnation(&current)? != incarnation {
+        return Err(fail("application anchor changed during verification"));
+    }
+    Ok(VerifiedCurrentOrigin(FrozenOrigin {
+        worktree_id: worktrees::origin_id(&worktrees::repository_id(w), &current.git_dir),
+        git_dir: current.git_dir,
+        workspace_path: current.root,
+        incarnation,
+    }))
+}
+impl VerifiedCurrentOrigin {
+    /// Resolve the retained admin's backlink before looking at an old pathname's
+    /// occupant. A returned location has already passed reciprocal verification.
+    pub(crate) fn application_location(&self, common: &Path) -> Result<Option<Self>, DevMapError> {
+        if !directory_present(&self.git_dir)? {
+            return if !directory_present(&self.workspace_path)? {
+                Ok(None)
+            } else {
+                Err(fail("application anchor administration disappeared"))
+            };
+        }
+        let admin_identity = safe::checked_directory_identity(&self.git_dir)?.stable_text();
+        if self.incarnation.split_once('|').map(|v| v.0) != Some(admin_identity.as_str()) {
+            return Err(fail("application anchor administration replaced"));
+        }
+        let root = if self.git_dir == common {
+            self.workspace_path.clone()
+        } else {
+            let backlink =
+                resolve_pointer(&self.git_dir, &pointer_text(&self.git_dir.join("gitdir"))?);
+            if backlink.file_name() != Some(std::ffi::OsStr::new(".git")) {
+                return Err(fail("application anchor backlink basename mismatch"));
+            }
+            backlink
+                .parent()
+                .ok_or_else(|| fail("application anchor backlink has no parent"))?
+                .to_owned()
+        };
+        let candidate = SourceWorkspace {
+            root,
+            git_dir: self.git_dir.clone(),
+            git_common_dir: common.to_owned(),
+            branch: None,
+            head: String::new(),
+        };
+        let verified = application_anchor(&candidate)?;
+        if !verified.matches(self) {
+            return Err(fail("application anchor physical identity changed"));
+        }
+        Ok(Some(verified))
     }
 }
 
@@ -231,7 +316,10 @@ fn observe_active_origins(
         let mut absent_admin = BTreeSet::new();
         let mut replaced_admin = BTreeSet::new();
         for old in &manifest.origins {
-            if before.contains(old) {
+            if before
+                .iter()
+                .any(|current| VerifiedCurrentOrigin(current.clone()).matches(old))
+            {
                 continue;
             }
             if old.git_dir == manifest.common_dir {

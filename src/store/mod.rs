@@ -450,7 +450,7 @@ pub(crate) fn active_existing(
 /// A journal-only capability bound to one current physical incarnation. It does
 /// not authorize route, binding, standalone presence, or migration operations.
 pub(crate) struct JournalAdmission {
-    origin: migration::FrozenOrigin,
+    origin: migration::VerifiedCurrentOrigin,
     session_id: String,
     fingerprint: String,
 }
@@ -472,12 +472,14 @@ impl JournalAdmission {
         let report = migration::observe_active_journal_origins(workspace, c)?;
         let root = fs_security::checked_canonical_directory(&workspace.root)?;
         let git = fs_security::checked_canonical_directory(&workspace.git_dir)?;
-        let origin = report
-            .current
+        let observed = report
+            .current()
             .values()
             .find(|origin| origin.git_dir == git)
-            .ok_or_else(|| err("journal target is not a verified current origin"))?
-            .clone();
+            .ok_or_else(|| err("journal target is not a verified current origin"))?;
+        let origin = report
+            .current_origin(&observed.worktree_id)
+            .ok_or_else(|| err("verified journal origin missing"))?;
         if fs_security::checked_canonical_directory(&origin.workspace_path)? != root {
             return Err(err("journal target workspace identity mismatch"));
         }
@@ -508,16 +510,15 @@ impl JournalAdmission {
                 ));
             }
         }
-        let registry: Option<(String, String, Option<String>)> = c.query_row(
-            "SELECT git_dir,workspace_path,retired_at FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
+        let registry: Option<i64> = c.query_row(
+            "SELECT 1 FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
             rusqlite::params![origin.worktree_id, origin.incarnation],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| r.get(0),
         ).optional()?;
-        if let Some((git, root, retired)) = registry {
-            if git != origin.git_dir.to_string_lossy()
-                || root != origin.workspace_path.to_string_lossy()
-                || retired.is_some()
-            {
+        if registry.is_some() {
+            let (saved, retired) =
+                origin_links::registered_origin(c, &origin.worktree_id, &origin.incarnation)?;
+            if !origin.matches(&saved) || retired.is_some() {
                 return Err(err(
                     "journal registry identity mismatch or retired incarnation",
                 ));
@@ -530,6 +531,27 @@ impl JournalAdmission {
             session_id: session_id.to_owned(),
             fingerprint: report.fingerprint,
         })
+    }
+
+    pub(crate) fn validate_registry(&self, c: &Connection) -> Result<(), DevMapError> {
+        let exists: i64 = c.query_row(
+            "SELECT count(*) FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
+            rusqlite::params![self.origin.worktree_id, self.origin.incarnation],
+            |r| r.get(0),
+        )?;
+        if exists != 0 {
+            let (saved, retired) = origin_links::registered_origin(
+                c,
+                &self.origin.worktree_id,
+                &self.origin.incarnation,
+            )?;
+            if !self.origin.matches(&saved) || retired.is_some() {
+                return Err(err(
+                    "journal registry identity mismatch or retired incarnation",
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn recheck(&self, workspace: &SourceWorkspace, c: &Connection) -> Result<(), DevMapError> {
@@ -599,7 +621,7 @@ impl OriginAdmission {
         let git = fs_security::checked_canonical_directory(&workspace.git_dir)?;
         let root = fs_security::checked_canonical_directory(&workspace.root)?;
         let actor = report
-            .current
+            .current()
             .values()
             .find(|origin| origin.git_dir == git)
             .ok_or_else(|| err("origin writer is not a current repository workspace"))?
@@ -614,10 +636,9 @@ impl OriginAdmission {
     pub(crate) fn current_origin(
         &self,
         worktree_id: &str,
-    ) -> Result<&migration::FrozenOrigin, DevMapError> {
+    ) -> Result<migration::VerifiedCurrentOrigin, DevMapError> {
         self.report
-            .current
-            .get(worktree_id)
+            .current_origin(worktree_id)
             .ok_or_else(|| err("target worktree is not currently verified"))
     }
     fn recheck(&self, workspace: &SourceWorkspace, c: &Connection) -> Result<(), DevMapError> {
