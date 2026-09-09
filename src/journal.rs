@@ -46,6 +46,115 @@ pub struct TaskBindingObservation {
 
 type BindingWatermarkMap = BTreeMap<(String, String), String>;
 
+type WorkingDirectoryReports = BTreeMap<(String, String), crate::dock::WorkingDirectoryObservation>;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredWorkingDirectories {
+    schema_version: String,
+    repository_id: String,
+    observations: Vec<(String, String, crate::dock::WorkingDirectoryObservation)>,
+}
+
+/// Persist location evidence independently of host inventories and host migrations.
+/// The existing stable repository lock serializes read/merge/replace across Viewers.
+pub(crate) fn merge_working_directory_reports(
+    workspace: &SourceWorkspace,
+    incoming: &[(String, String, crate::dock::WorkingDirectoryObservation)],
+) -> Result<WorkingDirectoryReports, DevMapError> {
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let Some(lock_path) = binding_path(workspace, !incoming.is_empty())? else {
+        return Ok(BTreeMap::new());
+    };
+    let lock = checked_file(&lock_path, !incoming.is_empty(), !incoming.is_empty())?;
+    if incoming.is_empty() {
+        FileExt::lock_shared(&lock)?;
+    } else {
+        FileExt::lock_exclusive(&lock)?;
+    }
+    let repository = crate::worktrees::repository_id(workspace);
+    let path = lock_path.with_file_name("working-directory-reports.json");
+    let temporary = path.with_extension("pending");
+    if checked_metadata(&temporary)?.is_some() {
+        return Err(corruption(
+            "pending working directory reports; reconciliation required",
+        ));
+    }
+    let mut reports = WorkingDirectoryReports::new();
+    if checked_metadata(&path)?.is_some() {
+        let file = checked_file(&path, false, false)?;
+        let mut bytes = Vec::new();
+        file.take(MAX_BINDING_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_BINDING_BYTES {
+            return Err(corruption("working directory report limit"));
+        }
+        let stored: StoredWorkingDirectories = serde_json::from_slice(&bytes)
+            .map_err(|_| corruption("invalid working directory reports"))?;
+        if stored.schema_version != "devmap/working-directory-reports/1"
+            || stored.repository_id != repository
+            || stored.observations.len() > MAX_BINDING_RECORDS
+        {
+            return Err(corruption("invalid working directory report identity"));
+        }
+        for (host, task, report) in stored.observations {
+            if host.is_empty()
+                || host.len() > 256
+                || task.is_empty()
+                || task.len() > 256
+                || report.source != "agent_report"
+                || !Path::new(&report.path).is_absolute()
+                || OffsetDateTime::parse(&report.observed_at, &Rfc3339).is_err()
+                || reports.insert((host, task), report).is_some()
+            {
+                return Err(corruption("invalid working directory report"));
+            }
+        }
+    }
+    let mut changed = false;
+    for (host, task, report) in incoming {
+        let at = OffsetDateTime::parse(&report.observed_at, &Rfc3339)
+            .map_err(|_| corruption("invalid working directory timestamp"))?;
+        let key = (host.clone(), task.clone());
+        if let Some(previous) = reports.get(&key) {
+            let previous_at = OffsetDateTime::parse(&previous.observed_at, &Rfc3339).unwrap();
+            if at < previous_at {
+                continue;
+            }
+            if at == previous_at {
+                if previous != report {
+                    return Err(corruption(
+                        "conflicting working directory reports at same timestamp",
+                    ));
+                }
+                continue;
+            }
+        }
+        reports.insert(key, report.clone());
+        changed = true;
+    }
+    if changed {
+        let bytes = serde_json::to_vec(&StoredWorkingDirectories {
+            schema_version: "devmap/working-directory-reports/1".into(),
+            repository_id: repository,
+            observations: reports
+                .iter()
+                .map(|((host, task), report)| (host.clone(), task.clone(), report.clone()))
+                .collect(),
+        })?;
+        if reports.len() > MAX_BINDING_RECORDS || bytes.len() as u64 > MAX_BINDING_BYTES {
+            return Err(corruption("working directory report limit"));
+        }
+        let mut file = checked_new_file(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        checked_metadata(&path)?;
+        fs::rename(&temporary, &path)?;
+        sync_directory(path.parent().expect("report directory"))?;
+    }
+    Ok(reports)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BindingWatermarks {

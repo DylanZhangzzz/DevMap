@@ -1,0 +1,2 @@
+Added plugin `devmap` from marketplace `personal`.
+Installed plugin root: C:\Users\user\.codex\plugins\cache\personal\devmap\0.1.1+codex.20260908172746

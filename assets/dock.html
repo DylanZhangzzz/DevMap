@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="en" data-density="map">
 <head>
+<!-- Bootstrap Icons 1.13.1: chat-left, arrow-up-right, chevron-down.
+The MIT License (MIT)
+
+Copyright (c) 2019-2024 The Bootstrap Authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+ -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DevMap · Rail View — Repository topology</title>
@@ -288,6 +311,39 @@
       .map-tools > summary {min-height:30px;padding-block:5px;}
       .zoom-controls button {min-width:30px;}
     }
+    .route-platform{padding:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;border-radius:10px;}
+    .route-platform .platform-directory{display:block;font-size:.875rem;font-weight:650;color:var(--text);margin-bottom:8px;}
+    .route-platform .platform-branch{font-size:.75rem;font-weight:400;color:var(--muted);}
+    .platform-chats{overflow:auto;flex:1;min-height:0;}
+    .platform-chat{position:relative!important;display:block;width:100%;min-height:88px;padding:12px 24px 12px 0;text-align:left;border:0;border-radius:6px;background:transparent;box-shadow:none;text-decoration:none;}
+    .platform-chat+.platform-chat{border-top:1px solid var(--line-soft);}
+    .platform-chat .task-heading{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:6px;}
+    .platform-chat .current-chat{grid-column:2;justify-self:start;}
+    .platform-chat[data-navigable="false"] .task-onward{display:inline;font-size:.6875rem;}
+    .platform-chat[data-navigable="false"] .task-title{color:var(--muted);}
+    .platform-chat .task-title{white-space:normal;overflow-wrap:anywhere;font-size:1.125rem;line-height:1.4;font-weight:700;color:var(--accent);}
+    .platform-chat .task-onward,.platform-chat .conversation-context,.platform-chat .conversation-audit,.platform-chat .agent-identity{display:none;}
+    .platform-chat .conversation-facts{display:block;font-size:.8125rem;margin:6px 0 0 28px;color:var(--muted);}
+    .platform-chat .conversation-facts> :not(.conversation-state){display:none;}
+    .platform-chat:hover .task-title{text-decoration:underline;}
+    .platform-chat:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+    .current-chat{font-size:.75rem;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:6px;}
+    .platform-details,.platform-more{display:flex;align-items:center;gap:8px;min-height:36px;padding:6px 0;text-align:left;border:0;background:transparent;color:var(--accent);font-size:.8125rem;}
+    .platform-details{border-top:1px solid var(--line-soft);margin-top:4px;color:var(--muted);}
+    .platform-empty{font-size:.8125rem;color:var(--muted);margin:12px 0;line-height:1.7;}
+    .route-platform .platform-meta{display:none;}
+    .route-platform .platform-current{position:static;align-self:flex-start;font-size:.6875rem;margin-top:-10px;}
+    .route-platform .platform-state{font-size:.75rem;}
+    .route-platform.current .platform-chats{background:var(--surface);border-radius:8px;padding-inline:8px;}
+    .chat-icon{width:20px;height:20px;flex:none;color:var(--text);}
+    .chat-arrow{position:absolute;right:0;top:16px;width:16px;height:16px;}
+    .disclosure-icon{width:12px;height:12px;flex:none;}
+    [aria-expanded="true"]>.disclosure-icon{transform:rotate(180deg);}
+    .platform-chat .conversation-state::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:7px;}
+    .platform-chat .conversation-state[data-observed-state="ACTIVE"]::before{background:var(--success);}
+    .map-frame{position:relative;}
+    .selection-details{position:absolute;z-index:12;inset:auto 12px auto auto;top:100px;width:min(460px,calc(100% - 24px));height:auto;max-height:min(440px,65dvh);min-height:0;flex:none;border:1px solid var(--line-soft);border-radius:10px;box-shadow:0 8px 28px #20293824;}
+    .selection-details[data-size="large"]{height:auto;max-height:75dvh;flex:none;}
   </style>
 </head>
 <body>
@@ -388,7 +444,7 @@
       let refreshingDetails = false;
       let journeyWorkspaceId = null, journeyFocused = false;
       const expandedWorkspaces = new Set(), expandedConversationHistory = new Set(), expandedFacts = new Set(), expandedHistory = new Set();
-      const expandedSubagents = new Set();
+      const expandedSubagents = new Set(), expandedPlatformChats = new Set();
       const byId = (id) => document.getElementById(id);
       const safeHash = (value) => typeof value === "string" && (/^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value));
       const safeCodexThreadId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -970,49 +1026,60 @@
         const s=states[Math.max(0,rows.findIndex(r=>r.lane.worktree_id===primaryId))];
         return {short:[s.working,s.publication==="Unpushed"?s.publication:s.integration].join(" · "),full:states.map((s,i)=>worktreeDisplayName(rows[i].lane.workspace_path)+": "+[s.working,s.integration,s.publication].join(" · ")).join("\n")};
       }
+      function chatScrolls(surface) {return new Map([...surface.querySelectorAll(".route-platform")].map(n=>[n.dataset.worktreeId,n.querySelector(".platform-chats")?.scrollTop||0]));}
+      function restoreChatScrolls(surface,scrolls) {for(const n of surface.querySelectorAll(".route-platform")){const list=n.querySelector(".platform-chats");if(list)list.scrollTop=scrolls.get(n.dataset.worktreeId)||0;}}
+      function platformChats(lane) {
+        const id=(window.location.hash||"").slice(12);
+        return uniqueTasks(lane).filter(c=>c.lifecycle==="present").sort((a,b)=>Number(b.codex_thread_id===id)-Number(a.codex_thread_id===id));
+      }
+      function platformHeight(lane) {
+        const n=platformChats(lane).length;
+        return 146+Math.max(1,expandedPlatformChats.has(lane.worktree_id)?Math.min(n,8):Math.min(n,2))*96+(n>2?40:0);
+      }
       function renderPlatforms(records,value,layout) {
-        const nodes=[], groups=new Map();
-        for(const record of records) {
-          const a=layout.attachments.find(a=>a.worktree_id===record.lane.worktree_id);
-          if(!a) continue;
-          const key=layout.nodes.some(n=>n.id===a.head_oid)?a.head_oid:a.worktree_id;
-          if(!groups.has(key)) groups.set(key,[]);
-          groups.get(key).push({...record,a});
-        }
-        for(const [key,rows] of groups) {
-          const current=rows.some(r=>r.lane.worktree_id===value.current_worktree_id), first=rows[0];
-          const stop=graphButton("route-platform"+(current?" current":""), "View workspace "+rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")+" · "+r.lane.worktree_id).join(", "),()=>{
-            toggleWorkspaceSummary(rows.some(r=>r.lane.worktree_id===inlineWorkspaceId)?inlineWorkspaceId:first.lane.worktree_id,rows.length>1);
-          });
-          stop.dataset.worktreeId=first.lane.worktree_id; stop.dataset.objectId="workspace:"+first.lane.worktree_id;
-          stop.dataset.headOid=first.a.head_oid;stop.dataset.workspaceCount=String(rows.length);
-          stop.title=rows.map(r=>r.lane.workspace_path+" · "+(r.lane.branch||"Detached HEAD")).join("\n");
-          position(stop,first.a);stop.style.width=first.a.width+"px";
-          const expanded=rows.some(r=>r.lane.worktree_id===inlineWorkspaceId), scale=layout.textScale||1;
-          stop.style.height=76*scale+"px";stop.setAttribute("aria-expanded",String(expanded));
-          if(expanded)stop.setAttribute("aria-controls","workspace-summary");
-          const named=(expanded&&!inlineGroup?rows.find(r=>r.lane.worktree_id===inlineWorkspaceId):null)||rows.find(r=>r.lane.worktree_id===value.current_worktree_id)||first;
-          const name=branchName(named.lane)+(rows.length>1?" +"+(rows.length-1):"");
-          stop.append(element("strong","",name));
-          stop.append(element("span","platform-directory",worktreeDisplayName(named.lane.workspace_path)));
-          const label=element("span","platform-meta");
-          const visibleRows=expanded&&!inlineGroup?[named]:rows;
-          const full=element("span"), count=populatePassengers(full,{chats:visibleRows.flatMap(r=>uniqueTasks(r.lane))},value);
-          label.title=full.textContent;
-          label.append(passengerIcon(),element("span","",passengerLabel(count,value)));
-          if(current&&(!expanded||inlineGroup||named.lane.worktree_id===value.current_worktree_id))stop.append(element("span","platform-current","Map source"));
-          stop.dataset.journeyMuted=String(journeyFocused&&!rows.some(r=>r.lane.worktree_id===journeyWorkspaceId));
-          if(!layout.nodes.some(n=>n.id===first.a.head_oid))label.textContent="Position unavailable";
-          if(rows.some(r=>workspaceAttention(r.lane,r.facts,value).level==="attention")) {label.append(warningIcon());stop.title+=" · Needs attention";}
-          const state=platformState(rows,named.lane.worktree_id), status=element("span","platform-state",state.short);status.title=state.full;
-          const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&visibleRows.some(r=>r.lane.worktree_id===p.worktree_id));
-          const retained=!current&&count.state==="unattended"&&!plans.length&&rows.every(r=>r.facts?.working_state==="clean"&&r.facts?.integration==="included"&&r.facts?.head_ref_coverage==="protected"&&workspaceAttention(r.lane,r.facts,value).level!=="attention");
-          stop.dataset.retained=String(retained);
-          stop.append(label,status);
-          if(plans.length)stop.append(element("span","platform-target","→ "+[...new Set(plans.map(p=>p.target_ref?.replace(/^refs\/heads\//,"")||"unspecified"))].join(", ")+" · planned"));
-          else if(retained)stop.append(element("span","platform-target","Retained workspace"));
-          stop.title+="\n"+state.full; nodes.push(stop);
-          if(expanded)nodes.push(workspaceSummary(rows,value,first.a,scale));
+        const nodes=[],scale=layout.textScale||1;
+        for(const {lane,facts} of records) {
+          const a=layout.attachments.find(a=>a.worktree_id===lane.worktree_id);if(!a)continue;
+          const current=lane.worktree_id===value.current_worktree_id,expanded=lane.worktree_id===inlineWorkspaceId;
+          const stop=element("section","route-platform"+(current?" current":""));stop.tabIndex=-1;
+          stop.setAttribute("aria-label","View workspace "+lane.workspace_path+" · "+branchName(lane)+" · "+lane.worktree_id);stop.setAttribute("data-no-pan","");
+          stop.dataset.worktreeId=lane.worktree_id;stop.dataset.objectId="workspace:"+lane.worktree_id;stop.dataset.headOid=a.head_oid;stop.dataset.workspaceCount="1";
+          stop.title=lane.workspace_path;position(stop,a);stop.style.width=a.width+"px";stop.style.height=platformHeight(lane)*scale+"px";
+          stop.setAttribute("aria-expanded",String(expanded));
+          const toggle=()=>toggleWorkspaceSummary(lane.worktree_id,false);
+          stop.addEventListener("click",event=>{if(!event||event.target===stop)toggle();});
+          stop.append(element("span","platform-directory",worktreeDisplayName(lane.workspace_path)));
+          if(current)stop.append(element("span","platform-current","Map source"));
+          const chats=platformChats(lane),limit=expandedPlatformChats.has(lane.worktree_id)?chats.length:2;
+          const list=element("div","platform-chats");list.tabIndex=0;list.dataset.objectId="platform-list:"+lane.worktree_id;list.setAttribute("aria-label","Chats in "+worktreeDisplayName(lane.workspace_path));
+          for(const chat of chats.slice(0,limit)) {
+            const task=createTask(chat,lane.worktree_id,value);task.classList.add("platform-chat");task.dataset.objectId="platform-task:"+taskId(chat);
+            const heading=task.querySelector(".task-heading");heading.querySelector(".passenger-icon")?.remove();
+            heading.replaceChildren(cardIcon("chat"),...heading.children);
+            if(directTaskUrl(chat))task.append(cardIcon("arrow"));
+            if(chat.codex_thread_id===(window.location.hash||"").slice(12))task.querySelector(".task-heading").append(element("span","current-chat","Current chat"));
+            list.append(task);
+          }
+          if(!chats.length)list.append(element("p","platform-empty",tasksConfirmed(value)?"No observed chats":"No chats in this observation · list unconfirmed"));
+          stop.append(list);
+          if(chats.length>2) {
+            const more=button("platform-more","Show more chats",()=>{
+              if(expandedPlatformChats.has(lane.worktree_id))expandedPlatformChats.delete(lane.worktree_id);else expandedPlatformChats.add(lane.worktree_id);
+              renderSnapshot(lastSnapshot,true);
+            });
+            more.dataset.objectId="platform-more:"+lane.worktree_id;more.setAttribute("aria-expanded",String(expandedPlatformChats.has(lane.worktree_id)));
+            more.textContent=expandedPlatformChats.has(lane.worktree_id)?"Show fewer chats":"Show "+(chats.length-2)+" more chats";more.append(cardIcon("disclosure"));stop.append(more);
+          }
+          const label=element("span","platform-meta"),count=populatePassengers(element("span"),lane,value);label.textContent=layout.nodes.some(n=>n.id===a.head_oid)?passengerLabel(count,value):"Position unavailable";
+          const state=platformState([{lane,facts}],lane.worktree_id),status=element("span","platform-state",state.short);status.title=state.full;
+          stop.append(element("strong","platform-branch",branchName(lane)),status,label);
+          const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&p.worktree_id===lane.worktree_id);
+          stop.dataset.retained=String(!current&&count.state==="unattended"&&!plans.length&&facts?.working_state==="clean"&&facts?.integration==="included"&&facts?.head_ref_coverage==="protected"&&workspaceAttention(lane,facts,value).level!=="attention");
+          stop.dataset.journeyMuted=String(journeyFocused&&lane.worktree_id!==journeyWorkspaceId);
+          if(plans.length)stop.append(element("span","platform-target","→ "+(plans[0].target_ref?.replace(/^refs\/heads\//,"")||"unspecified")+" · planned"));
+          const details=button("platform-details","Workspace details for "+lane.workspace_path,toggle);details.dataset.objectId="platform-details:"+lane.worktree_id;details.textContent=expanded?"Hide workspace details":"Workspace details";details.append(cardIcon("disclosure"));details.setAttribute("aria-expanded",String(expanded));stop.append(details);
+          nodes.push(stop);
+          if(expanded)nodes.push(workspaceSummary([{lane,facts}],value,{...a,y:a.y+(platformHeight(lane)-76)*scale},scale));
         }
         return nodes;
       }
@@ -1026,23 +1093,6 @@
         position(control,node);control.style.setProperty("--rail-color","var(--"+identity.token+")");
         if(node.transfer||node.kind==="boundary") control.append(element("span","junction-label",(node.transfer==="fork"?"History splits":node.transfer==="merge"?"Merge commit":"Boundary")+" · "+node.id.slice(0,7)));
         return control;
-      }
-      function showWorkspaceChoices(oid, rows) {
-        const panel = byId("selection-details");
-        if (!refreshingDetails) setWorkspaceChooser(false);
-        showDetails(rows.length + " workspaces at the same commit", []);
-        panel.dataset.workspaceGroup = oid;
-        const close = panel.querySelector(".dismiss-details");
-        panel.append(element("p", "overview-help", "Choose a workspace to see its tasks and changes."));
-        for (const row of rows) {
-          const choice = button("workspace-choice", "View workspace " + row.lane.workspace_path, () => zoomWorkspace(row.lane.worktree_id));
-          choice.dataset.worktreeId = row.lane.worktree_id;
-          choice.append(element("strong", "worktree-name", branchName(row.lane)), element("span", "branch-meta", row.lane.workspace_path), element("span", "branch-meta", "HEAD · " + row.lane.head.slice(0,8)), element("span", "branch-meta", row.count));
-          if (row.current) choice.append(element("span", "current-pill", "Map source"));
-          if (row.risk) choice.append(element("span", "workspace-risk", row.risk));
-          panel.append(choice);
-        }
-        if (!refreshingDetails) close.focus({ preventScroll: true });
       }
       function openFullWorkspace(id) {
         const lane=lastSnapshot && workspaceRecords(lastSnapshot).find(r=>r.lane.worktree_id===id)?.lane;
@@ -1074,17 +1124,11 @@
         panel.setAttribute("aria-label",inlineGroup?"Choose workspace at this commit":"Workspace summary");panel.setAttribute("data-no-pan","");
         position(panel,{x:rect.x,y:rect.y+76*scale});panel.style.width=rect.width+"px";panel.style.height=320*scale+"px";
         panel.addEventListener("keydown",event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();collapseWorkspaceSummary();}});
-        if(inlineGroup&&rows.length>1) {
-          panel.append(element("p","",rows.length+" workspaces at this commit · choose one"));
-          for(const {lane} of rows) {
-            const choice=button("workspace-choice","View workspace "+lane.workspace_path,()=>toggleWorkspaceSummary(lane.worktree_id,false,false));
-            choice.dataset.worktreeId=lane.worktree_id;choice.dataset.objectId="summary-choice:"+lane.worktree_id;
-            choice.append(element("strong","",branchName(lane)),element("span","branch-meta",lane.workspace_path));panel.append(choice);
-          }
-          return panel;
-        }
         const row=rows.find(r=>r.lane.worktree_id===inlineWorkspaceId)||rows[0],lane=row.lane;
         panel.append(element("p","",lane.workspace_path));
+        const facts=element("dl","detail-grid");
+        for(const [key,text] of [["Branch",lane.branch||"Detached HEAD"],["HEAD",lane.head],["Working tree",row.facts?.working_state||"Unknown"],["Integration",platformState(rows,lane.worktree_id).full]])facts.append(element("dt","",key),element("dd","",text));
+        panel.append(facts);
         const full=button("summary-details","View full workspace details",()=>openFullWorkspace(lane.worktree_id));full.dataset.objectId="summary-details:"+lane.worktree_id;full.textContent="View full details →";panel.append(full);
         const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&p.worktree_id===lane.worktree_id);
         for(const plan of plans){const action=button("summary-destination","Inspect planned destination",()=>showRoutePlan(plan));action.dataset.objectId="summary-plan:"+plan.route_id;action.textContent="Planned → "+(plan.target_ref?.replace(/^refs\/heads\//,"")||"Destination not specified");panel.append(action);}
@@ -1168,6 +1212,8 @@
       }
       function renderSnapshot(value, preserveSelectionAnchor=false) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        const previousOrientation=surface.metroLayout?.orientation;
+        const savedChatScrolls=chatScrolls(surface);
         const previousSummary=surface.querySelector(".workspace-summary"),summaryScroll=previousSummary?.dataset.objectId==="summary:"+inlineWorkspaceId?previousSummary.scrollTop:0;
         const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
         const focusedHistory=surface.metroLayout?.historyRanges?.find(r=>focusedId===r.id||focusedId===r.id+":marker");
@@ -1175,13 +1221,13 @@
         const anchorObjectId=preserveSelectionAnchor&&!selectedRect(surface.metroLayout,selectedObjectId)?"workspace:"+(selectedWorkspaceId||value.route_plans?.find(p=>"plan:"+p.route_id===selectedObjectId)?.worktree_id||journeyWorkspaceId):selectedObjectId;
         const oldRect=selectedRect(surface.metroLayout,anchorObjectId);
         const offset=oldRect?{x:16+oldRect.x*mapScale-savedViewport.left,y:16+oldRect.y*mapScale-savedViewport.top}:null;
-        if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=value.current_worktree_id;journeyFocused=false;expandedHistory.clear();}
+        if(!lastSnapshot||lastSnapshot.repository_id!==value.repository_id) {journeyWorkspaceId=currentAgentLane(value)?.worktree_id||value.current_worktree_id;journeyFocused=false;expandedHistory.clear();}
         const dimensions=records.map(({lane,facts})=>({worktree_id:lane.worktree_id,head_oid:facts?.head_oid??lane.head,width:196,height:52}));
         let layout=null;
         if(value.schema_version==="devmap/dock/4") {
           const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
           if(lastSnapshot?.repository_id!==value.repository_id||!records.some(r=>r.lane.worktree_id===inlineWorkspaceId))inlineWorkspaceId=null;
-          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),vertical:mapDirection==="auto"?viewport.clientWidth<=760:mapDirection==="vertical",textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),workspaceCards:true,cardHeights:Object.fromEntries(records.map(r=>[r.lane.worktree_id,platformHeight(r.lane)])),vertical:mapDirection==="auto"?viewport.clientWidth<=760:mapDirection==="vertical",textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
           options.expandedHistoryCommits=(surface.metroLayout?.historyRanges||[]).filter(r=>expandedHistory.has(r.id)).flatMap(r=>r.commit_ids);
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
@@ -1252,18 +1298,22 @@
         for (const node of surface.querySelectorAll("[data-object-id]")) if (node.dataset.objectId === selectedObjectId) node.setAttribute("aria-current", "true");
         const newRect = selectedRect(layout, anchorObjectId);
         if (!lastSnapshot || lastSnapshot.repository_id !== value.repository_id) {
-          const current = records.find(r => r.lane.worktree_id === value.current_worktree_id);
+          const current = records.find(r => r.lane.worktree_id === (currentAgentLane(value)?.worktree_id||value.current_worktree_id));
           if (current) {
             selectedWorkspaceId = current.lane.worktree_id; selectedTaskId = null; selectedObjectId = "workspace:" + selectedWorkspaceId;
             locateWorkspace(selectedWorkspaceId, value);
           } else fitMap();
         }
+        // The browser can clamp scroll before a breakpoint reflow. Old screen offsets
+        // then no longer describe the user's view; reveal the selected object instead.
+        else if (preserveSelectionAnchor && newRect && previousOrientation !== layout?.orientation) setViewportPosition({left:Math.max(0,16+newRect.x*mapScale-Math.max(16,(viewport.clientWidth-(newRect.width||44)*mapScale)/2)),top:Math.max(0,16+newRect.y*mapScale-32),behavior:"instant"});
         else if (offset && newRect && (preserveSelectionAnchor||selectedObjectId?.startsWith("history-range:")||selectedObjectId?.startsWith("commit:")||(inlineWorkspaceId&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
         else setViewportPosition({ ...savedViewport, behavior: "instant" });
+        restoreChatScrolls(surface,savedChatScrolls);
         const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
         if (focusedId) {
           const control = [...surface.querySelectorAll("[data-object-id]")].find(n => n.dataset.objectId === focusedId && n.tagName === focusedTag);
-          control?.focus({ preventScroll: true });
+          (control||((focusedId.startsWith("summary")||focusedId.startsWith("platform-task:"))?summary:null))?.focus({ preventScroll: true });
           if(!control&&focusedHistory) {
             const replacement=layout?.historyRanges?.find(r=>r.from_oid===focusedHistory.from_oid||r.commit_ids.some(id=>focusedHistory.commit_ids.includes(id)));
             const target=[...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===(replacement?.id||"commit:"+focusedHistory.from_oid));
@@ -1370,8 +1420,8 @@
         const n=layout?.nodes.find(n=>n.id===a?.head_oid);
         if(a) {
           const viewport=byId("topology-viewport"),left=Math.min(n?n.x-12:a.x,a.x),right=a.x+a.width;
-          const top=Math.min(n?n.y-12:a.y,a.y),bottom=a.y+Math.min(a.height,76*(layout.textScale||1));
-          setViewportPosition({left:Math.max(0,16+left-Math.max(0,(viewport.clientWidth-(right-left))/2)),top:Math.max(0,16+top-Math.max(0,Math.min(100,(viewport.clientHeight-(bottom-top))/2))),behavior:"instant"});
+          const top=a.y-(n&&a.y-n.y<40?Math.max(0,a.y-n.y+12):0),bottom=a.y+Math.min(a.height,platformHeight(value.lanes.find(l=>l.worktree_id===id))*(layout.textScale||1));
+          setViewportPosition({left:Math.max(0,right-left>viewport.clientWidth-32?16+right-viewport.clientWidth:16+left-Math.max(0,(viewport.clientWidth-(right-left))/2)),top:Math.max(0,16+top-Math.max(0,Math.min(100,(viewport.clientHeight-(bottom-top))/2))),behavior:"instant"});
         }else locateObject("workspace:"+id);
       }
       function rerenderWorkspace(id) {
@@ -1384,8 +1434,13 @@
         return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && ["codex_task_cwd","agent_reported_working_directory"].includes(chat.association_source) && safeCodexThreadId(chat.codex_thread_id)
           ? "codex://threads/" + chat.codex_thread_id : null;
       }
+      // Bootstrap Icons (MIT); license retained in this distributed resource.
+      function cardIcon(name) {
+        const paths={chat:"M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414A2 2 0 0 0 3 11.586l-2 2V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12.793a.5.5 0 0 0 .854.353l2.853-2.853A1 1 0 0 1 4.414 12H14a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z",arrow:"M14 2.5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0 0 1h4.793L2.146 13.146a.5.5 0 0 0 .708.708L13 3.707V8.5a.5.5 0 0 0 1 0z",disclosure:"M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708"};
+        const icon=svg("svg",{viewBox:"0 0 16 16",fill:"currentColor","aria-hidden":"true",class:name==="chat"?"chat-icon":name==="arrow"?"chat-arrow":"disclosure-icon"});icon.append(svg("path",{d:paths[name]}));return icon;
+      }
       function createTask(chat, worktreeId, value) {
-        const navigable = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id);
+        const navigable = chat.lifecycle !== "deleted" && safeCodexThreadId(chat.codex_thread_id) && (transport === "mcp" || !!window.openai?.sendFollowUpMessage || !!directTaskUrl(chat));
         const stateValue = effectiveConversationState(chat);
         const category = conversationCategory(chat);
         const directUrl = directTaskUrl(chat);
@@ -1420,17 +1475,22 @@
         selectedWorkspaceId = worktreeId || selectedWorkspaceId;
         selectedTaskId = taskId(chat);
         selectedObjectId = "task:" + selectedTaskId;
-        showTask(chat);
         if (!chat.codex_thread_id || chat.lifecycle === "deleted") {
+          showTask(chat);
           announce("Conversation details selected · no verified Codex task link");
           return;
         }
         const threadId = chat.codex_thread_id;
         if (!safeCodexThreadId(threadId)) {
+          showTask(chat);
           announce("Task link rejected");
           return;
         }
         const directUrl = directTaskUrl(chat);
+        if (!directUrl && transport !== "mcp" && !window.openai?.sendFollowUpMessage) {
+          showTask(chat); announce("Conversation details selected · no verified Codex task link"); return;
+        }
+        byId("selection-details").hidden = true;
         if (directUrl && !window.openai?.sendFollowUpMessage) {
           announce("Codex task request sent · verify the destination · " + threadId);
           return;
@@ -1565,21 +1625,6 @@
           if (hadFocus) ([...panel.querySelectorAll(".arrival-workspace")].find(n => n.dataset.worktreeId === focused) || [...panel.querySelectorAll("button")].find(n => n.className === focusedClass) || panel.querySelector(".dismiss-details"))?.focus({preventScroll:true});
           return;
         }
-        const group = byId("selection-details").dataset.workspaceGroup;
-        if (group) {
-          const panel = byId("selection-details"), scroll = panel.scrollTop;
-          const focusedClass = document.activeElement?.className;
-          const focusedId = document.activeElement?.dataset.worktreeId, hadFocus = panel.querySelectorAll("button").length && [...panel.querySelectorAll("button")].includes(document.activeElement);
-          const surface = byId("relationship-map"), ids = new Set((surface.metroLayout?.attachments || []).filter(a => a.head_oid === group).map(a => a.worktree_id));
-          const rows = (surface.overviewRows || []).filter(r => ids.has(r.lane.worktree_id));
-          if (!rows.length) { panel.hidden = true; return; }
-          const previousFocus = document.activeElement;
-          showWorkspaceChoices(group, rows); panel.scrollTop = scroll;
-          if (focusedId) [...panel.querySelectorAll(".workspace-choice")].find(n => n.dataset.worktreeId === focusedId)?.focus({ preventScroll: true });
-          else if (hadFocus) [...panel.querySelectorAll("button")].find(n => n.className === focusedClass)?.focus({preventScroll:true});
-          else if (!hadFocus) previousFocus?.focus({ preventScroll: true });
-          return;
-        }
         if (!selectedObjectId) return;
         const section = byId("selection-details"), scrollTop = section.scrollTop;
         const focusedId=[...section.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
@@ -1628,13 +1673,19 @@
         updateInspectorControls();
         if (collapsed && moveFocus) section.querySelector(".collapse-details")?.focus({preventScroll:true});
       }
+      function dismissInspector() {
+        byId("selection-details").hidden=true;
+        const target=[...byId("relationship-map").querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===selectedObjectId);
+        (target||byId("topology-viewport")).focus({preventScroll:true});
+        selectedObjectId=null;selectedWorkspaceId=null;selectedTaskId=null;
+      }
       function showDetails(titleText, rows, copyValue, copyTaskId) {
         const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
         delete section.dataset.workspaceGroup;
         delete section.dataset.arrivalTarget;
         const list = document.createElement("dl"); list.className = "detail-grid";
         for (const [label, value] of rows) { const term = document.createElement("dt"); term.textContent = label; const detail = document.createElement("dd"); const code = document.createElement("code"); code.textContent = value; detail.append(code); list.append(term, detail); }
-        const dismiss = button("dismiss-details", "Close selection details", () => { section.hidden = true; selectedObjectId = null; selectedWorkspaceId = null; selectedTaskId = null; byId("topology-viewport").focus(); });
+        const dismiss = button("dismiss-details", "Close selection details", dismissInspector);
         dismiss.textContent = "Close"; section.hidden = false;
         if (!refreshingDetails) { setWorkspaceChooser(false); section.dataset.collapsed = "false"; section.scrollTop = 0; }
         const collapse = button("collapse-details", "Collapse or expand selection details", () => collapseInspector(section.dataset.collapsed !== "true"));
@@ -1749,11 +1800,12 @@
         const surface=byId("relationship-map");
         if(surface.metroLayout) {
           const focus=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId;
-          const summaryScroll=surface.querySelector(".workspace-summary")?.scrollTop||0;
+          const savedChatScrolls=chatScrolls(surface),summaryScroll=surface.querySelector(".workspace-summary")?.scrollTop||0;
           for(const n of surface.querySelectorAll(".route-platform")) n.remove();
           for(const n of surface.querySelectorAll(".workspace-summary")) n.remove();
           surface.append(...renderPlatforms(records,lastSnapshot,surface.metroLayout));
-          const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
+          restoreChatScrolls(surface,savedChatScrolls);
+        const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
           if(focus) ([...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===focus)||(focus.startsWith("summary")?summary:null))?.focus({preventScroll:true});
         }
         refreshSelectedDetails();
@@ -1846,7 +1898,7 @@
       byId("workspace-filter").addEventListener("input", filterWorkspaces);
       byId("workspace-search-close").addEventListener("click", () => { setWorkspaceChooser(false); byId("overview-toggle").focus(); });
       byId("workspace-search").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); setWorkspaceChooser(false); byId("overview-toggle").focus(); } });
-      byId("selection-details").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); collapseInspector(true); } });
+      byId("selection-details").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); dismissInspector(); } });
       byId("map-tools").addEventListener("keydown", event => {
         if (event.key === "Escape") { event.preventDefault(); byId("map-tools").open = false; byId("map-tools-trigger").focus(); }
       });
@@ -1854,14 +1906,14 @@
         if (byId("map-tools").open && !byId("selection-details").hidden) collapseInspector(true, false);
       });
       byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
-      byId("locate-agent").addEventListener("click", () => { const lane = currentAgentLane(lastSnapshot); if (lane) { setJourneyWorkspace(lane.worktree_id); locateWorkspace(lane.worktree_id); openFullWorkspace(lane.worktree_id); } });
+      byId("locate-agent").addEventListener("click", () => { const lane = currentAgentLane(lastSnapshot); if (lane) { byId("selection-details").hidden=true; selectedWorkspaceId=lane.worktree_id;selectedTaskId=null;selectedObjectId="workspace:"+lane.worktree_id;locateWorkspace(lane.worktree_id); } });
       window.addEventListener("hashchange", () => updateAgentLocation(lastSnapshot));
-      window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
-      document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot); });
+      window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot,true); });
+      document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot,true); });
       installPanControls(byId("topology-viewport"));
       if (typeof ResizeObserver === "function") {
         let width=byId("topology-viewport").clientWidth;
-        new ResizeObserver(()=>{const next=byId("topology-viewport").clientWidth;if(next!==width&&lastSnapshot){width=next;renderSnapshot(lastSnapshot);}renderEdgeWayfinding();}).observe(byId("topology-viewport"));
+        new ResizeObserver(()=>{const next=byId("topology-viewport").clientWidth;if(next!==width&&lastSnapshot){width=next;renderSnapshot(lastSnapshot,true);}renderEdgeWayfinding();}).observe(byId("topology-viewport"));
       }
       if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();
     })();

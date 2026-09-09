@@ -1,132 +1,165 @@
-# DevMap Rail View Design QA
+# Workspace chat cards — second iteration
 
-## Evidence
+final result: blocked
 
-- Source visual truth: `.superpowers/brainstorm/product-design/02-rail-view-source.png`
-- Dark implementation reported by the user: the installed Dock at the start of this iteration
-- Light implementation, iteration 1: `.superpowers/brainstorm/product-design/light-alignment-iteration-1.jpg`
-- Combined comparison, iteration 1: `.superpowers/brainstorm/product-design/comparison-light-alignment-iteration-1.png`
-- Structure-aligned implementation, iteration 3: `.superpowers/brainstorm/product-design/topology-alignment-final.jpg`
-- Conversation panorama implementation, iteration 5: `.superpowers/brainstorm/product-design/conversation-panorama-final.jpg`
-- Rail geometry before correction, iteration 6: `.superpowers/brainstorm/product-design/line-quality-before.jpg`
-- Diagnostic source/before comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-before.png`
-- Rail geometry after correction, iteration 6: `.superpowers/brainstorm/product-design/line-quality-after.jpg`
-- Final combined comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-after.png`
-- Focused rail comparison: `.superpowers/brainstorm/product-design/comparison-line-quality-detail.png`
-- User-rejected shared-fork layout, iteration 7 before: `.superpowers/brainstorm/product-design/task-roster-before.png`
-- Worktree-owned station layout, iteration 7 final: `.superpowers/brainstorm/product-design/task-roster-final.png`
-- Direct rejected/final comparison, iteration 7: `.superpowers/brainstorm/product-design/comparison-task-roster-final.png`
-- User-reported branch-first identity, iteration 8 before: `.superpowers/brainstorm/product-design/worktree-identity-before.png`
-- Worktree-first identity, iteration 8 final: `.superpowers/brainstorm/product-design/worktree-identity-after.jpg`
-- Focused identity comparison, iteration 8: `.superpowers/brainstorm/product-design/comparison-worktree-identity-final.png`
-- Source pixels: 748 × 794. The source includes its design-host header and surrounding canvas.
-- Final implementation pixels: 830 × 780 at the Codex in-app Browser desktop viewport. Browser device scale was not exposed; no density resampling was applied.
-- Iteration 7 comparison pixels: 1,684 × 588. The rejected 762 × 499 capture and final 830 × 780 capture were placed together at native readable scale and cropped only to the shared topology region. The source mock remains the palette, typography, node-treatment, and rail-style reference; the rejected/final pair is the direct structural comparison because the live repository data differs from the synthetic source.
-- Iteration 8 evidence pixels: 684 × 258 before, 1,280 × 720 after, and 1,640 × 350 focused comparison. The focused comparison preserves each image's aspect ratio and compares the same MAP-density worktree identity region; it is a semantic hierarchy check rather than a pixel-for-pixel layout comparison because the user capture is cropped.
-- State: real local repository, light theme, MAP density, collapsed history disclosure, seven worktrees, and 12 linked Codex tasks (1 active, 1 idle, 10 history).
+The latest code and installed artifact are ready for a confirmation browser pass. Visual acceptance remains pending; the live iteration-two pass below found and corrected interaction defects.
 
-## Findings
+## Why the first iteration stopped too early
 
-No actionable P0/P1/P2 differences remain after the worktree-identity pass. The final comparison shows a single shared main timeline with one station per worktree, Worktree path as the primary node identity, Branch as secondary metadata, fork metadata attached to each lane rather than owning the lane group, vertical task/Agent stacks directly below each worktree, graphical return edges, an in-canvas title/control bar, and scoped horizontal navigation.
+- Renderer and geometry tests covered data ownership and interaction wiring, not CSS layout or fidelity to the approved image.
+- The old bottom inspector remained in the page layout; task navigation called `showTask()` before opening a task.
+- A static file snapshot with zero linked tasks was presented instead of a newly installed, live MCP Viewer. Its refresh controls still attempted network refreshes.
+- The running MCP process embedded the previous HTML/JS. A successful Release build did not change that process.
+- Browser inspection of the file preview was unavailable, but this missing acceptance gate was not reflected in the completion statement.
 
-### P3 follow-up polish
+## Implemented in iteration two
 
-- The source uses a faint square canvas grid. The implementation keeps a flat cool-neutral canvas because the shipped Dock is self-contained and the project contract prohibits external assets; no CSS-drawn or handcrafted substitute was introduced.
-- The source includes a decorative `DM` brand tile. The implementation preserves the text brand only because no production logo asset is supplied; it does not fake the logo with a div, glyph, or inline SVG.
+- One workspace card per worktree, even at a shared commit. Chat titles and direct links appear before technical details.
+- Larger blue chat titles, standard Bootstrap chat/arrow/disclosure icons, restrained current-chat badge, and observed-state indicators.
+- Two chats visible initially; expand the remaining list inside the card, with bounded height and scrolling for large inventories.
+- Workspace summary exposes path, branch, HEAD, working tree and integration inline.
+- Selection details float outside normal layout flow instead of reducing the map viewport.
+- Direct task navigation dismisses the inspector. Records without a supported navigation path remain inspectable.
+- Source resource budget increased from 188 to 196 KiB to include the card presentation and licensed inline icons; no external runtime asset requests.
 
-## Required fidelity surfaces
+## Verified evidence
 
-- **Fonts and typography:** compact system UI with monospace metadata preserves the source hierarchy. Primary text is near-black, secondary text is neutral gray, and branch labels keep readable weight and wrapping.
-- **Spacing and layout rhythm:** the shell can use up to 1,440 px while the topology surface expands independently to the space required by its worktrees and conversations. Map surfaces use 16 px radii, white nodes use restrained 9 px radii, and shadows are limited to the map shell and interactive surfaces. The live data produces more vertical rows than the synthetic source, which is expected rather than design drift.
-- **Colors and visual tokens:** page `#f4f5f7`, canvas `#fafbfc`, surface `#ffffff`, text/main rail `#202124`, and development rail `#1677ff` now follow the source's light visual system. Semantic green, amber, and red remain small-area accents.
-- **Image quality and assets:** no repository-specific imagery is required. The missing decorative grid and brand tile are listed as P3 rather than replaced with prohibited code-drawn approximations.
-- **Copy and content:** `DevMap · Rail View`, `Repository topology`, MAP/READ/FULL, Worktree path labels, secondary Branch labels, merge state, dirty state, and ahead/behind data remain explicit and truthful.
+- `node --test tests/dock_renderer.cjs tests/metro_core.cjs`: 198 passed.
+- `cargo test --test dock_ui_contract --test dock_plugin --locked`: 16 passed.
+- `cargo build --release --locked`: passed.
+- `git diff --check`: passed.
+- Installed local plugin version: `0.1.1+codex.20260908131058`.
+- Independent code review identified a presence-only navigation fallback defect; fixed with a regression test.
+- Opening the map in the current task after install still served the old grouped-workspace renderer. The current process is not the installed artifact.
 
-## Interaction and accessibility evidence
+## Blocking browser acceptance
 
-- MAP, READ, and FULL each set their own `aria-pressed="true"` state; the final state was returned to MAP.
-- The main-timeline station markers retain a 14 px visual footprint while each button exposes a 44 × 44 px hit target.
-- The legend is progressively disclosed in FULL only, keeping MAP and READ focused on topology.
-- FULL mode reports no geometric overlap between `.worktree-stop` and `.task-stack` in any branch lane.
-- Selecting a worktree sets `aria-current="true"`, updates the detail title to the Worktree path label, and exposes the Branch as a separate detail row.
-- The current document reports 815/815 px `clientWidth`/`scrollWidth`, so the topology does not create document-level horizontal overflow.
-- The current scoped topology viewport reports 2,760 px of content inside a 750 px viewport. Its native bottom scrollbar remains visible.
-- Pointer drag moved the viewport from 300 px to 500 px, and keyboard Home, ArrowLeft/ArrowRight, and End reached the expected bounded positions.
-- Seven visible worktree stations map to seven visible worktree clusters. Their measured station/cluster center difference is 0 px, with zero cluster overlap.
-- The collapsed topology height is content-led at 603 px (`scrollHeight === clientHeight`). Expanding the historical disclosure renders all 10 history tasks and grows the topology to 951 px without internal vertical clipping (`scrollHeight === clientHeight`).
-- Shift+wheel translation remains covered by the interaction contract and guarded at scroll boundaries, but the fixed Codex Browser automation surface could not synthesize the combined modifier-wheel gesture for an independent runtime measurement.
-- Browser console warnings/errors: none.
-- Contrast on white: primary text 16.10:1, muted text 4.70:1, success text 4.98:1, warning text 5.09:1, and dirty/error text 4.72:1.
-- MAP, READ, and FULL were exercised in the current build. Pointer and keyboard selection resolve the exact active, idle, and history task without entering the panning state; the standalone environment truthfully falls back to `Open this task from Codex` when the host bridge is unavailable.
-- Evidence limits for the current build: the fixed in-app Browser could not independently actuate the native scrollbar thumb, synthesize Shift+wheel, or resize to an exact 420 px viewport. These are interaction-evidence limits, not observed P0/P1/P2 visual defects; scrollbar presence and narrow-layout behavior remain covered by the UI contracts.
+Reference: user-approved `codex-clipboard-ca87c0a2-e42a-4f3e-9481-56a5c9d3a8a3.png`.
 
-## Iteration history
+Load the installed plugin in a fresh Codex task, or after a user-controlled app restart. Obtain real local unarchived task inventory and an actual current-directory report using the DevMap Skill. Open the MCP-owned live Viewer in the right Browser. Do not substitute a static snapshot or manual web server.
 
-### Iteration 1
+1. Verify runtime Build and chat-card DOM against the installed binary resource; nonzero linked task count and real titles must be present.
+2. Capture the reference and real Viewer together at comparable viewport sizes/states. Check 420px, 826px, and a wider view.
+3. Typography: title prominence, line height, Chinese glyph fallback, long-title wrapping and current-chat badge positioning.
+4. Spacing/layout: card padding, stem ownership, separate shared-HEAD cards, no overlap, usable map viewport and scroll position retention.
+5. Colors/tokens: pale surfaces, blue navigation, readable secondary text and truthful state colors.
+6. Assets: Bootstrap icons match the intended speech bubble/arrow/chevron roles. No raster imagery is required by this design.
+7. Copy/content: live data labels must distinguish current observation, stale observation, incomplete inventory, map source and reported Agent location. No mock/example tasks in live data.
+8. Interactions: a chat opens in one action; workspace details expand inline; commit details do not alter viewport height; close/Escape/focus restoration work; more chats remain reachable.
+9. Test long titles, at least three chats in a card, empty workspaces, and increased text scale. DOM-only tests are insufficient for these checks.
+10. Fix P0/P1/P2 findings, rebuild/reinstall as necessary, capture again and update this report to `passed` only after actual comparison.
 
-- Earlier P1: the implementation used a dark graphite theme even though the selected source was light.
-- Earlier P1: integration and development rail color roles were reversed relative to the source.
-- Earlier P2: cards and controls used dark filled surfaces rather than white nodes on a cool-neutral canvas.
-- Fixes: changed the document color scheme to light; mapped the integration rail to near-black and development rails to blue; changed nodes, controls, details, and map shell to white/neutral surfaces; reduced elevation and saturated fill area.
-- Post-fix evidence: `comparison-light-alignment-iteration-1.png`.
+## Live acceptance attempt — 2026-09-08 15:24 UTC
 
-### Iteration 2
+Authorization is present. Acceptance task `01a0819c-834c-72f1-bc5d-dedd1ecb9b64` was created and performed this inspection. No commit or push is authorized or performed.
 
-- Earlier P2: the dirty/error text color measured 3.72:1 on white at small UI text sizes.
-- Fix: darkened the error token from `#eb476a` to `#d92d54`, producing 4.72:1 contrast on white.
-- Post-fix evidence: `comparison-light-alignment-final.png`.
+Result remains **blocked**, with a reproduced runtime-selection failure. Creating a new task did NOT pick up the installed MCP configuration in this app session. A host reload/restart is now required before judging iteration-two visuals.
 
-### Iteration 3
+### Verified source, install, and running process
 
-- Earlier P1: the screen remained a vertically grouped list rather than the source's single topology coordinate system.
-- Earlier P1: merge return state remained a large status block rather than a graph edge.
-- Earlier P2: worktree cards and row spacing were too tall, the map title and density controls sat outside the graph shell, and the canvas lacked positioned main-rail stations.
-- Fixes: moved `Repository topology`, summary metrics, density controls, and legend into the map shell; added semantic BASE/BRANCH RAILS/ACTIVITY/TARGET guides; distributed clickable fork stations across one main timeline; started each branch rail from its station; replaced large return blocks with compact labels and green return hooks; hid workspace paths in MAP mode; compressed all six real worktrees into the initial graph viewport; limited current-worktree emphasis to its node.
-- Post-fix evidence: `comparison-topology-alignment-final.png`.
+- Development commands ran at `C:/Users/user/.codex/worktrees/b714/AI auto-git context`; `git rev-parse --show-toplevel` agreed. Branch: `codex/visible-workspace-chats`; the six existing modified files were retained.
+- Release binary, plugin source runtime, and installed-cache runtime all have SHA256 `FFD913E3B667F51679C95C5ADC0C50B984635573138BF17F1D99B74CFB730645`.
+- `codex plugin list` reports `devmap@personal` installed/enabled at `0.1.1+codex.20260908131058`. Both source and cache `.mcp.json` point to that version's executable.
+- However, the new Viewer listener on port 56955 is owned by PID 5200, created at 15:21:53 UTC for this task, executing `C:/Users/user/plugins/devmap/.runtime/0.1.1+codex.20260907214114/bin/devmap.exe`.
+- Visible page Build is `v0.1.1-3-gdb696768`. The DOM still groups four shared-HEAD workspaces into one `Detached HEAD · db696768 +3` button, rather than rendering separate chat cards. This is evidence of old runtime resources, not a failure of the unreviewed new source.
+- The first `devmap_open_map(surface:browser)` exceeded the 10-second tool timeout but did start this MCP-owned Viewer; one retry returned its healthy URL. No manual server or static snapshot was used.
 
-### Iteration 4
+### Browser and task evidence
 
-- Earlier P2: FULL density placed workspace and linked-task content in the same grid area, allowing content to overlap on populated lanes.
-- Earlier P2: global touch sizing risked turning the compact main-timeline stations into oversized visible circles, and the legend competed with topology controls in every density.
-- Fixes: moved linked tasks onto a dedicated second grid row while preserving the return column; separated the 44 × 44 px station hit target from its 14 px visual marker; limited the legend to FULL density.
-- Post-fix evidence: browser geometry reports zero workspace/task overlap and `scrollWidth === clientWidth`; the refreshed final screenshot and combined comparison show MAP density after the correction.
+- Read exact map workspace paths, canonicalized existing paths on Windows, and matched the host's `list_threads(limit:50)` inventory by full path. Coverage is incomplete because the host reached its limit.
+- The host list omitted this newly created task; its exact ID/title/registered cwd/active status were verified with `read_thread`. That supported observation supplemented the partial list without inventing a task.
+- 18 real linked tasks were displayed across 16 workspaces. Only this task received a working-directory report, checked at Unix time `1788880979`; registered cwd remains `16e0`, reported development location is `b714`.
+- `open_in_codex(placement:right)` returned queued. The in-app Browser was then opened and actually inspected through browser tools. Screenshot captured at the native 662 x 792 viewport: `docs/audits/assets/2026-09-08-live-v2/runtime-old.png`.
+- Compared against the user-approved reference image. P1 runtime mismatch prevents visual acceptance: default chat titles are absent and shared-HEAD ownership remains grouped in the running old UI.
+- The visible details distinguish Map source `16e0` from Agent-reported work `b714`; observation aged to stale while Git remained live, and inventory is marked incomplete.
+- `git diff --check` passed. No implementation changed in this acceptance attempt, so earlier test/build evidence remains historical rather than being claimed as a fresh run.
 
-### Iteration 5
+### Resume gate
 
-- Earlier P1: worktrees and branches carried the strongest visual weight, but linked conversations and their Agents were not legible as the active execution layer.
-- Earlier P1: the topology was compressed into the available Dock width, leaving insufficient horizontal space for multiple conversations under one worktree.
-- Earlier P2: horizontal navigation lacked explicit drag and keyboard affordances, and narrow Dock widths collapsed the graph instead of preserving its spatial model.
-- Fixes: kept Worktree as the level-one row; placed ordered conversation nodes directly on each Worktree rail; made conversation title, Agent identity, and ACTIVE/IDLE state visible in MAP; exposed progressively richer host/session/capture details in READ and FULL; retained all active plus three recent inactive conversations and grouped older history behind `+N historical conversations`; added a bounded 1,080–6,400 px topology surface with scoped native overflow; made Worktree identities sticky; added background pointer-drag, Shift+wheel, Arrow/Home/End navigation, and grab/grabbing feedback; preserved the horizontal rail at narrow widths; reduced empty lanes to one quiet `No linked conversation` node.
-- Post-fix evidence: the real active task `查找今天上午开发结果 (2)` appears under its owning Worktree with `Agent · codex` and `ACTIVE`; MAP/READ/FULL progressive disclosure, selection details, sticky geometry, pointer drag, keyboard pan, narrow-width behavior, and zero console errors were verified in the Codex in-app Browser.
-- Final visual evidence: `conversation-panorama-final.jpg` and `comparison-conversation-panorama-final.png`.
+Reload/restart the Codex host so it launches the installed `20260908131058` executable, then continue this task. Verify the executable path and separate-card DOM before the 420/826/wide viewport and interaction matrix above. Do not merely create another task under the same stale host configuration. Do not overwrite the old versioned binary or terminate unrelated tasks to force a version change.
 
-### Iteration 6
+Pending: all iteration-two visual and interaction acceptance (including navigation, multi-chat expansion, long titles, text scaling, floating inspector, Escape and focus restoration). The old runtime screenshot is diagnostic evidence only, not a delivery screenshot of iteration two.
 
-- Earlier P1: the main timeline station, fork label, and branch-line origin were calculated in three different containing blocks, producing a measured 36.41 px horizontal disagreement and visibly broken topology.
-- Earlier P1: fork stems began near each branch group instead of at the main timeline, so later branches appeared as isolated vertical fragments rather than continuous ancestry paths.
-- Earlier P2: branch endpoint circles were positioned by their outer edges rather than their centers, main and branch strokes used inconsistent weights, and the compact topology width allowed downstream fork stems to crowd preceding conversation cards.
-- Fixes: measure each rendered main station once and project that coordinate into its fork group; derive the full vertical connector height from the main station to the last visible branch rail; place fork labels, branch origins, and conversation tracks from the same `--fork-x`; center both branch endpoint circles on the stroke; standardize main, branch, and connector strokes at 2 px with 12 px nodes; expand the topology-width budget so each fork has enough horizontal separation; recompute geometry after rendering, density changes, disclosure changes, and window resizing.
-- Post-fix evidence: all five fork groups align within 0.39 px in MAP, READ, and FULL; narrow layout alignment remains within 0.13 px; continuous vertical connectors visibly join the main timeline to each branch; endpoint circles and return hooks remain centered; Browser warnings/errors are empty.
-- Final visual evidence: `line-quality-after.jpg`, `comparison-line-quality-after.png`, and the native-pixel focused comparison `comparison-line-quality-detail.png`.
+## Resumed live acceptance — 2026-09-08 15:28–15:35 UTC
 
-### Iteration 7
+The user restarted Codex and requested continuation. The host now launched `20260908131058`, resolving the previous runtime-selection blocker. `devmap_open_map(surface:browser)` created a new MCP-owned Viewer on port 52171. The matching right-side in-app Browser was visibly inspected, not merely queued.
 
-- Earlier P1: a single fork station visually owned multiple sibling worktrees, so the main rail encoded fork groups instead of the user-approved `main -> worktree -> task/Agent` hierarchy.
-- Earlier P1: the active task stack appeared beside a sibling worktree under one shared station, making worktree ownership harder to read at a glance.
-- Earlier P2: fork-group grid spans created a broad empty region and weakened the direct vertical relationship between each worktree station and its activity stack.
-- Fixes: flatten the ordered branch lanes into one shared worktree sequence; render one timeline station and one vertically aligned cluster per worktree; keep fork metadata as secondary lane annotation; attach each task/Agent roster directly below its worktree; make the topology height follow the collapsed or expanded roster content while retaining scoped horizontal overflow.
-- Post-fix visual evidence: `task-roster-before.png`, `task-roster-final.png`, and `comparison-task-roster-final.png`. The final capture visibly separates `codex/rail-view-design-alignment` and `codex/git-workflow-orchestrator-design` into distinct rail stations, and the task roster sits under its owning worktree.
-- Post-fix geometry and interaction evidence: 7 stations, 7 clusters, 0 px maximum center difference, 0 overlaps, 2,760/750 px scoped horizontal extent, 815/815 px document width, 603/603 px collapsed height, 951/951 px expanded height, 12 task records, all three density modes, drag and keyboard panning, exact task selection, truthful standalone fallback, and no console warnings or errors.
-- Focused comparison was not needed beyond the readable native-scale rejected/final topology crop: worktree labels, Agent/status text, station stems, and ownership relationships are legible in the combined image, while color and typography were unchanged from the already-passed iteration 6 source comparison.
+### Real-browser findings
 
-### Iteration 8
+- Separate shared-HEAD workspace cards and real chat titles are now present; the b714 card contains this exact task and `打开最新版 DevMap`. The current-chat badge is visible. Empty workspaces say the list is unconfirmed. No synthetic tasks were supplied.
+- The host list was again capped at 50, with this task now included. Only this task received the b714 directory report, checked at Unix time `1788881270`, while retaining its registered 16e0 cwd. Old reports were not re-stamped.
+- Captured default 512px rendering, then 826 x 1000 and 420 x 900 layouts. Saved `before-826.png`, `before-420.png`, and `cards-420.png` under `docs/audits/assets/2026-09-08-live-v2/`. These are pre-fix diagnostic captures; `cards-420.png` includes the Escape test state, not an accepted final layout.
+- Real multi-chat card: two titles initially, “Show 13 more chats” expanded its real inventory inside the card with bounded scrolling. The button changed to “Show fewer chats”. Long Chinese titles wrapped, and empty cards remained separate.
+- P1: initial view followed Map source 16e0 rather than the verified b714 Agent report. Corrected to prefer the fresh exact report and otherwise retain Map source fallback.
+- P1: “Locate current Agent” opened a workspace inspector over the desired chat card. Corrected to locate and select the card without opening an inspector.
+- P1: resizing between horizontal and vertical layouts lost the selected workspace position. Resize/font reflow now requests selection-anchor preservation.
+- P2: Escape collapsed the inspector instead of dismissing it. Escape and Close now dismiss, return focus to the selected map object when present, and clear retained selection so a removed task does not reopen an error panel.
+- Commit details were visibly floating. Opening them changed the measured viewport from 610px to 642.8px because an edge-wayfinding row disappeared; it did not shrink the map. The attempted Escape action left the panel visible and height at 642.8px. A clean open/close measurement remains part of the confirmation pass.
+- One-click navigation to this exact task was attempted. Browser Use security rejected the `codex://threads/…` navigation. No alternate browser, indirect navigation, or other workaround was attempted. This gate requires a human click; DOM validity and unit tests do not establish actual host navigation success.
 
-- Earlier P1: Worktree nodes used `lane.branch` as their prominent visible label, so branch names such as `codex/rail-view-design-alignment` appeared to be the level-one identity even though each node represented a distinct Worktree.
-- Earlier P2: detached Worktrees displayed only `detached HEAD`, hiding the directory that actually distinguishes them.
-- Fixes: derive the primary visible identity from the last two segments of `workspace_path`; show `Branch · …` as secondary metadata in every density; use the same Worktree label in station accessibility names and selection-details headings; retain the complete path as the node tooltip and detail value.
-- Post-fix visual evidence: `worktree-identity-after.jpg` and `comparison-worktree-identity-final.png`. The current node reads `ChatGPT/DevMap-phase-1a-worktree` with `Branch · codex/rail-view-design-alignment` beneath it, while Codex-managed detached Worktrees are differentiated by labels such as `5f3c/AI auto-git context` and `42c1/AI auto-git context`.
-- Post-fix interaction evidence: all seven Worktree nodes expose distinct Worktree-first accessible labels; selecting `ChatGPT/AI auto-git context` sets `aria-current="true"`, uses that Worktree label as the detail heading, and renders `codex/git-workflow-orchestrator-design` in a separate Branch row. Selecting the active task still resolves the exact task and does not enter the panning state.
+### Corrections and validation
 
-## Final result
+- Changes: `assets/dock.html`, `tests/dock_renderer.cjs`; existing iteration-two changes in other files preserved.
+- JS renderer/core: **199 passed** after the final changes. Log: `js-tests.txt`.
+- Rust plugin/UI checks: **16 passed**. Log: `rust-tests.txt`.
+- `cargo build --release --locked`: passed.
+- Plugin validation and `codex plugin add devmap@personal`: passed. Log: `install.txt`.
+- Installed version: **0.1.1+codex.20260908153418**.
+- Release and installed-cache SHA256: **A1CFBB1C46BD9026B18DB67DA9F70485B0BB20C6C54FD779475B52531731D419**.
+- Mechanical detector: saved `detector.json`. Static canvas-padding warning does not account for positioned map coordinates; accent stripe follows the approved reference. Remaining token/radius/shadow advisories refer to pre-existing styling and are not evidence of acceptance. No mechanical result substitutes for the confirmation screenshots.
 
-final result: passed
+### Remaining confirmation gates
+
+Reload/restart the host to activate `20260908153418`, then verify the four fixes on the new MCP-owned Viewer. Repeat 420/826/wide comparison, workspace detail expansion, text zoom, native scroll and focus retention. Have the user click a real chat link to verify host navigation, since automated navigation is blocked by Browser Use security policy. No final `passed` result is justified yet. No commit/push performed.
+
+## Continued acceptance — 2026-09-08 17:17–17:28 UTC
+
+Result remains **blocked / not accepted**. Development remained exclusively in b714. No commit or push was performed.
+
+### Running version and browser evidence
+
+- Processes 48200 and 41328 execute the installed `20260908153418` runtime. The live MCP-owned Viewer is on port 58120 and was visibly inspected in the task's right-side Browser.
+- Initial Agent-card positioning and Locate-without-inspector were observed working. A fresh exact b714 directory check at Unix time `1788888133` renewed only this task's Agent report; registered cwd remains 16e0. The host inventory remains capped at 50 and explicitly incomplete.
+- Escape now closes commit details and restores focus to `commit:db696768baf366b442adf6097e0c1f4cec3f7e08`. The map viewport measured 515.6px high before and after dismissal. Evidence: `escape-confirmed.png`.
+- Earlier 420px measurement showed a current-chat title squeezed to approximately 46px width by its badge. The heading used flex with a growing title and a fixed-width badge. This is a readability defect.
+- Responsive testing has an additional host interference: immediately after a 420 x 900 override, DOM width was 420 and map width 383; the next observation reported window width 627 without another test resize. One 420-to-826 run kept the selected card visible at x=334.4, y=334, while earlier runs lost it. Consequently these screenshots do not establish deterministic breakpoint acceptance. `narrow-title-diagnostic.png` is diagnostic only and must not be labeled a verified 420px final capture. Temporary viewport overrides were reset.
+
+### Corrections and fresh validation
+
+- Current-chat headings now use two grid columns, with the badge on its own row under the title. The badge no longer consumes the title's horizontal space.
+- When orientation changes, the map reveals the selected object using the new geometry instead of retaining a potentially clamped old screen offset. Same-orientation reflows keep the existing anchor behavior and map scale is preserved.
+- A regression with 20 separate shared-HEAD workspaces reproduces loss of the selected card after simulated browser scroll clamping. It failed on the previous implementation and passes with the correction across 1000, 360, and 826px viewport widths. This tests positioning logic, not browser visual acceptance.
+- JS renderer/core: **200 passed**, 0 failed (`js-tests.txt`). Rust UI/plugin contracts: **16 passed**, 0 failed (`rust-tests.txt`). `git diff --check` and `cargo build --release --locked` passed.
+- Plugin validation and installation passed (`install.txt`). Newly installed version: **0.1.1+codex.20260908172746**. Release and installed-cache SHA256 both equal **B9DA8D996A53162C3540694092C4614C150A4CD89299F59FCF07519AF55BF3DE**.
+
+### Remaining gates
+
+The current host still runs 153418; 172746 is installed but its new grid and breakpoint handling have not yet been visually verified. Restart the host to activate it, then verify the executable path and capture stable 420/826/wide layouts with width recorded alongside each screenshot. Complete increased-text-scale, inline workspace details, and native scroll/focus checks. A real chat-link host transition still requires a human click because Browser Use rejected automated codex-protocol navigation; no workaround was attempted. Do not declare overall acceptance until these gates have evidence.
+
+## Working-directory persistence correction — 2026-09-08 20:25 UTC
+
+The user identified task `01a081a1-751a-7473-aa3b-91995c128f7e` at the original directory's historical HEAD. Its host registration remains the project root at `50bb4833`; its inspected command history shows work in `.worktrees/devmap-sqlite-compatible`, whose inspected HEAD is `520683a5`. The map inventory had no working-directory report for this task. Whether an earlier report was overwritten is not established for this particular task.
+
+Confirmed systemic defect: `replace_observed_tasks_preserving_timestamp` replaced optional location observations along with the host inventory, and the plugin explicitly instructed fallback on omission. This made reports disappear on other tasks' refreshes and process restarts.
+
+Implemented in b714:
+
+- Store location observations independently in repository metadata `working-directory-reports.json`, keyed by host and task ID. Preserve the original report timestamp and registered directory; do not fabricate host migration events.
+- Merge explicit reports under the existing stable repository lock, with bounded checked file access and atomic replacement. Reject conflicting equal-time reports; ignore delayed older reports. Pending/corrupt stores fail explicitly instead of silently reverting locations.
+- Host-only, partial/empty inventories and Git-only refreshes retain observations. A different Viewer and a restarted service read the same persisted evidence. Reports alone never recreate missing chats.
+- Update both the checked-in plugin skill and MCP schema description to remove fallback-on-omission guidance.
+
+Validation: the regression first failed on the old implementation, then passed. Complete `dock_mcp` (18) and `dock_model` (38) runs passed, plus the subsequently added damaged/pending-store test (1): **57 passed total**. Log: `location-tests.txt` (56); the additional test's successful command output is in this task. Formatting, diff check and Release build passed. One attempt to relink the model test while its earlier binary was still running hit Windows LNK1104; the serial retry after completion passed.
+
+Installed **0.1.1+codex.20260908202531**, with matching Release/cache SHA256 **7FFB4FD70E084C17256852BE6794D7FD452874ADB459F2A7292F1A208E8550C9**. Install log: `location-install.txt`. Live processes still execute 172746, so this installed correction needs host restart before real Viewer verification. The reported SQLite task still needs an initial valid directory observation from its owner; this patch preserves reports but cannot discover never-reported execution locations from host registration alone. No claim of corrected live placement or overall visual acceptance is made. No commit/push performed.
+
+## Live location acceptance — 2026-09-08 20:41–20:47 UTC
+
+**Location persistence and the user's concrete misplaced-chat scenario: passed.** Overall visual acceptance remains separate and incomplete.
+
+- After user restart, PIDs 19700 and 42520 execute `20260908202531`. The new MCP-owned Viewer on port 62754 was opened and visibly verified in the right-side Browser.
+- This task checked b714 at Unix 1788900090 and reported it once. A subsequent host inventory deliberately omitted all workingDirectory fields; the task remained at b714 with the original `20:41:30Z` report. The separate repository metadata file contains that original observation.
+- User explicitly authorized one message to `评估是否仅需一个数据库` requesting its own execution-directory verification and report. That task verified `.worktrees/devmap-sqlite-compatible` at Unix 1788900195 and successfully reported it through its MCP process, preserving the original host cwd.
+- This task then submitted another host inventory with **no workingDirectory fields**. The SQLite task remained at `.worktrees/devmap-sqlite-compatible`, with association source `agent_reported_working_directory`, original registered project-root path, and unchanged observation time `2026-09-08T20:43:15Z`. This is real cross-task/cross-MCP evidence, not a fixture result.
+- The live browser DOM contained the SQLite chat under exactly that workspace. A visible screenshot confirmed its title on the intended card at current HEAD `550e3a2a`. Evidence: `docs/audits/assets/2026-09-08-live-v2/location-fixed-live.png`.
+- Observations aged to stale normally; Git refresh did not re-stamp them. The inventory remains explicitly incomplete. No fabricated location, manual metadata patch, protocol-navigation workaround, or commit/push was used.

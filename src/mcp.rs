@@ -1619,7 +1619,7 @@ fn dock_tool_descriptor(name: &str, renders_ui: bool) -> Value {
                 "codex_tasks": {
                     "type": "array",
                     "maxItems": MAX_SEMANTIC_ARRAY_ITEMS,
-                    "description": "Local Codex task metadata. Preserve host cwd. An optional explicitly reported workingDirectory places that one task at an exact local worktree; otherwise cwd is used.",
+                    "description": "Local Codex task metadata. Preserve host cwd. Explicit workingDirectory observations are persisted separately across inventories, Viewers and restarts with their original timestamps. Omission retains the latest report; cwd is used only when no report exists. Older reports cannot replace newer ones.",
                     "items": {
                         "type": "object",
                         "properties": {

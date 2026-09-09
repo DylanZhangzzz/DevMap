@@ -186,8 +186,17 @@ fn reported_working_directory_places_only_that_chat_and_preserves_host_registrat
             .as_array()
             .unwrap()
             .len(),
-        2,
-        "a new host-only observation must not recycle the previous execution report"
+        1,
+        "a host-only refresh must not erase separately observed execution evidence"
+    );
+    let reported = lanes
+        .iter()
+        .find(|lane| lane["branch"] == "codex/development")
+        .unwrap();
+    assert_eq!(reported["chats"][0]["codex_thread_id"], task["id"]);
+    assert_eq!(
+        reported["chats"][0]["working_directory"],
+        target["chats"][0]["working_directory"]
     );
 }
 

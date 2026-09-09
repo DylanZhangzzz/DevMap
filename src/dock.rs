@@ -114,7 +114,7 @@ pub struct ObservedTask {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct WorkingDirectoryObservation {
     pub path: String,
     pub observed_at: String,
@@ -788,6 +788,15 @@ impl DockService {
         {
             return Err(DevMapError::InvalidDomain("codex_tasks.id"));
         }
+        let reports = tasks
+            .iter()
+            .filter_map(|task| {
+                task.working_directory
+                    .clone()
+                    .map(|report| (task.host.clone(), task.session_id.clone(), report))
+            })
+            .collect::<Vec<_>>();
+        crate::journal::merge_working_directory_reports(&self.workspace, &reports)?;
         self.observed_tasks = tasks;
         self.task_inventory_synced_at = Some(observed_at.format(&Rfc3339)?);
         self.task_inventory_complete = complete;
@@ -797,6 +806,14 @@ impl DockService {
     }
 
     pub fn refresh(&mut self, now: OffsetDateTime) -> Result<&DockReadModel, DevMapError> {
+        // Inventory omission is not a location retraction. Reload independently so
+        // another Viewer can update a location without this one replaying old data.
+        let reports = crate::journal::merge_working_directory_reports(&self.workspace, &[])?;
+        for task in &mut self.observed_tasks {
+            task.working_directory = reports
+                .get(&(task.host.clone(), task.session_id.clone()))
+                .cloned();
+        }
         let worktrees = WorktreeScanner::scan(&self.workspace)?;
         let topology_key = topology_cache_key(&self.workspace, &worktrees)?;
         let topology = match topology_key {

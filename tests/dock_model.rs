@@ -316,6 +316,7 @@ fn host_refresh_does_not_freshen_an_old_working_directory_report() {
         "occupied"
     );
     let later = now + time::Duration::minutes(3);
+    task.working_directory = None;
     let stale = service
         .replace_observed_tasks(vec![task.clone()], later)
         .unwrap();
@@ -342,6 +343,83 @@ fn host_refresh_does_not_freshen_an_old_working_directory_report() {
     let chats: Vec<_> = retained.lanes.iter().flat_map(|lane| &lane.chats).collect();
     assert_eq!(chats.len(), 1);
     assert_eq!(chats[0].working_directory.as_ref().unwrap().observed_at, at);
+    let mut reopened = DockService::open(repo.path()).unwrap();
+    let restored = reopened
+        .replace_observed_tasks(vec![task.clone()], later)
+        .unwrap();
+    let placed = restored.lanes.iter().find(|l| !l.chats.is_empty()).unwrap();
+    assert_eq!(placed.branch.as_deref(), Some("codex/execution"));
+    assert_eq!(
+        placed.chats[0]
+            .working_directory
+            .as_ref()
+            .unwrap()
+            .observed_at,
+        at
+    );
+    reopened
+        .replace_observed_tasks_with_completeness(vec![], false, later)
+        .unwrap();
+    let returned = reopened
+        .replace_observed_tasks(vec![task.clone()], later)
+        .unwrap();
+    assert_eq!(
+        returned
+            .lanes
+            .iter()
+            .find(|l| !l.chats.is_empty())
+            .unwrap()
+            .branch
+            .as_deref(),
+        Some("codex/execution")
+    );
+    // A different Viewer can publish a newer report; the first Viewer must read it
+    // even during a Git-only refresh, without replaying its own older report.
+    let newer_at = later
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    let mut moved = task.clone();
+    moved.working_directory = Some(devmap::dock::WorkingDirectoryObservation {
+        path: repo.path().to_string_lossy().into_owned(),
+        observed_at: newer_at.clone(),
+        source: "agent_report".into(),
+    });
+    reopened
+        .replace_observed_tasks(vec![moved.clone()], later)
+        .unwrap();
+    let refreshed = service.refresh(later).unwrap();
+    assert!(
+        refreshed
+            .lanes
+            .iter()
+            .find(|l| !l.chats.is_empty())
+            .unwrap()
+            .is_current
+    );
+    moved.working_directory.as_mut().unwrap().path = worktree.to_string_lossy().into_owned();
+    moved.working_directory.as_mut().unwrap().observed_at = at.clone();
+    let delayed = service.replace_observed_tasks(vec![moved], later).unwrap();
+    let placed = delayed.lanes.iter().find(|l| !l.chats.is_empty()).unwrap();
+    assert!(placed.is_current);
+    assert_eq!(
+        placed.chats[0]
+            .working_directory
+            .as_ref()
+            .unwrap()
+            .observed_at,
+        newer_at
+    );
+    let mut conflict = task.clone();
+    conflict.working_directory = Some(devmap::dock::WorkingDirectoryObservation {
+        path: worktree.to_string_lossy().into_owned(),
+        observed_at: newer_at,
+        source: "agent_report".into(),
+    });
+    assert!(
+        service
+            .replace_observed_tasks(vec![conflict], later)
+            .is_err()
+    );
     task.lifecycle = devmap::dock::TaskLifecycle::Archived;
     let archived = service.replace_observed_tasks(vec![task], later).unwrap();
     assert!(
@@ -350,6 +428,36 @@ fn host_refresh_does_not_freshen_an_old_working_directory_report() {
             .iter()
             .all(|f| f.passengers.observed_count == 0)
     );
+}
+
+#[test]
+fn damaged_location_store_does_not_silently_restore_host_placement() {
+    let repo = support::committed_repo();
+    let now = time::OffsetDateTime::now_utc();
+    let mut task = observed_task(repo.path(), "Reported owner");
+    task.working_directory = Some(devmap::dock::WorkingDirectoryObservation {
+        path: repo.path().to_string_lossy().into_owned(),
+        observed_at: now
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap(),
+        source: "agent_report".into(),
+    });
+    DockService::open(repo.path())
+        .unwrap()
+        .replace_observed_tasks(vec![task], now)
+        .unwrap();
+    let path = repo
+        .path()
+        .join(".git/devmap/working-directory-reports.json");
+    let original = std::fs::read(&path).unwrap();
+    let pending = path.with_extension("pending");
+    std::fs::write(&pending, b"interrupted write").unwrap();
+    assert!(DockService::open(repo.path()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    std::fs::remove_file(&pending).unwrap();
+    std::fs::write(&path, b"corrupt").unwrap();
+    assert!(DockService::open(repo.path()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"corrupt");
 }
 
 #[test]

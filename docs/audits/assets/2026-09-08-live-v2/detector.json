@@ -1,0 +1,141 @@
+[
+  {
+    "antipattern": "cramped-padding",
+    "name": "Cramped padding",
+    "description": "Text is too close to the edge of its container. Two shapes: (1) an element with its own text where the padding is too low for the font size, and (2) a wrapper with text-bearing children and near-zero padding against a visible boundary (border, outline, or non-transparent background) — children land flush against the boundary line. Add at least 8px (ideally 12–16px) of padding inside bordered, outlined, or colored containers.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 0,
+    "snippet": "<div> \"topology-viewport\": children flush against border+bg on all sides (no inset)"
+  },
+  {
+    "antipattern": "gpt-thin-border-wide-shadow",
+    "name": "Hairline border with wide shadow",
+    "description": "A hairline border paired with a wide, diffuse shadow is a recurring generated-UI signature. Commit to one — a defined edge or a soft elevation — rather than both at once.",
+    "severity": "advisory",
+    "category": "slop",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 0,
+    "snippet": "1px border + 28px shadow blur",
+    "advisory": true
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 73,
+    "snippet": "background rgb(32, 41, 56) on a \"Skip to repository topology\" is outside DESIGN.md colors",
+    "advisory": true,
+    "ignoreValue": "rgb(32, 41, 56)"
+  },
+  {
+    "antipattern": "design-system-radius",
+    "name": "Radius outside DESIGN.md",
+    "description": "A border-radius value is outside the DESIGN.md rounded scale. Use a documented radius token or update the design system if the new shape is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 66,
+    "snippet": "border-radius 7px on button \"Refresh map\" is outside the DESIGN.md rounded scale",
+    "advisory": true,
+    "ignoreValue": "7px"
+  },
+  {
+    "antipattern": "design-system-color",
+    "name": "Color outside DESIGN.md",
+    "description": "A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 0,
+    "snippet": "text color rgb(89, 101, 121) on summary \"Version & details\" is outside DESIGN.md colors",
+    "advisory": true,
+    "ignoreValue": "rgb(89, 101, 121)"
+  },
+  {
+    "antipattern": "design-system-radius",
+    "name": "Radius outside DESIGN.md",
+    "description": "A border-radius value is outside the DESIGN.md rounded scale. Use a documented radius token or update the design system if the new shape is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 73,
+    "snippet": "border-radius 8px on div \"Current Agent · location unverified Runn\" is outside the DESIGN.md rounded scale",
+    "advisory": true,
+    "ignoreValue": "8px"
+  },
+  {
+    "antipattern": "design-system-radius",
+    "name": "Radius outside DESIGN.md",
+    "description": "A border-radius value is outside the DESIGN.md rounded scale. Use a documented radius token or update the design system if the new shape is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 103,
+    "snippet": "border-radius 10px on div \"Waiting for repository topology and link\" is outside the DESIGN.md rounded scale",
+    "advisory": true,
+    "ignoreValue": "10px"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 80,
+    "snippet": "font-size: .8125rem is off the DESIGN.md type ramp",
+    "advisory": true,
+    "ignoreValue": ".8125rem"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 286,
+    "snippet": "font-size: 28px is off the DESIGN.md type ramp",
+    "advisory": true,
+    "ignoreValue": "28px"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 321,
+    "snippet": "font-size: .6875rem is off the DESIGN.md type ramp",
+    "advisory": true,
+    "ignoreValue": ".6875rem"
+  },
+  {
+    "antipattern": "design-system-font-size",
+    "name": "Font size outside DESIGN.md",
+    "description": "A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.",
+    "severity": "advisory",
+    "category": "quality",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 323,
+    "snippet": "font-size: 1.125rem is off the DESIGN.md type ramp",
+    "advisory": true,
+    "ignoreValue": "1.125rem"
+  },
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "C:\\Users\\user\\.codex\\worktrees\\b714\\AI auto-git context\\assets\\dock.html",
+    "line": 0,
+    "snippet": ".route-platform[aria-expanded=\"true\"] — inset box-shadow 3px stripe (left)"
+  }
+]

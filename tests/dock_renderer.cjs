@@ -91,6 +91,102 @@ function snapshot() {
   return { schema_version: 'devmap/dock/4', repository_id: 'sha256-' + 'c'.repeat(64), revision: 4, observation_revision: 9, generated_at: stamp, current_worktree_id: lanes[0].worktree_id, development_target: null, integration_branches: [], branch_groups: [{ target_branch: 'main', terminal: false, fork_point: null, lanes }], lanes, current: [], active: [], stale_or_uninstrumented: [], topology: structuredClone(topology.graph), workspace_facts: lanes.map(l => ({ worktree_id: l.worktree_id, head_oid: l.head, detached: false, head_ref_coverage: 'protected', integration: 'included', target_ref: 'refs/heads/main', merge_commit_oid: null, working_state: 'clean', upstream: 'unknown', task_observed_at: stamp, git_observed_at: stamp, writer_evidence: [] })), task_observation: { scope: "unarchived_chats", observed_at: stamp, complete: true }, counts: { workspaces: lanes.length, tasks: 5 }, task_inventory_synced_at: stamp, warnings: [], truncated: false };
 }
 
+test('opening a visible chat does not open the selection inspector', () => {
+  const ui=harness({mode:'browser'});ui.acceptSnapshot(snapshot());
+  const details=ui.ids.get('selection-details');details.hidden=true;
+  ui.ids.get('relationship-map').querySelector('.platform-chat').listeners.click({preventDefault(){}});
+  assert.equal(details.hidden,true);
+});
+
+test('presence-only association with a UUID remains inspectable in Browser', () => {
+  const ui=harness({mode:'browser'}),value=snapshot();
+  value.lanes[0].chats=[{...chat('presence','Presence only'),association_source:'presence_worktree_id'}];
+  assert.equal(ui.acceptSnapshot(value),true);
+  const node=ui.ids.get('relationship-map').querySelector('.platform-chat');
+  assert.equal(node.dataset.navigable,'false');node.listeners.click();
+  assert.equal(ui.ids.get('selection-details').hidden,false);
+  assert.ok(ui.ids.get('selection-details').textContent.includes(codexId('presence')));
+});
+
+test('large chat inventories expand within their card without opening an inspector', () => {
+  const ui=harness({mode:'browser'}),value=snapshot();
+  value.lanes[0].chats=Array.from({length:12},(_,i)=>chat('many-'+i,'Chat '+i));
+  ui.acceptSnapshot(value);const map=ui.ids.get('relationship-map');
+  ui.ids.get('selection-details').hidden=true;
+  map.querySelector('.platform-more').listeners.click();
+  assert.equal(map.querySelectorAll('.platform-chat').length,12);
+  assert.equal(ui.ids.get('selection-details').hidden,true);
+  map.querySelector('.platform-more').listeners.click();
+  assert.equal(map.querySelectorAll('.platform-chat').length,2);
+});
+
+test('workspace cards expose chat links before details and keep shared-HEAD ownership separate', () => {
+  const ui=harness({mode:'browser'}), value=snapshot();
+  value.lanes[1].head=value.lanes[0].head;value.workspace_facts[1].head_oid=value.lanes[0].head;
+  value.lanes[1].chats=[chat('neighbor','Neighbor chat')];
+  assert.ok(ui.acceptSnapshot(value));
+  const map=ui.ids.get('relationship-map'), cards=map.querySelectorAll('.route-platform');
+  assert.equal(cards.length,value.lanes.length);
+  const card=cards.find(n=>n.dataset.worktreeId===value.lanes[0].worktree_id);
+  assert.equal(card.tagName,'section','chat links cannot be nested inside a platform button');
+  assert.equal(card.querySelectorAll('.platform-chat').length,2);
+  assert.equal(card.querySelector('.platform-chat').getAttribute('href'),'codex://threads/'+codexId('a'));
+  assert.ok(card.textContent.includes(value.lanes[0].chats[0].display_title));
+  assert.ok(!card.textContent.includes('Neighbor chat'));
+  assert.ok(!map.querySelector('.workspace-summary'));
+  card.querySelector('.platform-more').listeners.click();
+  const expanded=map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.lanes[0].worktree_id);
+  assert.equal(expanded.querySelectorAll('.platform-chat').length,4);
+  assert.ok(!expanded.textContent.includes('Historical task'));
+  const rects=map.metroLayout.attachments;
+  for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++) {
+    const a=rects[i],b=rects[j];
+    assert.ok(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y,'workspace cards must not overlap');
+  }
+});
+
+test('orientation changes reveal the selected workspace after the browser clamps scroll', () => {
+  const ui=harness(),value=snapshot();
+  const original=value.lanes[0],facts=value.workspace_facts[0];
+  value.lanes=Array.from({length:20},(_,i)=>({...structuredClone(original),worktree_id:'wt-'+(i+1).toString(16).padStart(64,'0'),workspace_path:'C:/checkouts/workspace-'+i,is_current:i===19,chats:[]}));
+  value.current_worktree_id=value.lanes[19].worktree_id;
+  value.branch_groups=[{...value.branch_groups[0],lanes:value.lanes}];
+  value.workspace_facts=value.lanes.map(l=>({...facts,worktree_id:l.worktree_id}));
+  value.counts={workspaces:20,tasks:0};
+  assert.equal(ui.acceptSnapshot(value),true);
+  const viewport=ui.ids.get('topology-viewport'),map=ui.ids.get('relationship-map');
+  const id=ui.explorationState().selectedWorkspaceId;
+  for(const width of [1000,360,826]) {
+    viewport.clientWidth=width;
+    viewport.scrollTo({left:0,top:0});viewport.listeners.scroll();
+    ui.renderSnapshot(value,true);
+    const card=map.metroLayout.attachments.find(a=>a.worktree_id===id);
+    assert.ok(16+card.x-viewport.scrollLeft<width && 16+card.x+card.width-viewport.scrollLeft>0,'selected card stays horizontally visible');
+    assert.ok(16+card.y-viewport.scrollTop<viewport.clientHeight && 16+card.y+card.height-viewport.scrollTop>0,'selected card stays vertically visible');
+  }
+});
+
+test('current chat is visible first and card controls retain keyboard focus through refresh', () => {
+  const value=snapshot(),self=value.lanes[0].chats[3];
+  const ui=harness({mode:'browser',taskFragment:'#codex-task='+self.codex_thread_id});ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map');
+  let card=map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
+  assert.ok(card.querySelector('.platform-chat').textContent.includes(self.display_title));
+  assert.equal(card.querySelector('.current-chat').textContent,'Current chat');
+  card.querySelector('.platform-chats').scrollTop=80;
+  const more=card.querySelector('.platform-more');more.focus();more.listeners.click();
+  assert.equal(map.querySelector('.platform-chats').scrollTop,80);
+  assert.equal(ui.document.activeElement.dataset.objectId,more.dataset.objectId);
+  ui.refreshDynamicState();
+  assert.equal(ui.document.activeElement.dataset.objectId,more.dataset.objectId);
+  card=map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
+  const details=card.querySelector('.platform-details');card.querySelector('.platform-chats').scrollTop=120;details.focus();ui.refreshDynamicState();
+  assert.equal(map.querySelector('.platform-chats').scrollTop,120);
+  assert.equal(ui.document.activeElement.dataset.objectId,details.dataset.objectId);
+  ui.advance(301000);ui.refreshDynamicState();
+  assert.match(map.querySelector('.platform-chat').querySelector('.conversation-state').textContent,/Last observed/);
+});
+
 // Reusable synthetic snapshot builder for the coordinated browser acceptance batch.
 function historySnapshot() {
   const value=snapshot(),lane=value.lanes[0];
@@ -182,7 +278,7 @@ test('inline refresh preserves scroll but switching resets it and missing task f
   const map=ui.ids.get('relationship-map');
   map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id).listeners.click();
   map.querySelector('.workspace-summary').scrollTop=190;
-  map.querySelector('.task-node').focus();
+  map.querySelector('.workspace-summary').querySelector('.task-node').focus();
   const changed=structuredClone(value); changed.observation_revision++; changed.lanes[0].chats[0].lifecycle='archived';
   assert.equal(ui.acceptSnapshot(changed),true);
   assert.equal(map.querySelector('.workspace-summary').scrollTop,190);
@@ -271,8 +367,8 @@ test('inspector collapse and size preserve workspace, viewport and refresh while
   ui.inspectWorkspace(value.lanes[1].worktree_id);
   assert.equal(details.dataset.collapsed, 'false');
   details.listeners.keydown({key:'Escape',preventDefault(){}});
-  assert.equal(details.dataset.collapsed, 'true');
-  assert.equal(ui.explorationState().selectedWorkspaceId, value.lanes[1].worktree_id);
+  assert.equal(details.hidden, true,'Escape dismisses the floating inspector');
+  assert.equal(ui.explorationState().selectedWorkspaceId, null);
 });
 
 test('planned destination remains separate and selected with an explicit retained target navigation', () => {
@@ -292,15 +388,13 @@ test('planned destination remains separate and selected with an explicit retaine
   assert.equal(future.dataset.journeySelected, 'false');
 });
 
-test('shared workspace refresh preserves chooser and exact inspector controls', () => {
-  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value);
-  ui.ids.get('relationship-map').querySelectorAll('.route-platform').find(n => Number(n.dataset.workspaceCount) > 1).listeners.click();
-  const map = ui.ids.get('relationship-map');
-  const choice=map.querySelector('.workspace-choice');choice.focus();ui.refreshDynamicState();
-  assert.equal(ui.document.activeElement.dataset.worktreeId,choice.dataset.worktreeId);
-  ui.ids.get('overview-toggle').listeners.click();
-  ui.refreshDynamicState();
-  assert.equal(ui.ids.get('overview-workspaces').hidden, false);
+test('shared workspace cards preserve exact details controls on refresh', () => {
+  const ui=harness(),value=snapshot();ui.acceptSnapshot(value);
+  const map=ui.ids.get('relationship-map'),card=map.querySelectorAll('.route-platform')[1];
+  card.listeners.click();map.querySelector('.summary-details').focus();ui.refreshDynamicState();
+  assert.equal(ui.document.activeElement.dataset.objectId,'summary-details:'+card.dataset.worktreeId);
+  ui.ids.get('overview-toggle').listeners.click();ui.refreshDynamicState();
+  assert.equal(ui.ids.get('overview-workspaces').hidden,false);
 });
 
 test('multiple planned destinations preserve exact action focus on age refresh', () => {
@@ -335,7 +429,7 @@ test('reported working directory shows the passenger with provenance and a verif
 test('route map starts with compact platforms and opens passenger details outside its geometry', () => {
   const ui=harness(), value=snapshot(); assert.ok(ui.acceptSnapshot(value));
   const map=ui.ids.get('relationship-map');
-  assert.equal(map.querySelectorAll('.task-node').length,0);
+  assert.equal(map.querySelectorAll('.platform-chat').length,2);
   const platform=map.querySelector('[data-worktree-id]'); assert.ok(platform);
   const before=JSON.stringify(map.metroLayout);
   platform.listeners.click();
@@ -344,7 +438,7 @@ test('route map starts with compact platforms and opens passenger details outsid
   assert.equal(details.hidden,false); assert.ok(details.querySelector('.task-node'));
   const expand=details.querySelector('.task-disclosure'); expand.listeners.click();
   assert.equal(JSON.stringify(map.metroLayout),before);
-  assert.equal(map.querySelectorAll('.task-node').length,0);
+  assert.equal(map.querySelectorAll('.platform-chat').length,2);
   assert.equal(details.querySelectorAll('.task-node').length,4);
 });
 
@@ -359,7 +453,7 @@ test('opening a platform locates it after the inspector reduces the map viewport
   surface.querySelector('.summary-details').listeners.click();
   const a=surface.metroLayout.attachments.find(a=>a.worktree_id===value.current_worktree_id);
   assert.equal(details.hidden,false);
-  assert.ok(16+a.y+a.height<=viewport.scrollTop+viewport.clientHeight,'selected platform stays visible above the opened inspector');
+  assert.ok(16+a.y>=viewport.scrollTop&&16+a.y+150<=viewport.scrollTop+viewport.clientHeight,'workspace identity and first chat stay visible above the inspector');
 });
 
 test('compatibility snapshots still expand their in-place roster', () => {
@@ -764,19 +858,14 @@ test('overview marks workspace HEADs, groups shared HEADs, and preserves readabl
   for (const stop of stops) {
     assert.ok(value.workspace_facts.some(fact => fact.head_oid === stop.dataset.headOid));
     assert.ok(stop.getAttribute('aria-label').includes('workspace'));
-    assert.ok(stop.textContent.includes('folder') || stop.textContent.includes('workspaces'));
+    assert.ok(stop.querySelector('.platform-directory').textContent.length>0);
     assert.ok(!/^[\d· !]+$/.test(stop.textContent), 'locations must identify themselves without a number key');
   }
-  const shared = stops.find(stop => Number(stop.dataset.workspaceCount) > 1);
-  assert.ok(shared, 'shared HEAD is one location, not an invented new commit');
-  shared.listeners.click();
-  assert.equal(Number(map.dataset.scale),1,'shared choices preserve route scale');
-  ui.acceptSnapshot({ ...value, observation_revision: value.observation_revision + 1 });
-  const choices = map.querySelectorAll('.workspace-choice');
-  assert.equal(choices.length, Number(shared.dataset.workspaceCount));
-  choices[1].listeners.click();
-  assert.equal(Number(map.dataset.scale), 1);
-  assert.equal(ui.explorationState().selectedWorkspaceId, choices[1].dataset.worktreeId);
+  const shared=stops.filter(stop=>stop.dataset.headOid===stops[1].dataset.headOid);
+  assert.ok(shared.length>1,'shared HEAD keeps separately accessible workspaces');
+  assert.equal(map.querySelectorAll('.route-station').filter(n=>n.dataset.commitOid===shared[0].dataset.headOid).length,1);
+  shared[1].listeners.click();
+  assert.equal(ui.explorationState().selectedWorkspaceId,shared[1].dataset.worktreeId);
   assert.equal(ui.messages.filter(message => message.method === 'ui/message').length, 0);
 });
 
@@ -825,9 +914,10 @@ test('selected workspace details refresh facts and HEAD without selection messag
   assert.match(ui.ids.get('selection-details').textContent, /stale/);
 });
 
-test('selected task refresh follows its verified identity through rename and relocation', () => {
-  const ui = harness(), value = snapshot(); ui.acceptSnapshot(value); ui.inspectWorkspace();
-  ui.ids.get('selection-details').querySelector('.task-node').listeners.click();
+test('inspect-only conversation refresh follows identity through rename and relocation', () => {
+  const ui = harness(), value = snapshot(); value.lanes[0].chats[0].codex_thread_id=null; ui.acceptSnapshot(value); ui.inspectWorkspace();
+  ui.ids.get('relationship-map').querySelector('.platform-more').listeners.click();
+  ui.ids.get('relationship-map').querySelectorAll('.platform-chat').find(n=>n.dataset.navigable==='false').listeners.click();
   const messages = ui.messages.length;
   const changed = structuredClone(value); changed.revision++; changed.observation_revision++;
   const moved = changed.lanes[0].chats.shift(); moved.display_title = 'Renamed after moving';
@@ -838,7 +928,7 @@ test('selected task refresh follows its verified identity through rename and rel
   assert.ok(ui.ids.get('selection-details').textContent.includes(changed.lanes[1].workspace_path));
   assert.equal(ui.explorationState().selectedWorkspaceId, changed.lanes[1].worktree_id);
   assert.equal(ui.messages.length, messages);
-  assert.match(ui.ids.get('interaction-feedback').textContent, /verify the destination/);
+  assert.match(ui.ids.get('interaction-feedback').textContent, /no verified Codex task link/);
 });
 
 test('age tick preserves focus on the exact non-first inspector endpoint without navigation side effects', () => {
@@ -942,10 +1032,10 @@ test('v4 renders actual graph, compact platforms, exact names, and keeps invalid
   assert.ok(details.textContent.includes('<img onerror=alert(1)> 保留完整任务标题'));
   assert.equal(surface.querySelectorAll('img').length, 0);
   assert.match(details.querySelector('.passenger-count').textContent, /4 passengers.*3 developing.*1 waiting/);
-  assert.equal(surface.querySelectorAll('.task-node').length,0);assert.equal(details.querySelectorAll('.task-node').length,2);
+  assert.equal(surface.querySelectorAll('.platform-chat').length,2);assert.equal(details.querySelectorAll('.task-node').length,2);
   const layout = surface.metroLayout;
   const card = surface.querySelectorAll('[data-worktree-id]')[0];
-  assert.equal(layout.attachments.find(a => a.worktree_id === card.dataset.worktreeId).height, 76);
+  assert.equal(layout.attachments.find(a => a.worktree_id === card.dataset.worktreeId).height, 378);
   const children = [...surface.children];
   const invalid = structuredClone(value); invalid.revision++; invalid.topology.edges[0].to_oid = 'f'.repeat(40);
   assert.equal(ui.acceptSnapshot(invalid), false);
@@ -1084,7 +1174,7 @@ test('browser task drill-down exposes a verified user-activated deep link withou
   node.listeners.click({ preventDefault() { prevented = true; } });
   assert.equal(prevented, false, 'the installed host must receive a normal user-activated link');
   assert.match(ui.ids.get('interaction-feedback').textContent, /request sent.*verify the destination/i);
-  assert.ok(ui.ids.get('selection-details').textContent.includes(codexId('a')), 'inspector keeps the exact-ID fallback');
+  assert.equal(ui.ids.get('selection-details').hidden,true, 'navigation dismisses the inspector');
 });
 
 test('unsupported task records remain inspectable and MCP requests recover on timeout', () => {
@@ -1207,10 +1297,10 @@ test('current and risk drill-down keep the station, stem and full workspace prev
     const card = layout.attachments.find(a => a.worktree_id === id);
     const head = layout.nodes.find(n => n.id === card.head_oid);
     assert.ok(16 + head.y - 10 >= viewport.scrollTop, 'HEAD must be visible above its Workspace');
-    assert.ok(16 + head.x - 10 >= viewport.scrollLeft, 'station must fit beside the workspace');
+    assert.ok(card.stem.points[0].x===head.x,'stem starts at the true station');
     assert.ok(16 + card.x + card.width <= viewport.scrollLeft + viewport.clientWidth, 'full title/preview width must fit');
     assert.ok(16 + card.y + card.height <= viewport.scrollTop + viewport.clientHeight, 'default preview must fit with its HEAD');
-    assert.ok(card.y - head.y <= 32, 'workspace precedes verbose reference metadata');
+    assert.ok(card.y>=head.y-22,'workspace remains attached to its HEAD');
     assert.ok(card.stem.points.at(-1).y <= card.y + 32, 'stem attaches to workspace identity, not below the preview');
   };
   ui.ids.get('locate-current').listeners.click();
@@ -1359,7 +1449,8 @@ test('locating either workspace sharing a HEAD brings its own identity beside th
     const layout = ui.ids.get('relationship-map').metroLayout;
     const attachment = layout.attachments.find(a => a.worktree_id === id);
     const node = layout.nodes.find(n => n.id === attachment.head_oid);
-    assert.equal(attachment.y-node.y,-22,'shared workspaces remain alongside their single station');
+    assert.equal(attachment.stem.points[0].y,node.y,'each workspace remains connected to the actual shared station');
+    assert.equal(attachment.stem.points.at(-1).y,attachment.y+22);
     assert.equal(layout.nodes.length, 12);
     assert.equal(layout.attachments.length, 6);
   };
@@ -1516,7 +1607,7 @@ test('hundreds of active, idle and historical tasks stay reachable in the inspec
     assert.equal(ui.ids.get('metric-tasks').textContent, '400');
     assert.equal(ui.ids.get('metric-open').textContent, '1');
     const measured = map.metroLayout.attachments.find(a => a.worktree_id === lane.worktree_id);
-    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,76);
+    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,category==='completed'?242:378,'default card size stays bounded regardless of inspector roster size');
     assert.ok(measured.height <= 16384);
     card.scrollTop = 18000;
     const lastTask = card.querySelectorAll('.task-node').at(-1); lastTask.focus();
@@ -1580,4 +1671,15 @@ test('Agent locator requires exact identity and fresh reported directory, never 
  assert.equal(ui.ids.get('locate-agent').disabled,false);assert.match(ui.ids.get('agent-location').textContent,/auth-folder/);
  ui.advance(301000);ui.refreshDynamicState();assert.equal(ui.ids.get('locate-agent').disabled,true);
  assert.match(ui.ids.get('agent-location').textContent,/expired/);
+});
+
+test('initial view and Agent locator reveal reported chat card without an inspector', () => {
+ const v=snapshot(),lane=v.lanes[1],task=v.lanes[0].chats.shift();lane.chats.push(task);
+ task.registered_workspace_path=v.lanes[0].workspace_path;task.association_source='agent_reported_working_directory';task.working_directory={path:lane.workspace_path,observed_at:stamp,source:'agent_report'};
+ const ui=harness({mode:'browser',taskFragment:'#codex-task='+task.codex_thread_id});assert.ok(ui.acceptSnapshot(v));
+ assert.equal(ui.explorationState().selectedWorkspaceId,lane.worktree_id,'initial selection follows verified Agent report');
+ ui.ids.get('selection-details').hidden=true;
+ ui.ids.get('locate-agent').listeners.click();
+ assert.equal(ui.ids.get('selection-details').hidden,true,'locating must leave chat card unobscured');
+ assert.equal(ui.explorationState().selectedWorkspaceId,lane.worktree_id);
 });

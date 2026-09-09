@@ -1,0 +1,29 @@
+   Compiling devmap v0.1.1 (C:\Users\user\.codex\worktrees\b714\AI auto-git context)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.31s
+     Running tests\dock_plugin.rs (target\debug\deps\dock_plugin-d62ffef89c6db90d.exe)
+
+running 3 tests
+test plugin_manifest_and_stdio_policy_are_minimal_and_portable ... ok
+test bundled_skill_has_a_narrow_honest_trigger ... ok
+test native_mcp_command_serves_plugin_tools_over_stdio ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests\dock_ui_contract.rs (target\debug\deps\dock_ui_contract-a32caaa676475d5a.exe)
+
+running 13 tests
+test dock_asset_accepts_exact_codex_task_links_and_renders_the_window_title ... ok
+test dock_task_navigation_does_not_turn_presence_only_records_into_links ... ok
+test dock_asset_preserves_required_titles_and_hides_unselected_inspector ... ok
+test dock_asset_uses_neutral_surfaces_and_small_area_semantic_colors ... ok
+test selection_context_contains_only_portable_route_identity ... ok
+test dock_asset_keeps_accessible_scrolling_and_transport_age_state ... ok
+test dock_asset_tracks_exploration_state_independently_from_rendered_nodes ... ok
+test dock_task_navigation_recovers_when_portable_bridge_does_not_reply ... ok
+test dock_refresh_requests_a_fresh_host_task_inventory ... ok
+test dock_asset_supports_safe_horizontal_pan_inputs ... ok
+test dock_asset_rejects_html_injection_and_keeps_embedded_validation_bounds ... ok
+test dock_asset_is_self_contained_and_uses_portable_bridge ... ok
+test dock_task_navigation_uses_only_a_validated_codex_thread_id ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

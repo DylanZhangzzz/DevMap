@@ -1,0 +1,70 @@
+   Compiling devmap v0.1.1 (C:\Users\user\.codex\worktrees\b714\AI auto-git context)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.41s
+     Running tests\dock_mcp.rs (target\debug\deps\dock_mcp-8a16e8afce14e04b.exe)
+
+running 18 tests
+test codex_task_inventory_rejects_unsupported_status ... ok
+test codex_task_inventory_rejects_ids_that_are_not_host_routable_uuids ... ok
+test dock_resource_and_decoupled_tools_are_advertised ... ok
+test resource_listing_rejects_unknown_fields ... ok
+test render_tool_advertises_the_openai_output_template_compatibility_alias ... ok
+test semantic_capture_starts_even_when_the_optional_dock_inventory_is_broken ... ok
+test mcp_opens_an_unborn_repository_and_returns_an_empty_v4_topology ... ok
+test mcp_runtime_audit_never_reports_a_tcp_listener ... ok
+test dropping_mcp_runtime_stops_the_browser_dock_listener ... ok
+test browser_dock_projects_exact_codex_task_titles_into_their_workspace ... ok
+test dock_calls_are_read_only_closed_world_and_revisioned ... ok
+test browser_tool_is_the_only_dock_tool_that_opens_and_reuses_a_listener ... ok
+test starting_browser_with_empty_inventory_clears_retained_dock_tasks ... ok
+test observed_subagents_remain_attached_to_the_parent_chat_without_adding_passengers ... ok
+test reported_working_directory_places_only_that_chat_and_preserves_host_registration ... ok
+test codex_task_inventory_distinguishes_omit_replace_and_clear ... ok
+test browser_initialization_preserves_copied_unknown_and_fresh_observation_times ... ok
+test data_inventory_refresh_reaches_the_running_viewer ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.02s
+
+     Running tests\dock_model.rs (target\debug\deps\dock_model-c7635c2f9ad31dea.exe)
+
+running 38 tests
+test empty_worktree_inventory_returns_error_without_panicking ... ok
+test journal_summary_finds_sessions_recorded_in_other_worktrees ... ok
+test dock_opens_an_unborn_repository_without_inventing_a_commit ... ok
+test failed_git_status_produces_unknown_working_state ... ok
+test reducer_does_not_attach_a_chat_without_exact_presence ... ok
+test reducer_orders_activity_by_instant_not_timestamp_spelling ... ok
+test no_routes_never_fabricates_a_route ... ok
+test journal_summary_is_read_only_and_reports_verified_missing_and_corrupt ... ok
+test reducer_bounds_large_multi_agent_output_without_hiding_truncation ... ok
+test agents_json_is_canonical_bounded_and_does_not_change_source_git_state ... ok
+test dock_v4_has_exact_envelope_and_unique_counts ... ok
+test host_observed_tasks_keep_verified_codex_navigation_identity ... ok
+test detached_head_is_protected_when_a_stable_ref_reaches_it ... ok
+test bounded_output_marks_a_partially_retained_task_roster ... ok
+test reducer_preserves_multiple_agents_and_marks_corrupt_capture_incomplete ... ok
+test reducer_groups_worktrees_at_the_same_exact_fork_point ... ok
+test reducer_projects_workspace_chats_branch_and_merge_target_in_one_lane ... ok
+test incomplete_binding_journal_degrades_history_without_hiding_current_git_facts ... ok
+test passenger_snapshot_expires_without_changing_chat_lifecycle ... ok
+test reducer_puts_current_first_and_unknown_worktrees_in_warning_group ... ok
+test reducer_keeps_distinct_fork_points_in_history_order ... ok
+test dock_service_revision_changes_only_when_content_changes ... ok
+test reducer_skips_mismatched_presence_and_is_deterministic ... ok
+test verified_inventory_promotes_matching_presence_without_losing_capture_evidence ... ok
+test replacing_inventory_updates_a_renamed_task_title ... ok
+test topology_cache_invalidates_on_ref_changes_without_caching_dirty_facts ... ok
+test workspace_facts_keep_included_and_dirty_as_independent_truths ... ok
+test unchanged_task_inventory_refreshes_observation_without_changing_structure ... ok
+test pending_watermark_update_prevents_stale_history_after_restart ... ok
+test replacing_inventory_reassociates_a_moved_task_to_only_its_exact_workspace ... ok
+test workspace_identity_never_uses_directory_name_as_branch_or_invents_creation ... ok
+test unused_topology_budget_retains_a_detached_head_when_history_fits ... ok
+test task_binding_observations_survive_restart_without_inventing_event_times ... ok
+test stale_viewer_inventory_cannot_reverse_a_newer_recorded_task_migration ... ok
+test unchanged_task_observation_watermark_survives_restart_and_rejects_delayed_migration ... ok
+test host_refresh_does_not_freshen_an_old_working_directory_report ... ok
+test topology_and_compatibility_share_the_dock_byte_budget_with_boundaries ... ok
+test budget_preserves_all_256_real_workspaces_and_late_dirty_unprotected_facts has been running for over 60 seconds
+test budget_preserves_all_256_real_workspaces_and_late_dirty_unprotected_facts ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 84.73s

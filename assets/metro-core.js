@@ -841,6 +841,10 @@
     const heads=new Set(base.attachments.map(a=>a.head_oid)),times=new Map();let cursor=32,previous=null;
     for(const node of [...base.nodes].sort((a,b)=>a.rank-b.rank||a.id.localeCompare(b.id))) {
       if(previous)cursor+=(historyRanges.some(r=>r.from_oid===previous.id)?(heads.has(previous.id)?240:192):heads.has(previous.id)||heads.has(node.id)?96:48)*textScale;
+      if(previous&&options.workspaceCards&&vertical) {
+        const cards=base.attachments.filter(a=>a.head_oid===previous.id);
+        if(cards.length)cursor=Math.max(cursor,times.get(previous.id)+cards.reduce((sum,a)=>sum+(options.cardHeights?.[a.worktree_id]||160)*textScale+gap+(a.worktree_id===options.expandedWorktreeId?320*textScale:0),0));
+      }
       times.set(node.id,cursor);previous=node;
     }
     const laneTracks=new Map(base.lanes.map((lane,i)=>[lane.id,i]));
@@ -877,17 +881,17 @@
     const crossings = railCrossings(edges,nodes);
     const groups = new Map();
     for (const a of base.attachments) {
-      const node = nodes.find(n=>n.id===a.head_oid), key = node?.id || a.worktree_id;
+      const node = nodes.find(n=>n.id===a.head_oid), key = options.workspaceCards ? a.worktree_id : node?.id || a.worktree_id;
       if (!groups.has(key)) groups.set(key,{node,items:[]});
       groups.get(key).items.push(a);
     }
-    const labelWidth = vertical ? Math.max(196, Math.min(320,(options.width || 500)-breadth-40)) : 240;
+    const labelWidth = vertical ? Math.max(196, Math.min(options.workspaceCards?540:320,(options.width || 500)-breadth-40)) : options.workspaceCards?340:240;
     const output = [], placed = [];
     for (const group of [...groups.values()].sort((a,b)=>(a.node?.rank ?? Infinity)-(b.node?.rank ?? Infinity))) {
       const node=group.node;
       const x=vertical ? breadth+32 : node?.x || 32;
       let y=vertical ? (node?.y || length+40)-22 : breadth+40;
-      const height=platformHeight+(group.items.some(a=>a.worktree_id===options.expandedWorktreeId)?320*textScale:0);
+      const height=(options.workspaceCards?(options.cardHeights?.[group.items[0].worktree_id]||160)*textScale:platformHeight)+(group.items.some(a=>a.worktree_id===options.expandedWorktreeId)?320*textScale:0);
       for (const p of placed) if(x<p.x+p.width+8 && x+labelWidth+8>p.x && y<p.y+p.height+gap && y+height+gap>p.y) y=p.y+p.height+gap;
       const rect={x,y,width:labelWidth,height}; placed.push(rect);
       for (const a of group.items) output.push({...a,...rect,stem:node ? {id:'platform:'+a.worktree_id,kind:'association',points:vertical ? [{x:node.x,y:node.y},{x:x-8,y:node.y},{x:x-8,y:y+22},{x,y:y+22}] : [{x:node.x,y:node.y},{x:node.x,y:y+22},{x,y:y+22}]} : null});
