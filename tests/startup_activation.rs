@@ -652,15 +652,26 @@ $ErrorActionPreference = 'Stop'
 $acl = [System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)
 [Console]::WriteLine($acl.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access))
 "#).unwrap();
-        let guard = Self {
+        let mut guard = Self {
             path: f.state.clone(),
             canonical,
             creation_time: metadata.creation_time(),
             original,
             restored: false,
         };
-        // The guard exists before the mutation, so an assertion or helper failure
-        // still restores only this fixture's original access descriptor.
+        // Round-trip only this owned fixture's unchanged access descriptor before
+        // saving the baseline. Windows can add AUTO_INHERITED during persistence.
+        // The guard already exists if normalization or the deny helper fails.
+        guard.original = fixture_acl_command(&guard.path, "", r#"
+$ErrorActionPreference = 'Stop'
+$acl = [System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)
+$access = $acl.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)
+$acl.SetSecurityDescriptorSddlForm($access, [System.Security.AccessControl.AccessControlSections]::Access)
+[System.IO.Directory]::SetAccessControl($env:DEVMAP_TEST_ACL_PATH, $acl)
+[Console]::WriteLine(([System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access))
+"#).unwrap();
+        // Deny injection is restored to this persisted baseline with exact SDDL
+        // comparison; no inherited access rule or parent ACL is relaxed.
         fixture_acl_command(&guard.path, "", r#"
 $ErrorActionPreference = 'Stop'
 $acl = [System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)
@@ -691,7 +702,7 @@ $acl = [System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)
 $acl.SetSecurityDescriptorSddlForm($env:DEVMAP_TEST_ACL_ORIGINAL, [System.Security.AccessControl.AccessControlSections]::Access)
 [System.IO.Directory]::SetAccessControl($env:DEVMAP_TEST_ACL_PATH, $acl)
 [Console]::WriteLine(([System.IO.Directory]::GetAccessControl($env:DEVMAP_TEST_ACL_PATH)).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access))
-"#).and_then(|restored| if restored == self.original { Ok(()) } else { Err("fixture ACL restoration differs from original".into()) })?;
+"#).and_then(|restored| if restored == self.original { Ok(()) } else { Err(format!("fixture ACL restoration differs from original; expected access SDDL: {:?}; actual access SDDL: {:?}", self.original, restored)) })?;
         self.restored = true;
         Ok(())
     }

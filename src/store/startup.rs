@@ -18,8 +18,35 @@ struct Attempt {
 }
 
 pub fn prepare_first_write(w: &SourceWorkspace) -> Result<WriteBackend, DevMapError> {
+    prepare_first_write_for(w, None)
+}
+
+pub(crate) fn prepare_first_journal_write(
+    w: &SourceWorkspace,
+    session_id: &str,
+) -> Result<WriteBackend, DevMapError> {
+    prepare_first_write_for(w, Some(session_id))
+}
+
+fn prepare_first_write_for(
+    w: &SourceWorkspace,
+    journal_session: Option<&str>,
+) -> Result<WriteBackend, DevMapError> {
     let guard = transition::Guard::acquire(w)?;
-    if crate::store::active_existing(w)?.is_some() {
+    let active = if journal_session.is_some() {
+        // Startup selects a backend, not journal write authority. Actual open
+        // and append independently validate target/session/source admission.
+        match RepositoryStore::open_existing(w)? {
+            Some(store) if is_active(store.connection())? => {
+                validated_activation(w, store.connection())?;
+                true
+            }
+            _ => false,
+        }
+    } else {
+        crate::store::active_existing(w)?.is_some()
+    };
+    if active {
         return Ok(WriteBackend::ActiveSql);
     }
     let existing = RepositoryStore::open_existing(w)?;

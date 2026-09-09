@@ -138,6 +138,12 @@ pub enum MutationCommand {
     },
 }
 
+/// Local dispatch only; this is not a serialized permission supplied by a client.
+pub(crate) enum StartupAdmission {
+    Strict,
+    RouteFreeJournal { session_id: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MutationResult {
@@ -147,6 +153,24 @@ pub enum MutationResult {
 }
 
 impl MutationCommand {
+    pub(crate) fn startup_admission(
+        &self,
+        workspace: &SourceWorkspace,
+    ) -> Result<StartupAdmission, DevMapError> {
+        let session = match self {
+            Self::SetRoute { .. } => None,
+            Self::RecordRequirement { common, .. }
+            | Self::RecordDecision { common, .. }
+            | Self::RecordEvidence { common, .. } => {
+                common.route_id.is_none().then(|| common.session_id.clone())
+            }
+            Self::CaptureHook { prepared } => prepared.route_free_session(workspace)?,
+        };
+        Ok(match session {
+            Some(session_id) => StartupAdmission::RouteFreeJournal { session_id },
+            None => StartupAdmission::Strict,
+        })
+    }
     /// Validate all prepared payload/envelope structure before any store setup.
     /// Current route state and compare-and-swap remain transaction-authoritative.
     pub fn validate_prepared(&self, workspace: &SourceWorkspace) -> Result<(), DevMapError> {

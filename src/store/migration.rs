@@ -23,8 +23,14 @@ const MAX_BYTES: u64 = 512 * 1024 * 1024;
 const SNAPSHOT: &str = "@snapshot";
 const ACTIVATION: &str = "@activation";
 const FENCE: &str = "activation-intent.json";
+#[path = "origin_observation.rs"]
+mod origin_observation;
 #[path = "startup.rs"]
 mod startup;
+pub(crate) use origin_observation::{
+    ActiveOriginReport, observe_active_journal_origins, observe_active_read_origins,
+};
+pub(crate) use startup::prepare_first_journal_write;
 pub use startup::{WriteBackend, prepare_first_write};
 fn fail(s: impl Into<String>) -> DevMapError {
     DevMapError::Store(s.into())
@@ -578,7 +584,18 @@ pub(crate) fn check_legacy_drift(
     workspace: &SourceWorkspace,
     connection: &Connection,
 ) -> Result<(), DevMapError> {
-    if let Some(record) = activation(connection)? {
+    if let Some(record) = validated_activation(workspace, connection)? {
+        revalidate(workspace, &record.manifest).map_err(|e| fail(format!("legacy source changed after activation; SQL and legacy retained, forward recovery required: {e}")))?;
+    }
+    Ok(())
+}
+
+fn validated_activation(
+    workspace: &SourceWorkspace,
+    connection: &Connection,
+) -> Result<Option<Activation>, DevMapError> {
+    let record = activation(connection)?;
+    if let Some(record) = &record {
         let fence: ActivationFence =
             serde_json::from_slice(&read(&workspace.git_common_dir.join("devmap").join(FENCE))?)?;
         if fence.format != "devmap-activation-intent/1"
@@ -591,14 +608,17 @@ pub(crate) fn check_legacy_drift(
             return Err(fail("activation provenance corrupt; SQL retained"));
         }
         validate_provenance(connection, &record.manifest)?;
-        revalidate(workspace, &record.manifest).map_err(|e| fail(format!("legacy source changed after activation; SQL and legacy retained, forward recovery required: {e}")))?;
-    } else if safe::checked_metadata(&workspace.git_common_dir.join("devmap").join(FENCE))?
-        .is_some()
-        && is_active(connection)?
-    {
-        return Err(fail("activation provenance missing; SQL retained"));
+    } else if is_active(connection)? {
+        let remaining: i64 =
+            connection.query_row("SELECT count(*) FROM migration_sources", [], |r| r.get(0))?;
+        if remaining != 0
+            || safe::checked_metadata(&workspace.git_common_dir.join("devmap").join(FENCE))?
+                .is_some()
+        {
+            return Err(fail("activation provenance missing; SQL retained"));
+        }
     }
-    Ok(())
+    Ok(record)
 }
 fn activation(c: &Connection) -> Result<Option<Activation>, DevMapError> {
     let json: Option<String> = c
@@ -883,6 +903,13 @@ fn revalidate(w: &SourceWorkspace, manifest: &FrozenManifest) -> Result<(), DevM
         }
     }
     let current = inventory(w, current_origins, manifest.evaluated_at.clone())?;
+    validate_inventory_equality(&current, manifest)
+}
+
+fn validate_inventory_equality(
+    current: &FrozenManifest,
+    manifest: &FrozenManifest,
+) -> Result<(), DevMapError> {
     let flatten = |m: &FrozenManifest| {
         m.files
             .iter()
@@ -904,8 +931,8 @@ fn revalidate(w: &SourceWorkspace, manifest: &FrozenManifest) -> Result<(), DevM
     };
     if current.repository_id != manifest.repository_id
         || current.common_dir != manifest.common_dir
-        || flatten(&current) != flatten(manifest)
-        || dirs(&current) != dirs(manifest)
+        || flatten(current) != flatten(manifest)
+        || dirs(current) != dirs(manifest)
     {
         return Err(fail("legacy source inventory/hash drift"));
     }

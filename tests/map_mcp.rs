@@ -165,6 +165,7 @@ fn passenger_lifecycle_is_exposed_to_agents_and_controls_unattended_work() {
         "devmap_read_map",
         json!({"view":"agent","codex_tasks":[]}),
     );
+    assert_ne!(implicit["result"]["isError"], true, "{implicit}");
     assert_eq!(
         implicit["result"]["structuredContent"]["workspace_facts"]["passengers"]["state"],
         "unknown"

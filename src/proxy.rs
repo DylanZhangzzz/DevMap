@@ -33,6 +33,8 @@ pub struct QueryProxy {
     backend: Backend,
     last_refresh: Instant,
     refresh_failed: bool,
+    observations: serde_json::Value,
+    summary: crate::summary::SummaryState,
 }
 
 impl QueryProxy {
@@ -59,6 +61,8 @@ impl QueryProxy {
             backend,
             last_refresh: Instant::now(),
             refresh_failed: false,
+            observations: serde_json::Value::Null,
+            summary: crate::summary::SummaryState::default(),
         };
         proxy.refresh(OffsetDateTime::now_utc())?;
         Ok(proxy)
@@ -87,7 +91,14 @@ impl QueryProxy {
                 })?
             }
         };
-        self.view.apply_projection(result)?;
+        let accepted = self.view.apply_projection(result)?;
+        self.observations = serde_json::json!({
+            "git_observed_at":accepted.git_observed_at,
+            "git_cycle":accepted.git_cycle,
+            "store_generation":accepted.store_generation,
+            "store_inputs_observed_at":accepted.store_inputs_observed_at,
+            "task_observation":accepted.model.task_observation,
+        });
         self.last_refresh = Instant::now();
         self.refresh_failed = false;
         Ok(self.snapshot())
@@ -98,6 +109,36 @@ impl QueryProxy {
             self.refresh(OffsetDateTime::now_utc())?;
         }
         Ok(self.snapshot())
+    }
+
+    pub(crate) fn summary_result(&mut self, cursor: Option<&str>) -> serde_json::Value {
+        if let Some(cursor) = cursor {
+            return self.summary.page(cursor);
+        }
+        if self.refresh(OffsetDateTime::now_utc()).is_err() {
+            return crate::summary::error("summary_refresh_failed");
+        }
+        self.capture_summary()
+    }
+
+    /// Called only while constructing the private MCP summary proxy, whose
+    /// constructor has just completed its initial verified projection.
+    pub(crate) fn open_summary(
+        source: &Path,
+        mode: ProxyMode,
+    ) -> Result<(Self, serde_json::Value), DevMapError> {
+        let mut proxy = Self::open(source, mode)?;
+        let result = proxy.capture_summary();
+        Ok((proxy, result))
+    }
+
+    fn capture_summary(&mut self) -> serde_json::Value {
+        self.summary.capture(
+            self.view
+                .snapshot()
+                .expect("successful refresh has a projection"),
+            self.observations.clone(),
+        )
     }
 
     /// Supplied rows replace this client's visible subset, preserving the public

@@ -441,6 +441,146 @@ pub(crate) fn active_existing(
         Ok(None)
     }
 }
+
+/// A journal-only capability bound to one current physical incarnation. It does
+/// not authorize route, binding, standalone presence, or migration operations.
+pub(crate) struct JournalAdmission {
+    origin: migration::FrozenOrigin,
+    session_id: String,
+    fingerprint: String,
+}
+impl JournalAdmission {
+    pub(crate) fn sql_origin(&self) -> (String, String, String) {
+        (
+            self.origin.worktree_id.clone(),
+            self.origin.incarnation.clone(),
+            self.origin.git_dir.to_string_lossy().into_owned(),
+        )
+    }
+    fn check(
+        workspace: &SourceWorkspace,
+        c: &Connection,
+        session_id: &str,
+        opened_incarnation: &str,
+    ) -> Result<Self, DevMapError> {
+        use rusqlite::OptionalExtension;
+        let report = migration::observe_active_journal_origins(workspace, c)?;
+        let root = fs_security::checked_canonical_directory(&workspace.root)?;
+        let git = fs_security::checked_canonical_directory(&workspace.git_dir)?;
+        let origin = report
+            .current
+            .values()
+            .find(|origin| origin.git_dir == git)
+            .ok_or_else(|| err("journal target is not a verified current origin"))?
+            .clone();
+        if fs_security::checked_canonical_directory(&origin.workspace_path)? != root {
+            return Err(err("journal target workspace identity mismatch"));
+        }
+        if origin.incarnation != opened_incarnation {
+            return Err(err("opened journal worktree incarnation changed"));
+        }
+        let saved: Option<(String, String, String)> = c.query_row(
+            "SELECT worktree_id,incarnation,origin_path FROM journal_sessions WHERE session_id=?1",
+            [session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        let registered = saved.is_some();
+        if let Some((worktree, incarnation, path)) = saved {
+            if worktree != origin.worktree_id
+                || incarnation != origin.incarnation
+                || path != origin.git_dir.to_string_lossy()
+            {
+                return Err(err("session origin or worktree incarnation mismatch"));
+            }
+        } else if !report.unavailable.is_empty() {
+            let exists: i64 = c.query_row(
+                "SELECT count(*) FROM presence_records WHERE session_id=?1",
+                [session_id],
+                |r| r.get(0),
+            )?;
+            if exists != 0 {
+                return Err(err(
+                    "unregistered historical presence cannot acquire a new journal incarnation",
+                ));
+            }
+        }
+        let registry: Option<(String, String, Option<String>)> = c.query_row(
+            "SELECT git_dir,workspace_path,retired_at FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
+            rusqlite::params![origin.worktree_id, origin.incarnation],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).optional()?;
+        if let Some((git, root, retired)) = registry {
+            if git != origin.git_dir.to_string_lossy()
+                || root != origin.workspace_path.to_string_lossy()
+                || retired.is_some()
+            {
+                return Err(err(
+                    "journal registry identity mismatch or retired incarnation",
+                ));
+            }
+        } else if registered {
+            return Err(err("journal session has no matching registry"));
+        }
+        Ok(Self {
+            origin,
+            session_id: session_id.to_owned(),
+            fingerprint: report.fingerprint,
+        })
+    }
+
+    fn recheck(&self, workspace: &SourceWorkspace, c: &Connection) -> Result<(), DevMapError> {
+        let after = Self::check(workspace, c, &self.session_id, &self.origin.incarnation)?;
+        if after.origin != self.origin || after.fingerprint != self.fingerprint {
+            return Err(err("journal origins changed during acceptance"));
+        }
+        Ok(())
+    }
+}
+
+/// SQL journal opening/replay is read-only and never repairs/registers a session.
+pub(crate) fn journal_read<T>(
+    workspace: &SourceWorkspace,
+    session_id: &str,
+    opened_incarnation: &str,
+    f: impl FnOnce(&Connection, &JournalAdmission) -> Result<T, DevMapError>,
+) -> Result<Option<T>, DevMapError> {
+    let Some(store) = RepositoryStore::open_existing(workspace)? else {
+        return Ok(None);
+    };
+    let tx = store.connection().unchecked_transaction()?;
+    if !is_active(&tx)? {
+        return Ok(None);
+    }
+    let admission = JournalAdmission::check(workspace, &tx, session_id, opened_incarnation)?;
+    let result = f(&tx, &admission)?;
+    admission.recheck(workspace, &tx)?;
+    tx.commit()?;
+    Ok(Some(result))
+}
+
+pub(crate) fn journal_write_guarded<T>(
+    workspace: &SourceWorkspace,
+    session_id: &str,
+    opened_incarnation: &str,
+    f: impl FnOnce(
+        Option<(&Transaction<'_>, &JournalAdmission)>,
+        &transition::Guard,
+    ) -> Result<T, DevMapError>,
+) -> Result<T, DevMapError> {
+    let guard = transition::Guard::acquire(workspace)?;
+    if RepositoryStore::open_existing(workspace)?.is_none() {
+        return f(None, &guard);
+    }
+    let mut store = RepositoryStore::open_guarded(workspace, &guard)?;
+    store.transaction(|tx| {
+        if !is_active(tx)? {
+            return f(None, &guard);
+        }
+        let admission = JournalAdmission::check(workspace, tx, session_id, opened_incarnation)?;
+        let result = f(Some((tx, &admission)), &guard)?;
+        admission.recheck(workspace, tx)?;
+        Ok(result)
+    })
+}
 /// Serialize selector inspection and writes with activation of an existing shadow.
 pub(crate) fn domain_write<T>(
     workspace: &SourceWorkspace,

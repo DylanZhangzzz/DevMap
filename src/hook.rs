@@ -130,6 +130,18 @@ impl PreparedHook {
         self.validated_session(workspace).map(|_| ())
     }
 
+    pub(crate) fn route_free_session(
+        &self,
+        workspace: &SourceWorkspace,
+    ) -> Result<Option<String>, DevMapError> {
+        let session = self.validated_session(workspace)?;
+        let events = self.normalized(workspace, 1)?;
+        Ok(events
+            .iter()
+            .all(|event| event.context().route_id().is_none())
+            .then_some(session))
+    }
+
     fn validated_session(&self, workspace: &SourceWorkspace) -> Result<String, DevMapError> {
         let validated = self.normalized(workspace, 1)?;
         let session = validated

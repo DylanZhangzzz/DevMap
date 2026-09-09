@@ -25,6 +25,7 @@ pub mod proxy;
 pub mod route_plan;
 pub mod runtime;
 pub mod store;
+mod summary;
 pub mod viewer;
 pub mod worktrees;
 

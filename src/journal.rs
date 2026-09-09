@@ -749,6 +749,7 @@ pub struct JournalStore {
     session_id: String,
     root_identity: FileIdentity,
     session_identity: FileIdentity,
+    opened_incarnation: String,
 }
 
 struct JournalAppendLock {
@@ -785,7 +786,10 @@ impl JournalStore {
         }
 
         let _transition = crate::store::transition::Guard::acquire(workspace)?;
-        if crate::store::active_existing(workspace)?.is_some() {
+        let opened_incarnation = worktree_incarnation(workspace)?;
+        if crate::store::journal_read(workspace, session_id, &opened_incarnation, |_, _| Ok(()))?
+            .is_some()
+        {
             let identity = checked_directory_identity(&workspace.git_dir)?;
             return Ok(Self {
                 workspace: workspace.clone(),
@@ -794,6 +798,7 @@ impl JournalStore {
                 session_id: session_id.to_owned(),
                 root_identity: identity.clone(),
                 session_identity: identity,
+                opened_incarnation,
             });
         }
         let session_root =
@@ -811,6 +816,7 @@ impl JournalStore {
             session_id: session_id.to_owned(),
             root_identity,
             session_identity,
+            opened_incarnation,
         })
     }
 
@@ -830,12 +836,17 @@ impl JournalStore {
         if self.project_capture {
             return self.append_capture_batch_with(time::OffsetDateTime::now_utc(), build);
         }
-        crate::store::domain_write(&self.workspace, |tx| {
-            if let Some(tx) = tx {
-                return self.append_sql(tx, build);
-            }
-            self.append_legacy(build)
-        })
+        crate::store::journal_write_guarded(
+            &self.workspace,
+            &self.session_id,
+            &self.opened_incarnation,
+            |tx, _guard| {
+                if let Some((tx, admission)) = tx {
+                    return self.append_sql(tx, admission, build);
+                }
+                self.append_legacy(build)
+            },
+        )
     }
 
     /// Opt application capture into journal plus presence acceptance. Direct stores retain journal-only behavior.
@@ -853,46 +864,54 @@ impl JournalStore {
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
-        crate::store::domain_write_guarded(&self.workspace, |tx, guard| {
-            if let Some(tx) = tx {
-                let before: i64 = tx.query_row(
-                    "SELECT generation FROM store_meta WHERE singleton=1",
-                    [],
-                    |r| r.get(0),
-                )?;
-                let records = self.append_sql(tx, build)?;
-                let (_, changed) = crate::presence::PresenceStore::for_projection(&self.workspace)?
-                    .observe_sql(
-                        tx,
-                        crate::presence::PresenceSignal::AcceptedRecords(&records),
-                        now,
-                    )?;
-                let after: i64 = tx.query_row(
-                    "SELECT generation FROM store_meta WHERE singleton=1",
-                    [],
-                    |r| r.get(0),
-                )?;
-                if changed && before == after {
-                    tx.execute(
-                        "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+        crate::store::journal_write_guarded(
+            &self.workspace,
+            &self.session_id,
+            &self.opened_incarnation,
+            |tx, guard| {
+                if let Some((tx, admission)) = tx {
+                    let before: i64 = tx.query_row(
+                        "SELECT generation FROM store_meta WHERE singleton=1",
                         [],
+                        |r| r.get(0),
                     )?;
+                    let records = self.append_sql(tx, admission, build)?;
+                    let (_, changed) =
+                        crate::presence::PresenceStore::for_projection(&self.workspace)?
+                            .observe_sql(
+                                tx,
+                                crate::presence::PresenceSignal::AcceptedRecords(&records),
+                                now,
+                            )?;
+                    let after: i64 = tx.query_row(
+                        "SELECT generation FROM store_meta WHERE singleton=1",
+                        [],
+                        |r| r.get(0),
+                    )?;
+                    if changed && before == after {
+                        tx.execute(
+                            "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+                            [],
+                        )?;
+                    }
+                    return Ok(records);
                 }
-                return Ok(records);
-            }
-            let records = self.append_legacy(build)?;
-            if let Err(error) = crate::presence::PresenceStore::open_guarded(&self.workspace, guard)
-                .and_then(|store| {
-                    store.observe_legacy(
-                        crate::presence::PresenceSignal::AcceptedRecords(&records),
-                        now,
+                let records = self.append_legacy(build)?;
+                if let Err(error) =
+                    crate::presence::PresenceStore::open_guarded(&self.workspace, guard).and_then(
+                        |store| {
+                            store.observe_legacy(
+                                crate::presence::PresenceSignal::AcceptedRecords(&records),
+                                now,
+                            )
+                        },
                     )
-                })
-            {
-                eprintln!("devmap: presence update skipped: {error}");
-            }
-            Ok(records)
-        })
+                {
+                    eprintln!("devmap: presence update skipped: {error}");
+                }
+                Ok(records)
+            },
+        )
     }
 
     fn append_legacy<F>(&self, build: F) -> Result<Vec<JournalRecord>, DevMapError>
@@ -974,18 +993,29 @@ impl JournalStore {
     }
 
     pub fn replay(&self) -> Result<Vec<JournalRecord>, DevMapError> {
-        if let Some(store) = crate::store::active_existing(&self.workspace)? {
-            store.connection().execute_batch("BEGIN")?;
-            self.validate_sql_origin(store.connection())?;
-            return sql_records(store.connection(), &self.session_id);
+        if let Some(records) = crate::store::journal_read(
+            &self.workspace,
+            &self.session_id,
+            &self.opened_incarnation,
+            |c, admission| {
+                self.validate_sql_origin_at(c, &admission.sql_origin())?;
+                sql_records(c, &self.session_id)
+            },
+        )? {
+            return Ok(records);
         }
-        crate::store::domain_write(&self.workspace, |tx| {
-            if let Some(tx) = tx {
-                self.validate_sql_origin(tx)?;
-                return sql_records(tx, &self.session_id);
-            }
-            self.replay_legacy()
-        })
+        crate::store::journal_write_guarded(
+            &self.workspace,
+            &self.session_id,
+            &self.opened_incarnation,
+            |tx, _guard| {
+                if let Some((tx, admission)) = tx {
+                    self.validate_sql_origin_at(tx, &admission.sql_origin())?;
+                    return sql_records(tx, &self.session_id);
+                }
+                self.replay_legacy()
+            },
+        )
     }
 
     fn replay_legacy(&self) -> Result<Vec<JournalRecord>, DevMapError> {
@@ -1678,21 +1708,6 @@ mod binding_snapshot_tests {
 }
 
 impl JournalStore {
-    fn sql_origin(&self) -> Result<(String, String, String), DevMapError> {
-        let current = crate::worktrees::WorktreeScanner::scan(&self.workspace)?
-            .into_iter()
-            .find(|r| r.is_current)
-            .ok_or_else(|| corruption("current worktree missing"))?;
-        let incarnation = worktree_incarnation(&self.workspace)?;
-        let origin = crate::fs_security::checked_canonical_directory(&self.workspace.git_dir)?
-            .to_string_lossy()
-            .into_owned();
-        Ok((current.worktree_id, incarnation, origin))
-    }
-    fn validate_sql_origin(&self, c: &rusqlite::Connection) -> Result<(), DevMapError> {
-        self.validate_sql_origin_at(c, &self.sql_origin()?)
-    }
-
     fn validate_sql_origin_at(
         &self,
         c: &rusqlite::Connection,
@@ -1711,13 +1726,14 @@ impl JournalStore {
     fn append_sql<F>(
         &self,
         tx: &rusqlite::Transaction<'_>,
+        admission: &crate::store::JournalAdmission,
         build: F,
     ) -> Result<Vec<JournalRecord>, DevMapError>
     where
         F: FnOnce(u64) -> Result<Vec<EventEnvelope>, DevMapError>,
     {
         use rusqlite::OptionalExtension;
-        let current_origin = self.sql_origin()?;
+        let current_origin = admission.sql_origin();
         self.validate_sql_origin_at(tx, &current_origin)?;
         // Registry identity is authoritative even before this session is registered.
         // Validate it under the acceptance transaction before invoking the builder.
@@ -1742,6 +1758,14 @@ impl JournalStore {
             return Err(corruption("journal batch must contain at least one event"));
         }
         self.validate_event_sessions(&events)?;
+        if events
+            .iter()
+            .any(|event| event.context().route_id().is_some())
+        {
+            // Lifecycle qualification grants no route association, including
+            // exact receipt retries. The original strict policy still applies.
+            crate::store::migration::check_legacy_drift(&self.workspace, tx)?;
+        }
         let matching = events
             .iter()
             .map(|event| {

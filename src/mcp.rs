@@ -781,6 +781,45 @@ fn map_tool_response(
     name: &str,
     mut arguments: Map<String, Value>,
 ) -> Value {
+    if name == MAP_READ_TOOL && arguments.get("view") == Some(&json!("summary")) {
+        // Summary reads cannot enter the legacy alias's inventory-write path.
+        if arguments
+            .keys()
+            .any(|key| !matches!(key.as_str(), "view" | "cursor"))
+            || arguments
+                .get("cursor")
+                .is_some_and(|cursor| cursor.as_str().is_none_or(|value| value.len() != 64))
+        {
+            return json_rpc_result(id, crate::summary::error("summary_arguments"));
+        }
+        let cursor = arguments.get("cursor").and_then(Value::as_str);
+        // An unknown cursor must not initialize a proxy or trigger a fresh query.
+        if cursor.is_some() && runtime.dock.is_none() {
+            return json_rpc_result(
+                id,
+                crate::summary::error("summary_cursor_expired_or_invalid"),
+            );
+        }
+        if runtime.dock.is_none() {
+            let result = match QueryProxy::open_summary(&runtime.workspace.root, runtime.proxy_mode)
+            {
+                Ok((proxy, result)) => {
+                    runtime.dock = Some(Arc::new(Mutex::new(proxy)));
+                    result
+                }
+                Err(_) => crate::summary::error("summary_refresh_failed"),
+            };
+            return json_rpc_result(id, result);
+        }
+        let result = match runtime.ensure_dock() {
+            Ok(proxy) => match proxy.lock() {
+                Ok(mut proxy) => proxy.summary_result(cursor),
+                Err(_) => crate::summary::error("summary_client_unavailable"),
+            },
+            Err(_) => crate::summary::error("summary_refresh_failed"),
+        };
+        return json_rpc_result(id, result);
+    }
     if name == MAP_PLAN_TOOL {
         let result =
             serde_json::from_value::<crate::route_plan::PlanInput>(Value::Object(arguments))
@@ -1491,7 +1530,11 @@ fn tool_descriptors() -> Vec<Value> {
     read["inputSchema"]["properties"]["entity_id"] =
         json!({"type":"string","minLength":1,"maxLength":128});
     read["inputSchema"]["properties"]["view"] =
-        json!({"type":"string","enum":["map","context","agent"]});
+        json!({"type":"string","enum":["map","context","agent","summary"]});
+    read["inputSchema"]["properties"]["cursor"] = json!({"type":"string","minLength":64,"maxLength":64,"description":"Opaque retained summary page or detail cursor; use only with view summary and no inventory fields. Expires after 60 seconds or a new summary."});
+    read["description"] = json!(
+        "Read map (legacy default), agent or context, or explicit view summary for a read-only result bounded to 32 KiB. Summary retains original observation times and opaque immutable pages for 60 seconds; inventory parameters are not accepted. Task/workspace detail_cursor returns JSON UTF-8 chunks with offset_bytes, total_bytes and sha256. Retained pages are historical snapshot data, not a fresh Git check. No view certifies execution location or merge readiness."
+    );
     let mut plan = tool_descriptor(
         MAP_PLAN_TOOL,
         "Record or revise explicit route intent as local DevMap metadata. Never creates a Git branch, commit or merge. Use a stable request_id for retries and expected_revision for concurrent edits. Read worktree_id from the map.",

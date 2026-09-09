@@ -122,7 +122,14 @@ fn execute_inner(
     }
     if let ApplicationRequest::Mutate { command } = request {
         command.validate_prepared(&workspace)?;
-        crate::store::migration::prepare_first_write(&workspace)?;
+        match command.startup_admission(&workspace)? {
+            crate::mutation::StartupAdmission::Strict => {
+                crate::store::migration::prepare_first_write(&workspace)?;
+            }
+            crate::mutation::StartupAdmission::RouteFreeJournal { session_id } => {
+                crate::store::migration::prepare_first_journal_write(&workspace, &session_id)?;
+            }
+        }
         let mutation = command.execute(&workspace)?;
         if let Some(app) = app {
             app.reconcile();

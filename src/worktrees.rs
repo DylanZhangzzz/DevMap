@@ -83,10 +83,7 @@ impl WorktreeScanner {
             if !seen_git_dirs.insert(normalized_git_dir.clone()) {
                 return Err(malformed());
             }
-            let worktree_id = format!(
-                "wt-{}",
-                sha256_hex(format!("{repository_id}\0{normalized_git_dir}").as_bytes())
-            );
+            let worktree_id = origin_id(&repository_id, &git_dir);
             rows.push(WorktreeDescriptor {
                 worktree_id,
                 is_current: canonical_root.as_ref() == Some(&current_root),
@@ -229,6 +226,14 @@ fn resolve_prunable_git_dir(root: &Path, git_common_dir: &Path) -> Result<PathBu
         }
     }
     Err(malformed())
+}
+
+pub(crate) fn origin_id(repository_id: &str, git_dir: &Path) -> String {
+    let normalized_git_dir = normalized_path(git_dir);
+    format!(
+        "wt-{}",
+        sha256_hex(format!("{repository_id}\0{normalized_git_dir}").as_bytes())
+    )
 }
 
 fn normalized_path(path: &Path) -> String {

@@ -182,6 +182,7 @@ pub struct RepositoryApplication {
     dirty: bool,
     targets: Vec<String>,
     ancestry: BTreeMap<(String, String), Option<dock::HistoryWarning>>,
+    origin_fingerprint: Option<String>,
 }
 impl RepositoryApplication {
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
@@ -197,6 +198,7 @@ impl RepositoryApplication {
             dirty: true,
             targets: vec![],
             ancestry: BTreeMap::new(),
+            origin_fingerprint: None,
         })
     }
     /// Explicit freshness bound; default two seconds, never above one minute.
@@ -216,7 +218,7 @@ impl RepositoryApplication {
         self.storage.invalidate();
         self.ancestry.clear();
     }
-    fn validate_client(&self, view: &ClientView) -> Result<(), DevMapError> {
+    fn validate_client(&self, view: &ClientView) -> Result<SourceWorkspace, DevMapError> {
         if crate::fs_security::checked_canonical_directory(&view.workspace.git_common_dir)?
             != self.common_dir
         {
@@ -233,7 +235,7 @@ impl RepositoryApplication {
                 "client workspace identity mismatch",
             ));
         }
-        Ok(())
+        Ok(actual)
     }
     pub fn query(
         &mut self,
@@ -258,8 +260,18 @@ impl RepositoryApplication {
         now: OffsetDateTime,
     ) -> Result<ApplicationSnapshot, DevMapError> {
         query.validate()?;
-        self.validate_client(&ClientView::new(workspace.clone()))?;
+        let actual = self.validate_client(&ClientView::new(workspace.clone()))?;
+        // The owner may outlive the worktree that first opened it. A surviving
+        // authenticated client supplies a fresh source in the same repository.
+        // Only proven absence enables reanchoring; access/identity errors remain
+        // errors and never authorize reading a different repository.
+        if crate::fs_security::checked_metadata(&self.workspace.root)?.is_none() {
+            self.workspace = actual;
+            self.dirty = true;
+            self.ancestry.clear();
+        }
         let (generation, inputs) = self.storage.read(&self.workspace)?;
+        let origin_fingerprint = self.storage.origin_fingerprint().map(str::to_owned);
         let plans = inputs
             .routes
             .as_ref()
@@ -272,6 +284,7 @@ impl RepositoryApplication {
         targets.sort();
         targets.dedup();
         if self.dirty
+            || origin_fingerprint != self.origin_fingerprint
             || self
                 .collected
                 .is_none_or(|t| t.elapsed() >= self.git_max_age)
@@ -290,6 +303,7 @@ impl RepositoryApplication {
             self.cycle += 1;
             self.targets = targets;
             self.dirty = false;
+            self.origin_fingerprint = origin_fingerprint;
         }
         // Collection can finish after the caller sampled its projection clock.
         // Keep evaluation at least as recent as those newly collected facts.

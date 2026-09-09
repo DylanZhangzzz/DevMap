@@ -104,12 +104,20 @@ fn linked_session_origins_conflict_and_recreated_root_cannot_inherit() {
         .unwrap()
         .append(event(1, "a", "2026-09-08T10:00:00Z"))
         .unwrap();
+    let store = RepositoryStore::open_existing(&w).unwrap().unwrap();
+    let c = rusqlite::Connection::open(store.path()).unwrap();
+    let before = acceptance_state(&c);
+    let built = std::cell::Cell::new(false);
     assert!(
         JournalStore::open(&lw, "s")
-            .unwrap()
-            .append(event(1, "a", "2026-09-08T10:00:00Z"))
+            .and_then(|j| j.append_batch_with(|_| {
+                built.set(true);
+                Ok(vec![event(1, "a", "2026-09-08T10:00:00Z")])
+            }))
             .is_err()
     );
+    assert!(!built.get());
+    assert_eq!(acceptance_state(&c), before);
     let j = JournalStore::open(&lw, "local").unwrap();
     j.append_batch_with(|n| {
         let mut v = serde_json::to_value(event(n, "local", "2026-09-08T10:00:00Z")).unwrap();
@@ -125,13 +133,87 @@ fn linked_session_origins_conflict_and_recreated_root_cannot_inherit() {
         .unwrap()
         .workspace()
         .unwrap();
+    let before = acceptance_state(&c);
+    let built = std::cell::Cell::new(false);
+    assert!(
+        j.append_batch_with(|_| {
+            built.set(true);
+            Ok(vec![event(2, "stale-handle", "2026-09-08T11:00:00Z")])
+        })
+        .is_err()
+    );
+    assert!(!built.get());
     assert!(
         JournalStore::open(&replacement, "local")
-            .unwrap()
-            .replay()
+            .and_then(|j| j.replay())
             .is_err()
     );
+    assert_eq!(acceptance_state(&c), before);
     std::fs::remove_dir_all(&parked).unwrap();
+}
+
+#[test]
+fn native_journal_rejects_foreign_pointer_and_wrong_backlink_before_and_after_build() {
+    for (foreign_pointer, during_build) in [(true, false), (false, false), (false, true)] {
+        let (d, w) = setup();
+        let linked = support::linked_worktree(d.path(), "linked");
+        let lw = SourceGitInspector::open(linked.path())
+            .unwrap()
+            .workspace()
+            .unwrap();
+        let foreign = support::committed_repo();
+        let j = JournalStore::open(&lw, "s")
+            .unwrap()
+            .with_presence_projection();
+        j.append(event(1, "initial", "2026-09-08T10:00:00Z"))
+            .unwrap();
+        let store = RepositoryStore::open_existing(&w).unwrap().unwrap();
+        let c = rusqlite::Connection::open(store.path()).unwrap();
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM migration_sources", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        let before = full_sql_snapshot(&c);
+        let pointer = if foreign_pointer {
+            lw.root.join(".git")
+        } else {
+            lw.git_dir.join("gitdir")
+        };
+        let original = std::fs::read(&pointer).unwrap();
+        let wrong = if foreign_pointer {
+            format!("gitdir: {}\n", foreign.path().join(".git").display())
+        } else {
+            // Existing sibling file with wrong basename must not be accepted.
+            let wrong = lw.root.join("wrong-backlink");
+            std::fs::write(&wrong, b"not a Git pointer").unwrap();
+            format!("{}\n", wrong.display())
+        };
+        if !during_build {
+            std::fs::write(&pointer, &wrong).unwrap();
+        }
+        let built = std::cell::Cell::new(false);
+        let result = j.append_batch_with(|n| {
+            built.set(true);
+            if during_build {
+                std::fs::write(&pointer, &wrong)?;
+            }
+            Ok(vec![event(n, "rejected", "2026-09-08T11:00:00Z")])
+        });
+        let replay = j.replay();
+        let reopened = JournalStore::open(&lw, "s");
+        std::fs::write(&pointer, original).unwrap();
+        assert!(
+            result.is_err(),
+            "foreign={foreign_pointer}, during_build={during_build}"
+        );
+        assert_eq!(built.get(), during_build);
+        assert!(replay.is_err());
+        assert!(reopened.is_err());
+        assert_eq!(full_sql_snapshot(&c), before);
+        assert_eq!(j.replay().unwrap().len(), 1);
+    }
 }
 #[test]
 fn concurrent_append_and_retry_preserve_chain() {
@@ -300,6 +382,41 @@ fn retired_incarnation_refuses_new_acceptance() {
     );
 }
 
+fn full_sql_snapshot(c: &rusqlite::Connection) -> Vec<(String, Vec<Vec<String>>)> {
+    let tx = c.unchecked_transaction().unwrap();
+    let tables: Vec<String> = tx.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+    let result = tables
+        .into_iter()
+        .map(|name| {
+            let quoted = format!("\"{}\"", name.replace('"', "\"\""));
+            let count = tx
+                .prepare(&format!("SELECT * FROM {quoted}"))
+                .unwrap()
+                .column_count();
+            let order = (1..=count)
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut statement = tx
+                .prepare(&format!("SELECT * FROM {quoted} ORDER BY {order}"))
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| {
+                    (0..count)
+                        .map(|index| Ok(format!("{:?}", row.get_ref(index)?)))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            (name, rows)
+        })
+        .collect();
+    tx.commit().unwrap();
+    result
+}
+
 fn acceptance_state(c: &rusqlite::Connection) -> (i64, String, String, i64, i64, i64) {
     c.query_row(
         "SELECT generation,
@@ -349,12 +466,12 @@ fn retired_registry_refuses_new_session_capture_before_build() {
     .unwrap();
     let before = acceptance_state(&c);
     let built = std::cell::Cell::new(false);
-    let result = JournalStore::open(&w, "new-session")
-        .unwrap()
-        .append_capture_batch_with(time::OffsetDateTime::now_utc(), |n| {
+    let result = JournalStore::open(&w, "new-session").and_then(|j| {
+        j.append_capture_batch_with(time::OffsetDateTime::now_utc(), |n| {
             built.set(true);
             Ok(vec![new_session_event(n)])
-        });
+        })
+    });
     assert!(
         result.is_err(),
         "new session must not bypass a retired incarnation"
@@ -382,12 +499,12 @@ fn inconsistent_registry_refuses_new_session_before_build() {
         c.execute(mutation, []).unwrap();
         let before = acceptance_state(&c);
         let built = std::cell::Cell::new(false);
-        let result = JournalStore::open(&w, "new-session")
-            .unwrap()
-            .append_batch_with(|n| {
+        let result = JournalStore::open(&w, "new-session").and_then(|j| {
+            j.append_batch_with(|n| {
                 built.set(true);
                 Ok(vec![new_session_event(n)])
-            });
+            })
+        });
         assert!(result.is_err(), "registry mismatch must reject: {mutation}");
         assert!(
             !built.get(),

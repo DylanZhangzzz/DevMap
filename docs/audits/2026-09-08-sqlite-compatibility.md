@@ -358,3 +358,78 @@ Lifecycle qualification remains under development: initial removal and remaining
 source tamper cases pass, but foreign .git redirection exposed a real missing
 identity check, and same-path new-session writes remain intentionally blocked
 by the strict write gate. These open cases are not included in this scoped slice.
+
+## Qualified history and bounded summaries — partial acceptance
+
+The deleted-owner-anchor regression now passes: a live client can reanchor the
+same repository application only when its previous root is confirmed absent.
+Foreign Git pointers, wrong administration backlinks and altered surviving
+legacy bytes still fail. Latest qualified-origin suite passes 7/7 in 43.03 s,
+including same-path replacement with a fresh no-route journal+presence capture.
+Old sessions and opened handles cannot inherit the replacement. Historical SQL
+rows and frozen provenance remain retained. Worktree moves are still open.
+
+Public MCP map regressions pass 11/11 in 52.13 s and stdio passes 12/12 in
+24.02 s, including twelve simultaneous captures. A separate direct SQL journal
+concurrency test still times out at the backend transition lock (11/12 passed).
+Its remaining fix is being investigated without increasing the production
+timeout or weakening integrity validation. This is not full concurrency acceptance.
+
+The explicit `view=summary` path passes three public direct-MCP tests in 12.28 s
+and three UTF-8/packing/detail/replay/expiry unit tests in 0.01 s. Every MCP result
+is bounded to 32768 bytes, excluding the caller-owned JSON-RPC envelope. Cursor
+pages retain original observation times and warning coverage. The default map
+and frontend remain unchanged. Actual shared-process summary latency and byte
+checks remain pending; retained-page speed is not fresh-query performance.
+
+Startup regression passes 8/8 in 17.90 s. The Windows permission fixture now
+round-trips its own unchanged access descriptor before saving its deny-injection
+baseline: Windows otherwise adds only the AUTO_INHERITED flag during restoration.
+Exact SDDL comparison remains; no product, parent or system ACL was relaxed.
+
+Two native-origin lifecycle regressions remain RED: worktrees created after
+activation can still inherit old route/binding attachments when their path is
+reused. The next schema-2 slice will record route-revision and binding origin
+identity independently of journals, with an internal current-binding cursor.
+Existing public history must not be rewritten or supplied fabricated migration
+events. The unreleased schema-1 performance corpus will remain untouched.
+
+## First-release ten-minute resource observation — limited evidence
+
+`target/verification/shared-resources-Usi5DH` retains the executed harness,
+report and native-handle samples for the first release hash above. Four full-map
+warmups took 12372.74, 10755.74, 10845.44 and 11175.04 ms. No requests followed
+for 600 seconds. The owner was last observed alive at 60 s and exited at 65 s;
+sampled peak RSS was 22.19 MiB and lifetime peak was 25.625 MiB. Whole-window CPU
+was 0.002604% of one core; the conservative active-interval bound was 0.026042%.
+
+That harness did not record the owner's exit code, so successful natural idle
+shutdown is unproven. It compared generation/backend/repository/session/event
+counters only; it did not prove every SQL, Git or frozen-backup byte unchanged.
+The revised, independently reviewed harness records and checks exit status,
+separates still-alive results, saves its own source/hash and narrows preservation
+claims. Syntax validation passed; a final-candidate ten-minute run is pending.
+
+## Journal contention and partial-provenance follow-up
+
+The direct SQL journal concurrency regression now passes with the same timeout.
+Admission supplies its already verified target identity to append/replay;
+native stores without activation provenance use the existing strict reciprocal
+target checks, while migrated stores retain full frozen-origin validation.
+The first regression passed journal 13/13 in 6.28 s, lifecycle 7/7 in 41.43 s
+and worktree inventory 4/4 in 1.60 s. New negative cases cover pointer changes
+before acceptance and during the callback; the latter checks all SQL tables
+for rollback, including registry, session, head and presence projection contents.
+
+Independent review found a partial-provenance gap: deleting both the activation
+row and fence could incorrectly select native admission while per-source
+migration evidence remained. A real migrated fixture reproduced it in 10.70 s.
+The fix rejects any remaining migration source in that state. The same test
+then passed in 9.74 s, with no callback invocation, unchanged eleven-table
+snapshot and unchanged frozen backup. Independent final source review approved.
+Final journal 13/13 and migration 17/17 regressions passed in 6.27 s and 26.24 s;
+all-target Clippy passed with warnings denied in 6.50 s. Native route/binding
+identity and end-to-end performance remain separate open gates. The reviewed
+[next implementation plan](../superpowers/plans/2026-09-09-devmap-native-origin-identity.md)
+preserves unknown watermark-only associations, old receipt/CAS behavior,
+absent-worktree intent edits and explicit retargeting.

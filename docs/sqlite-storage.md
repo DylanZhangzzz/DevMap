@@ -76,6 +76,29 @@ permissions on shared writable paths to make initialization succeed. Windows
 default path selection has been checked read-only; this branch has not activated
 any real user repository or written its default backup directory.
 
+## Bounded agent summaries
+
+The candidate adds an explicit summary view to the existing read tool:
+
+```json
+{"name":"devmap_read_map","arguments":{"view":"summary"}}
+```
+
+Omitting `view` still returns the compatible full map. Summary responses use
+`devmap-summary/1`; each MCP result is at most 32 KiB of UTF-8 JSON, excluding
+the outer JSON-RPC envelope. Counts, source truncation, observation coverage and
+original observation times remain visible. This is a response-size guarantee,
+not a claim that endpoint latency has passed acceptance.
+
+Follow a collection's `next_cursor` or an item's `detail_cursor` with the same
+tool and `{"view":"summary","cursor":"<returned cursor>"}`. Cursors belong
+to one MCP client and one captured snapshot, expire after 60 seconds, and are
+replaced by a successful new summary request. Pages retain their original
+observations; reading a page does not check current Git state. Start a new
+summary for refreshed observations. Details include UTF-8 offsets, total length
+and SHA-256 for reconstruction; warnings are paginated rather than silently
+discarded. Inventory submission is rejected in this read-only view.
+
 ## Consistent database backup
 
 Use a new destination file in an existing directory outside Git administration:

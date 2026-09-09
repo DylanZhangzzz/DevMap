@@ -13,6 +13,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 type JournalWatermark = (i64, Option<String>, i64, String, String, String);
 type SummaryCache = BTreeMap<String, (JournalWatermark, JournalSummary)>;
+type PresenceRegistration = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 pub(crate) struct InputReader {
     store: Option<RepositoryStore>,
@@ -21,6 +29,7 @@ pub(crate) struct InputReader {
     summaries: SummaryCache,
     data_version: Option<i64>,
     inputs_observed_at: Option<time::OffsetDateTime>,
+    origin_fingerprint: Option<String>,
 }
 impl InputReader {
     pub(crate) fn new() -> Self {
@@ -31,6 +40,7 @@ impl InputReader {
             summaries: BTreeMap::new(),
             data_version: None,
             inputs_observed_at: None,
+            origin_fingerprint: None,
         }
     }
     pub(crate) fn read(
@@ -131,7 +141,7 @@ impl InputReader {
             tx.commit()?;
             return Ok((None, legacy(workspace)?));
         }
-        super::migration::check_legacy_drift(workspace, &tx)?;
+        let origins = super::migration::observe_active_read_origins(workspace, &tx)?;
         let inputs = match &self.cached {
             Some((cached_generation, inputs)) if *cached_generation == generation => inputs.clone(),
             _ => {
@@ -140,6 +150,8 @@ impl InputReader {
                 inputs
             }
         };
+        let mut qualified = inputs.clone();
+        qualify_origins(&tx, &origins, &mut qualified)?;
         tx.commit()?;
         let after_version: i64 = store
             .connection()
@@ -154,7 +166,11 @@ impl InputReader {
             self.summaries.clear();
             self.data_version = None;
         }
-        Ok((Some(generation), inputs))
+        self.origin_fingerprint = Some(origins.fingerprint);
+        Ok((Some(generation), qualified))
+    }
+    pub(crate) fn origin_fingerprint(&self) -> Option<&str> {
+        self.origin_fingerprint.as_deref()
     }
     pub(crate) fn inputs_observed_at(&self) -> Option<time::OffsetDateTime> {
         self.inputs_observed_at
@@ -166,7 +182,93 @@ impl InputReader {
         self.summaries.clear();
         self.data_version = None;
         self.inputs_observed_at = None;
+        self.origin_fingerprint = None;
     }
+}
+
+fn qualify_origins(
+    c: &rusqlite::Connection,
+    origins: &super::migration::ActiveOriginReport,
+    inputs: &mut DockStorageInputs,
+) -> Result<(), DevMapError> {
+    use rusqlite::OptionalExtension;
+    let replaced = origins.replaced_worktrees();
+    let mut retained = Vec::new();
+    for record in inputs.presence.records.drain(..) {
+        let registration:Option<PresenceRegistration>=c.query_row(
+            "SELECT s.worktree_id,s.incarnation,s.origin_path,r.git_dir,r.workspace_path,r.retired_at FROM journal_sessions s LEFT JOIN worktree_registry r ON r.worktree_id=s.worktree_id AND r.incarnation=s.incarnation WHERE s.session_id=?1",
+            [&record.session_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional()?;
+        let matched = if let Some((id, incarnation, origin, git, root, retired)) = registration {
+            if id != record.worktree_id || git.as_deref() != Some(origin.as_str()) || root.is_none()
+            {
+                return Err(DevMapError::Store(
+                    "presence session registration corrupt".into(),
+                ));
+            }
+            retired.is_none()
+                && origins.current.get(&id).is_some_and(|current| {
+                    current.incarnation == incarnation
+                        && current.git_dir.to_string_lossy() == origin
+                        && Some(current.workspace_path.to_string_lossy().as_ref())
+                            == root.as_deref()
+                })
+        } else {
+            // Imported presence without a journal remains supported, but cannot
+            // acquire a known replacement's physical identity by path alone.
+            origins.current.contains_key(&record.worktree_id)
+                && !replaced.contains(&record.worktree_id)
+        };
+        if matched {
+            retained.push(record);
+        } else {
+            inputs.presence.warnings.push(presence::PresenceWarning {
+                code: "presence_worktree_missing",
+                subject_id: Some(record.session_id),
+            });
+        }
+    }
+    inputs.presence.records = retained;
+    for observation in &origins.unavailable {
+        inputs.presence.warnings.push(presence::PresenceWarning {
+            code: observation.availability.warning_code(),
+            subject_id: Some(observation.origin.worktree_id.clone()),
+        });
+    }
+    if let Ok((plans, starts)) = &mut inputs.routes {
+        plans.retain(|plan| {
+            if !replaced.contains(&plan.worktree_id) {
+                return true;
+            }
+            inputs.presence.warnings.push(presence::PresenceWarning {
+                code: "planned_workspace_unavailable",
+                subject_id: Some(plan.route_id.clone()),
+            });
+            starts.remove(&plan.route_id);
+            false
+        });
+    }
+    if !replaced.is_empty()
+        && inputs.bindings.as_ref().is_ok_and(|records| {
+            records.iter().any(|binding| {
+                replaced.contains(&binding.worktree_id)
+                    || binding
+                        .from_worktree_id
+                        .as_ref()
+                        .is_some_and(|id| replaced.contains(id))
+            })
+        })
+    {
+        for id in &replaced {
+            inputs.presence.warnings.push(presence::PresenceWarning {
+                code: "task_binding_history_unavailable",
+                subject_id: Some(id.clone()),
+            });
+        }
+        inputs.bindings = Err(DevMapError::Store(
+            "binding incarnation unavailable after origin replacement".into(),
+        ));
+    }
+    Ok(())
 }
 fn legacy(workspace: &SourceWorkspace) -> Result<DockStorageInputs, DevMapError> {
     let presence = PresenceStore::open_existing_legacy(workspace)?
