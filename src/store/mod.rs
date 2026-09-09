@@ -510,11 +510,13 @@ impl JournalAdmission {
                 ));
             }
         }
-        let registry: Option<i64> = c.query_row(
-            "SELECT 1 FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
-            rusqlite::params![origin.worktree_id, origin.incarnation],
-            |r| r.get(0),
-        ).optional()?;
+        let registry: Option<i64> = c
+            .query_row(
+                "SELECT 1 FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",
+                rusqlite::params![origin.worktree_id, origin.incarnation],
+                |r| r.get(0),
+            )
+            .optional()?;
         if registry.is_some() {
             let (saved, retired) =
                 origin_links::registered_origin(c, &origin.worktree_id, &origin.incarnation)?;

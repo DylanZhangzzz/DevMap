@@ -1907,11 +1907,11 @@ fn bound_model(mut model: DockReadModel) -> Result<DockReadModel, DevMapError> {
     // Leave room for the service's final revision and observation envelope.
     const ENVELOPE_RESERVE: usize = 2048;
     let ceiling = MAX_DOCK_MODEL_BYTES - ENVELOPE_RESERVE;
-    if canonical_json(&model)?.len() > ceiling
-        && model
-            .workspace_facts
-            .iter()
-            .any(|facts| !facts.bindings.is_empty())
+    if model
+        .workspace_facts
+        .iter()
+        .any(|facts| !facts.bindings.is_empty())
+        && canonical_json(&model)?.len() > ceiling
     {
         // Historical detail is expendable; exact current workspace coverage is not.
         for facts in &mut model.workspace_facts {

@@ -31,6 +31,81 @@ fn parent_of<'a>(report: &'a GitRelationshipReport, branch: &str) -> Option<&'a 
         .and_then(|candidate| candidate.parent.as_deref())
 }
 
+#[test]
+fn target_error_precedes_unavailable_status_and_a_later_scan_remains_fresh() {
+    let repo = support::committed_repo();
+    let other = support::linked_worktree(repo.path(), "feature-unavailable");
+    let workspace = SourceGitInspector::open(repo.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let worktrees = WorktreeScanner::scan(&workspace).unwrap();
+    let unavailable = worktrees
+        .iter()
+        .find(|row| !row.is_current)
+        .unwrap()
+        .worktree_id
+        .clone();
+    support::git(
+        repo.path(),
+        ["worktree", "remove", other.path().to_str().unwrap()],
+    );
+    let blob = support::git(repo.path(), ["hash-object", "-w", "README.md"]);
+    support::git(repo.path(), ["update-ref", "refs/tags/not-a-commit", &blob]);
+    support::git(
+        repo.path(),
+        [
+            "config",
+            "devmap.developmentTarget",
+            "refs/tags/not-a-commit",
+        ],
+    );
+    let error = GitRelationshipResolver::resolve(&workspace, &worktrees).unwrap_err();
+    match error {
+        devmap::error::DevMapError::GitCommand { command, .. } => {
+            assert_eq!(
+                command,
+                "git rev-parse --verify refs/tags/not-a-commit^{commit}"
+            );
+        }
+        other => panic!("target failure must retain precedence over unavailable status: {other:?}"),
+    }
+
+    // The same observed inventory can contain a disappearing root. Its status
+    // error stays local, while the next operation must reread target and dirt.
+    support::git(
+        repo.path(),
+        ["config", "--unset", "devmap.developmentTarget"],
+    );
+    std::fs::write(
+        repo.path().join("new-dirty.txt"),
+        "changed after failed scan\n",
+    )
+    .unwrap();
+    let report = GitRelationshipResolver::resolve(&workspace, &worktrees).unwrap();
+    assert_eq!(
+        report.target.as_ref().unwrap().source,
+        TargetSource::LocalMain
+    );
+    let absent = &report.by_worktree_id[&unavailable];
+    assert!(!absent.status_observed);
+    assert_eq!(absent.merged, None);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "git_relationship_unavailable"
+                && warning.worktree_id.as_ref() == Some(&unavailable))
+    );
+    let current = worktrees.iter().find(|row| row.is_current).unwrap();
+    assert!(report.by_worktree_id[&current.worktree_id].status_observed);
+    assert!(report.by_worktree_id[&current.worktree_id].dirty);
+    assert_eq!(
+        report.by_worktree_id[&current.worktree_id].changed_file_count,
+        1
+    );
+}
+
 fn target_of<'a>(
     report: &'a GitRelationshipReport,
     worktrees: &[WorktreeDescriptor],
@@ -199,6 +274,43 @@ fn local_dev_wins_over_develop_and_main() {
     assert_eq!(target.name, "dev");
     assert_eq!(target.ref_name, "refs/heads/dev");
     assert_eq!(target.source, TargetSource::LocalDev);
+}
+
+#[test]
+fn unused_broken_develop_probe_does_not_override_selected_dev() {
+    let repo = support::committed_repo();
+    support::git(repo.path(), ["branch", "dev"]);
+    let workspace = SourceGitInspector::open(repo.path())
+        .unwrap()
+        .workspace()
+        .unwrap();
+    let worktrees = WorktreeScanner::scan(&workspace).unwrap();
+    let broken_path = workspace.git_common_dir.join("refs/heads/develop");
+    let broken_bytes = format!("{}\n", "a".repeat(40)).into_bytes();
+    std::fs::write(&broken_path, &broken_bytes).unwrap();
+    // Establish that this is a real ordinary probe error, not an absent ref.
+    let probe = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["show-ref", "--verify", "--quiet", "refs/heads/develop"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .output()
+        .unwrap();
+    assert_eq!(
+        probe.status.code(),
+        Some(128),
+        "fixture must exercise GitCommand error: {probe:?}"
+    );
+    let report = GitRelationshipResolver::resolve(&workspace, &worktrees).unwrap();
+    assert_eq!(report.target.as_ref().unwrap().name, "dev");
+    assert_eq!(
+        report.target.as_ref().unwrap().source,
+        TargetSource::LocalDev
+    );
+    assert!(report.warnings.is_empty());
+    assert_eq!(std::fs::read(broken_path).unwrap(), broken_bytes);
 }
 
 #[test]

@@ -9,6 +9,8 @@ use crate::error::DevMapError;
 use crate::git::SourceWorkspace;
 use crate::worktrees::WorktreeDescriptor;
 
+mod shared_facts;
+
 const MAX_FORK_TAGS: usize = 32;
 const MAX_FORK_TAG_BYTES: usize = 256;
 const MAX_FORK_SUBJECT_BYTES: usize = 512;
@@ -79,15 +81,72 @@ pub struct GitRelationshipReport {
 
 pub struct GitRelationshipResolver;
 
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum SharedFactsTestMode {
+    Original,
+    Shared,
+}
+
+#[cfg(test)]
+enum SharedFactsTestFault {
+    OrdinaryRepresentativeFailure,
+    TagBeforeRecheck,
+    RepresentativeDeadline,
+}
+
+#[cfg(test)]
+fn resolve_with_shared_facts_fault_test(
+    workspace: &SourceWorkspace,
+    worktrees: &[WorktreeDescriptor],
+    fault: SharedFactsTestFault,
+) -> Result<(GitRelationshipReport, SharedFactsTestStats), DevMapError> {
+    GitRelationshipResolver::resolve_acquiring(
+        workspace,
+        worktrees,
+        || GitRelationshipResolver::development_configuration(workspace),
+        true,
+        Some(fault),
+    )
+}
+
+#[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))]
+struct SharedFactsTestStats {
+    shared_groups: usize,
+    shared_rows: usize,
+    original_rows: usize,
+}
+
+#[cfg(test)]
+fn resolve_with_shared_facts_test(
+    workspace: &SourceWorkspace,
+    worktrees: &[WorktreeDescriptor],
+    mode: SharedFactsTestMode,
+) -> Result<(GitRelationshipReport, SharedFactsTestStats), DevMapError> {
+    GitRelationshipResolver::resolve_acquiring(
+        workspace,
+        worktrees,
+        || GitRelationshipResolver::development_configuration(workspace),
+        matches!(mode, SharedFactsTestMode::Shared),
+        None,
+    )
+}
+
 impl GitRelationshipResolver {
     pub fn resolve(
         workspace: &SourceWorkspace,
         worktrees: &[WorktreeDescriptor],
     ) -> Result<GitRelationshipReport, DevMapError> {
-        crate::git_process::with_operation(|| {
-            let configured = Self::development_configuration(workspace)?;
-            Self::resolve_with_configuration(workspace, worktrees, configured.as_deref())
-        })
+        Self::resolve_acquiring(
+            workspace,
+            worktrees,
+            || Self::development_configuration(workspace),
+            true,
+            #[cfg(test)]
+            None,
+        )
+        .map(|(report, _)| report)
     }
 
     /// Read the effective configuration in the requesting worktree, including
@@ -106,20 +165,28 @@ impl GitRelationshipResolver {
         worktrees: &[WorktreeDescriptor],
         configured: Option<&str>,
     ) -> Result<GitRelationshipReport, DevMapError> {
-        crate::git_process::with_operation(|| {
-            let mut warnings = Vec::new();
-            let root_target = select_root_target(workspace)?;
-            let development_target = select_development_target(
-                workspace,
-                configured,
-                root_target.as_ref(),
-                &mut warnings,
-            )?;
-            let target = development_target.clone().or_else(|| root_target.clone());
-            let integration_branches =
-                integration_branches(workspace, root_target.as_ref(), development_target.as_ref())?;
-            let mut by_worktree_id = BTreeMap::new();
+        Self::resolve_acquiring(
+            workspace,
+            worktrees,
+            || Ok(configured.map(str::to_owned)),
+            true,
+            #[cfg(test)]
+            None,
+        )
+        .map(|(report, _)| report)
+    }
 
+    fn resolve_acquiring<F>(
+        workspace: &SourceWorkspace,
+        worktrees: &[WorktreeDescriptor],
+        configuration: F,
+        share: bool,
+        #[cfg(test)] fault: Option<SharedFactsTestFault>,
+    ) -> Result<(GitRelationshipReport, SharedFactsTestStats), DevMapError>
+    where
+        F: FnOnce() -> Result<Option<String>, DevMapError> + Send,
+    {
+        crate::git_process::with_operation(|| {
             let mut unique =
                 BTreeMap::<(std::path::PathBuf, String), Vec<&WorktreeDescriptor>>::new();
             for worktree in worktrees {
@@ -134,38 +201,166 @@ impl GitRelationshipResolver {
                 .unwrap_or(1)
                 .saturating_mul(2)
                 .min(unique.len().max(1));
-            let chunk_size = unique.len().div_ceil(worker_count);
+            let chunk_size = unique.len().div_ceil(worker_count).max(1);
             let budget = crate::git_process::current_budget();
+            // These reads have independent inputs. Keep the original command
+            // helpers and capture status only for this operation, never a cache.
+            let (configured, root_target, mut development_probes, status_chunks) =
+                std::thread::scope(|scope| {
+                    let configured =
+                        scope.spawn(|| crate::git_process::with_budget(&budget, configuration));
+                    let root = scope.spawn(|| {
+                        crate::git_process::with_budget(&budget, || select_root_target(workspace))
+                    });
+                    let development = ["refs/heads/dev", "refs/heads/develop"].map(|reference| {
+                        let budget = &budget;
+                        (
+                            reference,
+                            scope.spawn(move || {
+                                crate::git_process::with_budget(budget, || {
+                                    ref_exists(&workspace.root, reference)
+                                })
+                            }),
+                        )
+                    });
+                    let statuses = unique
+                        .chunks(chunk_size)
+                        .map(|chunk| {
+                            let budget = budget.clone();
+                            scope.spawn(move || {
+                                crate::git_process::with_budget(&budget, || {
+                                    chunk
+                                        .iter()
+                                        .map(|matches| {
+                                            (matches.clone(), dirty_state(&matches[0].root))
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    // Do not return early: every owned worker must finish, including
+                    // status probes whose result a prior target error makes unused.
+                    (
+                        configured
+                            .join()
+                            .expect("Git configuration worker panicked"),
+                        root.join().expect("Git root target worker panicked"),
+                        development
+                            .into_iter()
+                            .map(|(reference, worker)| {
+                                (
+                                    reference,
+                                    worker
+                                        .join()
+                                        .expect("Git development probe worker panicked"),
+                                )
+                            })
+                            .collect::<BTreeMap<_, _>>(),
+                        statuses
+                            .into_iter()
+                            .map(|worker| worker.join().expect("Git status worker panicked"))
+                            .collect::<Vec<_>>(),
+                    )
+                });
+            // Consume in the original gate order. A speculative status failure
+            // cannot replace the configuration/root/development target error.
+            let configured = configured?;
+            let root_target = root_target?;
+            let mut warnings = Vec::new();
+            let development_target = select_development_target(
+                workspace,
+                configured.as_deref(),
+                root_target.as_ref(),
+                &mut warnings,
+                &mut development_probes,
+            )?;
+            let target = development_target.clone().or_else(|| root_target.clone());
+            let integration_branches =
+                integration_branches(workspace, root_target.as_ref(), development_target.as_ref())?;
+            // Unselected ordinary ref errors are irrelevant to the original
+            // gates. Supervision failures must never become successful absence.
+            for result in development_probes.into_values() {
+                if let Err(error @ DevMapError::GitProcess(_)) = result {
+                    return Err(error);
+                }
+            }
+            let candidates = status_chunks
+                .iter()
+                .flatten()
+                .filter(|(_, status)| status.is_ok())
+                .flat_map(|(matches, _)| matches.iter().copied())
+                .collect::<Vec<_>>();
+            let (shared, shared_groups) = if share {
+                shared_facts::compute(
+                    workspace,
+                    worktrees,
+                    &candidates,
+                    root_target.as_ref(),
+                    development_target.as_ref(),
+                    &integration_branches,
+                    #[cfg(test)]
+                    fault,
+                )?
+            } else {
+                (BTreeMap::new(), 0)
+            };
+            let shared_rows = std::sync::atomic::AtomicUsize::new(0);
+            let original_rows = std::sync::atomic::AtomicUsize::new(0);
+            let mut by_worktree_id = BTreeMap::new();
             let resolved = std::thread::scope(|scope| {
-                unique
-                    .chunks(chunk_size)
+                status_chunks
+                    .into_iter()
                     .map(|chunk| {
                         let budget = budget.clone();
+                        let shared = &shared;
+                        let shared_rows = &shared_rows;
+                        let original_rows = &original_rows;
                         let target_root = &root_target;
                         let target_development = &development_target;
                         scope.spawn(move || {
                             crate::git_process::with_budget(&budget, || {
                                 chunk
-                                    .iter()
-                                    .map(|matches| {
-                                        let status = dirty_state(&matches[0].root);
+                                    .into_iter()
+                                    .map(|(matches, status)| {
                                         (
                                             matches.clone(),
                                             match status {
                                                 Ok((dirty, changed_file_count)) => {
-                                                    relationship_for(
-                                                        matches[0],
-                                                        target_for_worktree(
+                                                    if let Some(facts) =
+                                                        shared.get(&matches[0].worktree_id)
+                                                    {
+                                                        shared_rows.fetch_add(
+                                                            matches.len(),
+                                                            std::sync::atomic::Ordering::Relaxed,
+                                                        );
+                                                        let mut facts = facts.clone();
+                                                        facts.dirty = dirty;
+                                                        facts.changed_file_count =
+                                                            changed_file_count;
+                                                        Ok((facts, None))
+                                                    } else {
+                                                        original_rows.fetch_add(
+                                                            matches.len(),
+                                                            std::sync::atomic::Ordering::Relaxed,
+                                                        );
+                                                        relationship_for(
                                                             matches[0],
-                                                            target_root.as_ref(),
-                                                            target_development.as_ref(),
-                                                        ),
-                                                        dirty,
-                                                        changed_file_count,
-                                                    )
-                                                    .map_err(|error| {
-                                                        (error, Some((dirty, changed_file_count)))
-                                                    })
+                                                            target_for_worktree(
+                                                                matches[0],
+                                                                target_root.as_ref(),
+                                                                target_development.as_ref(),
+                                                            ),
+                                                            dirty,
+                                                            changed_file_count,
+                                                        )
+                                                        .map_err(|error| {
+                                                            (
+                                                                error,
+                                                                Some((dirty, changed_file_count)),
+                                                            )
+                                                        })
+                                                    }
                                                 }
                                                 Err(error) => Err((error, None)),
                                             },
@@ -181,6 +376,11 @@ impl GitRelationshipResolver {
                     .collect::<Vec<_>>()
             });
 
+            let stats = SharedFactsTestStats {
+                shared_groups,
+                shared_rows: shared_rows.into_inner(),
+                original_rows: original_rows.into_inner(),
+            };
             for (matches, result) in resolved {
                 let result = match result {
                     Err((error @ DevMapError::GitProcess(_), _)) => return Err(error),
@@ -223,12 +423,15 @@ impl GitRelationshipResolver {
                 }
             }
 
-            Ok(GitRelationshipReport {
-                target,
-                integration_branches,
-                by_worktree_id,
-                warnings,
-            })
+            Ok((
+                GitRelationshipReport {
+                    target,
+                    integration_branches,
+                    by_worktree_id,
+                    warnings,
+                },
+                stats,
+            ))
         })
     }
 }
@@ -274,12 +477,13 @@ fn select_development_target(
     configured: Option<&str>,
     root: Option<&DevelopmentTarget>,
     warnings: &mut Vec<GitRelationshipWarning>,
+    prefetched: &mut BTreeMap<&'static str, Result<bool, DevMapError>>,
 ) -> Result<Option<DevelopmentTarget>, DevMapError> {
     if let Some(configured) = configured {
         let ref_name = configured_ref(configured);
         let exists = match ref_name.as_deref() {
             Some(candidate) if root.is_none_or(|root| root.ref_name != candidate) => {
-                ref_exists(&workspace.root, candidate)?
+                development_ref_exists(&workspace.root, candidate, prefetched)?
             }
             _ => false,
         };
@@ -302,7 +506,7 @@ fn select_development_target(
     ] {
         let ref_name = format!("refs/heads/{name}");
         if root.is_none_or(|root| root.ref_name != ref_name)
-            && ref_exists(&workspace.root, &ref_name)?
+            && development_ref_exists(&workspace.root, &ref_name, prefetched)?
         {
             return Ok(Some(DevelopmentTarget {
                 name: name.into(),
@@ -313,6 +517,23 @@ fn select_development_target(
     }
 
     Ok(None)
+}
+
+fn development_ref_exists(
+    root: &Path,
+    reference: &str,
+    prefetched: &mut BTreeMap<&'static str, Result<bool, DevMapError>>,
+) -> Result<bool, DevMapError> {
+    match prefetched.remove_entry(reference) {
+        Some((key, result)) => {
+            let exists = result?;
+            // A configured fixed candidate may be revisited by the default
+            // precedence loop; reuse its exact observation, including absence.
+            prefetched.insert(key, Ok(exists));
+            Ok(exists)
+        }
+        None => ref_exists(root, reference),
+    }
 }
 
 fn integration_branches(
@@ -392,6 +613,15 @@ fn relationship_for(
     dirty: bool,
     changed_file_count: u32,
 ) -> Result<(GitRelationship, Option<&'static str>), DevMapError> {
+    relationship_for_observed(worktree, target, dirty, changed_file_count, None)
+}
+fn relationship_for_observed(
+    worktree: &WorktreeDescriptor,
+    target: Option<&DevelopmentTarget>,
+    dirty: bool,
+    changed_file_count: u32,
+    tag_witness: Option<&mut Vec<u8>>,
+) -> Result<(GitRelationship, Option<&'static str>), DevMapError> {
     let Some(target) = target else {
         return Ok((
             GitRelationship {
@@ -429,7 +659,7 @@ fn relationship_for(
             Some("git_merge_base_unavailable"),
         ));
     }
-    let tag_output = required_text(
+    let tag_raw = required_output(
         &worktree.root,
         [
             OsString::from("tag"),
@@ -437,6 +667,10 @@ fn relationship_for(
             OsString::from(&merge_base),
         ],
     )?;
+    if let Some(witness) = tag_witness {
+        *witness = tag_raw.stdout.clone();
+    }
+    let tag_output = output_text(&tag_raw, "git tag --points-at")?;
     let mut tags = tag_output
         .lines()
         .filter(|tag| !tag.is_empty())
