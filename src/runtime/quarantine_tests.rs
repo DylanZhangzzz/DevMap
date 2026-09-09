@@ -108,6 +108,7 @@ fn quarantine_fixture() {
             .unwrap();
         let (reply, receive) = oneshot::channel();
         let job = Job {
+            query_origin: None,
             identity: Identity {
                 source: ".".into(),
                 git_dir: ".".into(),

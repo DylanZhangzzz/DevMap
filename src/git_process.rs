@@ -33,6 +33,12 @@ pub enum GitProcessError {
 pub(crate) struct GitBudget {
     deadline: Instant,
 }
+#[cfg(test)]
+static TEST_SPAWN_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) fn test_spawn_count() -> usize {
+    TEST_SPAWN_COUNT.load(Ordering::Relaxed)
+}
 impl GitBudget {
     pub(crate) fn deadline(&self) -> Instant {
         self.deadline
@@ -243,6 +249,8 @@ async fn supervise(
         return Err(GitProcessError::Deadline);
     }
     let mut child = command.spawn()?;
+    #[cfg(test)]
+    TEST_SPAWN_COUNT.fetch_add(1, Ordering::Relaxed);
     let mut tree = match Tree::attach(&child) {
         Ok(tree) => Some(tree),
         Err(error) => {

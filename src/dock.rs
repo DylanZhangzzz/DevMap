@@ -885,34 +885,45 @@ impl DockProjectionContext {
     ) -> Result<DockClientProjection<'a>, DevMapError> {
         crate::git_process::with_operation(|| {
             let configured = GitRelationshipResolver::development_configuration(workspace)?;
-            // Hash keys bound cache memory without normalizing invalid/empty values;
-            // the original value still goes through the existing resolver semantics.
-            let key = configured
-                .as_deref()
-                .map(|value| sha256_hex(value.as_bytes()));
-            let relationships = if key == self.configuration_key {
-                &self.relationships
-            } else {
-                if !self.client_relationships.contains_key(&key) {
-                    let report = GitRelationshipResolver::resolve_with_configuration(
-                        workspace,
-                        &self.worktrees,
-                        configured.as_deref(),
-                    )?;
-                    if self.client_relationships.len() >= 16 {
-                        self.client_relationships.pop_first();
-                    }
-                    self.client_relationships.insert(key.clone(), report);
+            self.prepare_configured(workspace, configured.as_deref())
+        })
+    }
+    pub(crate) fn prepare_verified_query<'a>(
+        &'a mut self,
+        source: &'a crate::runtime::query_validation::VerifiedQuerySource,
+    ) -> Result<DockClientProjection<'a>, DevMapError> {
+        self.prepare_configured(source.workspace()?, source.configured())
+    }
+    fn prepare_configured<'a>(
+        &'a mut self,
+        workspace: &'a SourceWorkspace,
+        configured: Option<&str>,
+    ) -> Result<DockClientProjection<'a>, DevMapError> {
+        // Hash keys bound cache memory without normalizing invalid/empty values;
+        // the original value still goes through the existing resolver semantics.
+        let key = configured.map(|value| sha256_hex(value.as_bytes()));
+        let relationships = if key == self.configuration_key {
+            &self.relationships
+        } else {
+            if !self.client_relationships.contains_key(&key) {
+                let report = GitRelationshipResolver::resolve_with_configuration(
+                    workspace,
+                    &self.worktrees,
+                    configured,
+                )?;
+                if self.client_relationships.len() >= 16 {
+                    self.client_relationships.pop_first();
                 }
-                self.client_relationships
-                    .get(&key)
-                    .expect("configuration inserted above")
-            };
-            Ok(DockClientProjection {
-                context: self,
-                workspace,
-                relationships,
-            })
+                self.client_relationships.insert(key.clone(), report);
+            }
+            self.client_relationships
+                .get(&key)
+                .expect("configuration inserted above")
+        };
+        Ok(DockClientProjection {
+            context: self,
+            workspace,
+            relationships,
         })
     }
 

@@ -402,16 +402,42 @@ fn human_history_change_is_observed_without_restoring_it() {
         ["commit", "--allow-empty", "-m", "Second point"],
     );
     let mut runtime = initialized_runtime(repo.path());
-    call(&mut runtime, "devmap_read_map", json!({}));
+    let first = call(&mut runtime, "devmap_read_map", json!({}));
+    let since_first = std::time::Instant::now();
     support::git(repo.path(), ["reset", "--soft", "HEAD~1"]);
     let before = support::source_snapshot(repo.path());
-    let map = call(&mut runtime, "devmap_read_map", json!({}));
+    // Public reads reuse Git observations for up to the default two-second TTL.
+    // Observe eventual refresh without forcing invalidation. This diagnostic
+    // deadline is not the separate two-second p95 performance acceptance gate.
+    let observation = std::time::Instant::now();
+    let limit = std::time::Duration::from_secs(5);
+    let map = loop {
+        let current = call(&mut runtime, "devmap_read_map", json!({}));
+        let changed = current["result"]["structuredContent"]["warnings"]
+            .as_array()
+            .is_some_and(|warnings| {
+                warnings
+                    .iter()
+                    .any(|warning| warning["code"] == "workspace_history_changed")
+            });
+        if changed || observation.elapsed() >= limit {
+            break current;
+        }
+        std::thread::sleep(
+            std::time::Duration::from_millis(100).min(limit.saturating_sub(observation.elapsed())),
+        );
+    };
     assert!(
         map["result"]["structuredContent"]["warnings"]
             .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| w["code"] == "workspace_history_changed")
+            .is_some_and(|warnings| warnings
+                .iter()
+                .any(|w| w["code"] == "workspace_history_changed")),
+        "history warning missing after {:?} since first / {:?} observing; first={} latest={}",
+        since_first.elapsed(),
+        observation.elapsed(),
+        first,
+        map
     );
     assert_eq!(support::source_snapshot(repo.path()), before);
 }

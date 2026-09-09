@@ -257,16 +257,35 @@ impl RepositoryApplication {
         query: &ClientQuery,
         now: OffsetDateTime,
     ) -> Result<ApplicationSnapshot, DevMapError> {
-        crate::git_process::with_operation(|| self.project_inner(workspace, query, now))
+        crate::git_process::with_operation(|| self.project_inner(workspace, query, now, None))
+    }
+    pub(crate) fn project_verified_query(
+        &mut self,
+        source: &crate::runtime::query_validation::VerifiedQuerySource,
+        query: &ClientQuery,
+        now: OffsetDateTime,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
+        crate::git_process::with_operation(|| {
+            self.project_inner(source.workspace()?, query, now, Some(source))
+        })
     }
     fn project_inner(
         &mut self,
         workspace: &SourceWorkspace,
         query: &ClientQuery,
         now: OffsetDateTime,
+        verified: Option<&crate::runtime::query_validation::VerifiedQuerySource>,
     ) -> Result<ApplicationSnapshot, DevMapError> {
         query.validate()?;
-        let actual = self.validate_client(&ClientView::new(workspace.clone()))?;
+        let actual = match verified {
+            Some(source) => source.workspace()?.clone(),
+            None => self.validate_client(&ClientView::new(workspace.clone()))?,
+        };
+        if crate::fs_security::checked_canonical_directory(&actual.git_common_dir)?
+            != self.common_dir
+        {
+            return Err(DevMapError::InvalidDomain("client repository mismatch"));
+        }
         if crate::fs_security::checked_directory_identity(&self.common_dir)? != self.common_identity
         {
             return Err(DevMapError::InvalidDomain(
@@ -350,18 +369,18 @@ impl RepositoryApplication {
         // Collection can finish after the caller sampled its projection clock.
         // Keep evaluation at least as recent as those newly collected facts.
         let now = now.max(self.git_at.unwrap());
-        let mut next = self
-            .git
-            .as_mut()
-            .unwrap()
-            .prepare_client(workspace)?
-            .project(
-                inputs,
-                now,
-                &query.tasks,
-                query.inventory_observed_at.clone(),
-                query.complete,
-            )?;
+        let context = self.git.as_mut().unwrap();
+        let prepared = match verified {
+            Some(source) => context.prepare_verified_query(source)?,
+            None => context.prepare_client(workspace)?,
+        };
+        let mut next = prepared.project(
+            inputs,
+            now,
+            &query.tasks,
+            query.inventory_observed_at.clone(),
+            query.complete,
+        )?;
         let git_observed_at = self.git_at.unwrap().format(&Rfc3339)?;
         for facts in &mut next.workspace_facts {
             if facts.git_observed_at.is_some() {

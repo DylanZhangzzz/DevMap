@@ -1,6 +1,6 @@
 # Owned four-client freshness benchmark
 
-Implementation candidate only: Node syntax checks and pure self-tests passed; no real owner, MCP, mutation smoke or acceptance run has been performed for this slice.
+Root execution update (2026-09-09): the real two-worktree/six-event smoke completed all four measured changes and 16 client detections with SQL/backup preservation and owned cleanup checks passing. Baseline `64f8321` retained run `shared-freshness-jbywRc` had a max-of-four p95 of 10707 ms. Query-validation Release SHA-256 `ed78a4dba5e928066193312899f7afbbc4058467f8c576c5b48856436b6d5bc4`, run `shared-freshness-Qn5ja8`, reduced that tiny-sample statistic to 3787 ms; all per-client p95 values remained above 2000 ms. Both are smoke evidence, with freshness acceptance false. The fixed 100-change scale cohort remains pending.
 
 ```
 node tests/browser/shared-summary-freshness.cjs --self-test

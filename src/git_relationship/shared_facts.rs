@@ -1,4 +1,6 @@
 //! Guarded successful relationship facts shared only within one operation.
+mod query_configuration;
+pub(crate) use query_configuration::QueryConfiguration;
 
 #[cfg(test)]
 mod integration_tests;

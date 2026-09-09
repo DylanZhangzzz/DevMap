@@ -2,6 +2,8 @@
 
 Root execution update (2026-09-09): the real two-worktree/six-event smoke completed its cursor and preservation checks but failed the predeclared hot-sample cap. Candidate `64f8321` had approximately 5.65/5.63-second owner-cold observations. The failed population and all cleanup outcomes are retained; this is evidence requiring optimization, not latency acceptance. Extended local Windows paths now have actual path/junction negative tests, and SQL reads use the checked canonical path before URI construction.
 
+Query-validation candidate update: Release SHA-256 `ed78a4dba5e928066193312899f7afbbc4058467f8c576c5b48856436b6d5bc4` completed the tiny smoke in retained run `shared-summary-S24xdI`. Cold observations were 3910/3841 ms; eight hot observations ranged approximately 197–812 ms, with all response/cursor, SQL/backup preservation and owned cleanup checks passing. Both latency gates still failed; these small populations are not scale acceptance. Earlier run `shared-summary-t48DR0` remains a failure: its second query spanned roughly 70 minutes of Windows Modern Standby, confirmed by System Kernel-Power events 506/507 (lid entry 08:35:24 local, exit 09:45:14). No failed sample was removed or replaced in that report.
+
 This new harness does not create a repository, migrate a store, delete artifacts, or invoke a model. Without arguments it prints usage. It currently supports Windows named pipes. Do not point it at the retained schema-1 corpus.
 
 Only syntax and pure helper checks have been performed in this implementation slice:

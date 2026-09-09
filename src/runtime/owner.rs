@@ -112,6 +112,10 @@ async fn serve(
         .await?;
         return Err(invalid("runtime source identity rejected"));
     }
+    // A failed physical observation permanently refuses Query on this connection.
+    // Ping and existing fresh mutation/inventory paths are unaffected. The seal
+    // is never serialized or supplied by the peer.
+    let query_origin = Some(super::query_validation::QueryOrigin::for_connection(&id));
     let welcome = Welcome {
         protocol: protocol::VERSION,
         repository: repository.clone(),
@@ -182,6 +186,7 @@ async fn serve(
                     let (reply, receiver) = tokio::sync::oneshot::channel();
                     let job = super::executor::Job {
                         identity: id.clone(),
+                        query_origin: query_origin.clone(),
                         bytes,
                         reservation,
                         reply,

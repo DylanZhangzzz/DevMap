@@ -1,6 +1,7 @@
 //! Same-user, repository-scoped owner with bounded typed application exchanges.
 mod executor;
 mod owner;
+pub(crate) mod query_validation;
 mod retry;
 pub(crate) use retry::retry_application;
 pub mod protocol;

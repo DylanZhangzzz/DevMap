@@ -167,6 +167,59 @@ fn current_origins(w: &SourceWorkspace) -> Result<Vec<FrozenOrigin>, DevMapError
     Ok(result)
 }
 
+/// Independent read-only calls, not additive spans of one production operation.
+/// Only the exact-receipt diagnostic calls this; no unavailable/moved fixture shortcut.
+#[cfg(test)]
+pub(crate) fn profile_frozen_read_stages(
+    w: &SourceWorkspace,
+    c: &Connection,
+    mut report: impl FnMut(&'static str, u128, usize),
+) -> Result<(), DevMapError> {
+    fn stage<T>(
+        label: &'static str,
+        report: &mut impl FnMut(&'static str, u128, usize),
+        action: impl FnOnce() -> Result<T, DevMapError>,
+    ) -> Result<T, DevMapError> {
+        let count = crate::git_process::test_spawn_count();
+        let start = std::time::Instant::now();
+        let result = action();
+        report(
+            label,
+            start.elapsed().as_micros(),
+            crate::git_process::test_spawn_count() - count,
+        );
+        result
+    }
+    let activation = stage("validated_activation", &mut report, || {
+        validated_activation(w, c)
+    })?
+    .ok_or_else(|| fail("profiling requires frozen activation"))?;
+    let origins = stage("current_origins_single", &mut report, || current_origins(w))?;
+    if origins != activation.manifest.origins {
+        return Err(fail("profiling requires exact current/frozen origins"));
+    }
+    let captured = stage("legacy_inventory_complete_hash", &mut report, || {
+        inventory(w, origins, activation.manifest.evaluated_at.clone())
+    })?;
+    validate_inventory_equality(&captured, &activation.manifest)?;
+    let observed = stage("observe_active_origins_full", &mut report, || {
+        observe_active_origins(w, c, false)
+    })?;
+    if !observed.unavailable.is_empty()
+        || observed.current.len() != activation.manifest.origins.len()
+        || activation
+            .manifest
+            .origins
+            .iter()
+            .any(|old| observed.current.get(&old.worktree_id) != Some(old))
+    {
+        return Err(fail(
+            "profiling origin observation differs from frozen fixture",
+        ));
+    }
+    Ok(())
+}
+
 fn pointer_text(path: &Path) -> Result<String, DevMapError> {
     use std::io::Read;
     const LIMIT: u64 = 64 * 1024;

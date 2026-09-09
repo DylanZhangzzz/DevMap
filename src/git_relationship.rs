@@ -10,6 +10,7 @@ use crate::git::SourceWorkspace;
 use crate::worktrees::WorktreeDescriptor;
 
 mod shared_facts;
+pub(crate) use shared_facts::QueryConfiguration;
 
 const MAX_FORK_TAGS: usize = 32;
 const MAX_FORK_TAG_BYTES: usize = 256;

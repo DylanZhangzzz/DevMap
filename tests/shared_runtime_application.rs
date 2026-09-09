@@ -130,6 +130,9 @@ async fn connect(f: &Fixture, w: &Welcome) -> Stream {
     connect_source(f, w, &f.repo).await
 }
 async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
+    connect_source_exe(&f.exe, w, source).await
+}
+async fn connect_source_exe(exe: &Path, w: &Welcome, source: &Path) -> Stream {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut s = loop {
         #[cfg(windows)]
@@ -161,7 +164,7 @@ async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
         &Hello {
             protocol: VERSION,
             repository: w.repository.clone(),
-            build: format!("{:x}", Sha256::digest(fs::read(&f.exe).unwrap())),
+            build: format!("{:x}", Sha256::digest(fs::read(exe).unwrap())),
             source: fs::canonicalize(source).unwrap(),
             git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
             client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
@@ -439,6 +442,139 @@ fn seed_move_history(main: &Path, linked: &Path, backup: &Path) {
     migration::activate(&main, backup).unwrap();
 }
 
+enum OldStreamCommand {
+    Query(std::sync::mpsc::Sender<Value>),
+    Stop,
+}
+struct KeptOldStream<'scope> {
+    commands: std::sync::mpsc::Sender<OldStreamCommand>,
+    thread: Option<std::thread::ScopedJoinHandle<'scope, ()>>,
+    pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    started: std::time::Instant,
+}
+impl<'scope> KeptOldStream<'scope> {
+    fn start<'env>(
+        scope: &'scope std::thread::Scope<'scope, 'env>,
+        exe: PathBuf,
+        welcome: Welcome,
+        source: PathBuf,
+    ) -> (Self, Value) {
+        let (commands, incoming) = std::sync::mpsc::channel();
+        let (warm_tx, warm_rx) = std::sync::mpsc::channel();
+        let pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counted = pings.clone();
+        let started = std::time::Instant::now();
+        let thread = scope.spawn(move || {
+            // This reactor exclusively owns the originally authenticated stream.
+            // Blocking Git/SQL work in the test's main thread cannot starve it.
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let mut stream = rt.block_on(connect_source_exe(&exe, &welcome, &source));
+            let mut request_id = 1u64;
+            let warm = rt.block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(35),
+                    call(
+                        &mut stream,
+                        &welcome,
+                        request_id,
+                        json!({"operation":"Query","query":empty_query()}),
+                    ),
+                )
+                .await
+                .expect("original-source warm query deadline")
+            });
+            warm_tx.send(warm).unwrap();
+            loop {
+                request_id = request_id.checked_add(1).unwrap();
+                match incoming.recv_timeout(Duration::from_secs(1)) {
+                    Ok(OldStreamCommand::Stop)
+                    | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Ok(OldStreamCommand::Query(reply)) => {
+                        let value = rt.block_on(async {
+                            tokio::time::timeout(
+                                Duration::from_secs(35),
+                                call(
+                                    &mut stream,
+                                    &welcome,
+                                    request_id,
+                                    json!({"operation":"Query","query":empty_query()}),
+                                ),
+                            )
+                            .await
+                            .expect("same-stream stale query deadline")
+                        });
+                        let _ = reply.send(value);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        rt.block_on(async {
+                            tokio::time::timeout(Duration::from_secs(3), async {
+                                send(
+                                    &mut stream,
+                                    &devmap::runtime::protocol::Request::Ping {
+                                        protocol: VERSION,
+                                        repository: welcome.repository.clone(),
+                                        client_instance: welcome.client_instance.clone(),
+                                        request_id,
+                                    },
+                                )
+                                .await;
+                                let pong: devmap::runtime::protocol::Response =
+                                    serde_json::from_value(receive(&mut stream).await).unwrap();
+                                assert_eq!(pong.request_id, request_id);
+                                assert_eq!(pong.owner_instance, welcome.owner_instance);
+                            })
+                            .await
+                            .expect("old-source Ping deadline");
+                        });
+                        counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+        let guard = Self {
+            commands,
+            thread: Some(thread),
+            pings,
+            started,
+        };
+        let warm = warm_rx
+            .recv_timeout(Duration::from_secs(50))
+            .expect("old-stream thread warm response");
+        (guard, warm)
+    }
+    fn diagnostic(&self, phase: &str) {
+        eprintln!(
+            "old-stream phase={phase} elapsed={:?} validated_pings={}",
+            self.started.elapsed(),
+            self.pings.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+    fn stale_query(&self) -> Value {
+        self.diagnostic("before-stale-query");
+        let (reply, response) = std::sync::mpsc::channel();
+        self.commands.send(OldStreamCommand::Query(reply)).unwrap();
+        let value = response
+            .recv_timeout(Duration::from_secs(40))
+            .expect("same-stream stale response");
+        self.diagnostic("after-stale-query");
+        value
+    }
+}
+impl Drop for KeptOldStream<'_> {
+    fn drop(&mut self) {
+        let _ = self.commands.send(OldStreamCommand::Stop);
+        if let Some(thread) = self.thread.take() {
+            let result = thread.join();
+            if !std::thread::panicking() {
+                result.expect("old-stream thread failed");
+            }
+        }
+    }
+}
+
 fn owned_process_move(foreign: bool) {
     let mut f = Fixture::with_moving_anchor(true);
     let w = f.welcome();
@@ -463,149 +599,142 @@ fn owned_process_move(foreign: bool) {
         .enable_all()
         .build()
         .unwrap();
-    rt.block_on(async {
+    std::thread::scope(|scope| {
         // The first actual Query (not just owner --source) establishes A as app anchor.
-        let mut stale = connect_source(&f, &w, &old_path).await;
-        let warm = call(
-            &mut stale,
-            &w,
-            1,
-            json!({"operation":"Query","query":empty_query()}),
-        )
-        .await;
-        assert_eq!(warm["result"], "Snapshot", "{warm}");
-        assert_eq!(warm["snapshot"]["model"]["current_worktree_id"], old_id);
-        assert_eq!(sql_rows(&main), sql);
-        git(
-            &f.repo,
-            &[
-                "worktree",
-                "move",
-                old_path.to_str().unwrap(),
-                moved_path.to_str().unwrap(),
-            ],
-        );
-        if foreign {
-            fs::create_dir(&old_path).unwrap();
-            git(&old_path, &["init", "--quiet"]);
-            git(
-                &old_path,
-                &[
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.invalid",
-                    "commit",
-                    "--allow-empty",
-                    "-qm",
-                    "foreign",
-                ],
-            );
-        } else {
+        let (stale, warm) = KeptOldStream::start(scope, f.exe.clone(), w.clone(), old_path.clone());
+        stale.diagnostic("warm");
+        rt.block_on(async {
+            assert_eq!(warm["result"], "Snapshot", "{warm}");
+            assert_eq!(warm["snapshot"]["model"]["current_worktree_id"], old_id);
+            assert_eq!(sql_rows(&main), sql);
             git(
                 &f.repo,
                 &[
                     "worktree",
-                    "add",
-                    "-b",
-                    "owner-occupant",
+                    "move",
                     old_path.to_str().unwrap(),
+                    moved_path.to_str().unwrap(),
                 ],
             );
-        }
-        let moved = workspace(&moved_path);
-        assert_eq!(moved.git_dir, old.git_dir);
-        assert_eq!(moved.head, old.head);
-        assert_eq!(moved.branch, old.branch);
-        let occupant = workspace(&old_path);
-        assert_ne!(occupant.git_dir, old.git_dir);
-        let foreign_bytes = foreign.then(|| backup_tree(&occupant.git_dir));
-        // Direct connection to the original endpoint cannot auto-start a new owner.
-        let mut fresh = connect_source(&f, &w, &moved_path).await;
-        let result = call(
-            &mut fresh,
-            &w,
-            1,
-            json!({"operation":"Query","query":empty_query()}),
-        )
-        .await;
-        assert_eq!(sql_rows(&main), sql);
-        assert_eq!(backup_tree(&backup), frozen);
-        assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
-        assert_eq!(result["result"], "Snapshot", "{result}");
-        assert_eq!(
-            result["snapshot"]["store_generation"],
-            warm["snapshot"]["store_generation"]
-        );
-        assert!(
-            result["snapshot"]["git_cycle"].as_u64().unwrap()
-                > warm["snapshot"]["git_cycle"].as_u64().unwrap()
-        );
-        let model = &result["snapshot"]["model"];
-        assert_eq!(model["current_worktree_id"], old_id);
-        let lane = model["lanes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|r| r["worktree_id"] == old_id)
-            .unwrap();
-        assert_eq!(
-            lane["workspace_path"],
-            moved.root.to_string_lossy().as_ref()
-        );
-        assert!(
-            lane["chats"]
+            if foreign {
+                fs::create_dir(&old_path).unwrap();
+                git(&old_path, &["init", "--quiet"]);
+                git(
+                    &old_path,
+                    &[
+                        "-c",
+                        "user.name=Test",
+                        "-c",
+                        "user.email=test@example.invalid",
+                        "commit",
+                        "--allow-empty",
+                        "-qm",
+                        "foreign",
+                    ],
+                );
+            } else {
+                git(
+                    &f.repo,
+                    &[
+                        "worktree",
+                        "add",
+                        "-b",
+                        "owner-occupant",
+                        old_path.to_str().unwrap(),
+                    ],
+                );
+            }
+            let moved = workspace(&moved_path);
+            assert_eq!(moved.git_dir, old.git_dir);
+            assert_eq!(moved.head, old.head);
+            assert_eq!(moved.branch, old.branch);
+            let occupant = workspace(&old_path);
+            assert_ne!(occupant.git_dir, old.git_dir);
+            let foreign_bytes = foreign.then(|| backup_tree(&occupant.git_dir));
+            stale.diagnostic("moved-and-reoccupied");
+            // Direct connection to the original endpoint cannot auto-start a new owner.
+            let mut fresh = connect_source(&f, &w, &moved_path).await;
+            let result = call(
+                &mut fresh,
+                &w,
+                1,
+                json!({"operation":"Query","query":empty_query()}),
+            )
+            .await;
+            assert_eq!(sql_rows(&main), sql);
+            assert_eq!(backup_tree(&backup), frozen);
+            assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
+            assert_eq!(result["result"], "Snapshot", "{result}");
+            assert_eq!(
+                result["snapshot"]["store_generation"],
+                warm["snapshot"]["store_generation"]
+            );
+            assert!(
+                result["snapshot"]["git_cycle"].as_u64().unwrap()
+                    > warm["snapshot"]["git_cycle"].as_u64().unwrap()
+            );
+            let model = &result["snapshot"]["model"];
+            assert_eq!(model["current_worktree_id"], old_id);
+            let lane = model["lanes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["session_id"] == "moving-owner-session")
-        );
-        for lane in model["lanes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|r| r["worktree_id"] != old_id)
-        {
+                .find(|r| r["worktree_id"] == old_id)
+                .unwrap();
+            assert_eq!(
+                lane["workspace_path"],
+                moved.root.to_string_lossy().as_ref()
+            );
             assert!(
-                !lane["chats"]
+                lane["chats"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .any(|r| r["session_id"] == "moving-owner-session")
             );
-        }
-        // This stream retains A's original authenticated Hello; do not construct A2 identity.
-        let rejected = call(
-            &mut stale,
-            &w,
-            2,
-            json!({"operation":"Query","query":empty_query()}),
-        )
-        .await;
-        assert_eq!(rejected["result"], "Error", "{rejected}");
-        assert!(
-            rejected
-                .to_string()
-                .contains("authenticated source changed"),
-            "{rejected}"
-        );
-        let mut main_stream = connect_source(&f, &w, &f.repo).await;
-        let main_result = call(
-            &mut main_stream,
-            &w,
-            1,
-            json!({"operation":"Query","query":empty_query()}),
-        )
-        .await;
-        assert_eq!(main_result["result"], "Snapshot", "{main_result}");
-        assert_eq!(sql_rows(&main), sql);
-        assert_eq!(backup_tree(&backup), frozen);
-        assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
-        assert_eq!(workspace(&moved_path).head, moved.head);
-        assert_eq!(workspace(&moved_path).branch, moved.branch);
-        if let Some(bytes) = foreign_bytes {
-            assert_eq!(backup_tree(&occupant.git_dir), bytes);
-        }
+            for lane in model["lanes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["worktree_id"] != old_id)
+            {
+                assert!(
+                    !lane["chats"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|r| r["session_id"] == "moving-owner-session")
+                );
+            }
+            // This stream retains A's original authenticated Hello; do not construct A2 identity.
+            stale.diagnostic("fresh-query-and-audits-complete");
+            let rejected = stale.stale_query();
+            assert_eq!(rejected["result"], "Error", "{rejected}");
+            assert!(
+                rejected
+                    .to_string()
+                    .contains("authenticated source changed"),
+                "{rejected}"
+            );
+            let mut main_stream = connect_source(&f, &w, &f.repo).await;
+            let main_result = call(
+                &mut main_stream,
+                &w,
+                1,
+                json!({"operation":"Query","query":empty_query()}),
+            )
+            .await;
+            assert_eq!(main_result["result"], "Snapshot", "{main_result}");
+            assert_eq!(sql_rows(&main), sql);
+            assert_eq!(backup_tree(&backup), frozen);
+            assert_eq!(fs::read(&legacy_path).unwrap(), legacy);
+            assert_eq!(workspace(&moved_path).head, moved.head);
+            assert_eq!(workspace(&moved_path).branch, moved.branch);
+            if let Some(bytes) = foreign_bytes {
+                assert_eq!(backup_tree(&occupant.git_dir), bytes);
+            }
+        });
+        stale.diagnostic("all-audits-complete");
     });
     drop(rt);
     assert!(f.owner.as_mut().unwrap().try_wait().unwrap().is_none());

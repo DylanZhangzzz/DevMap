@@ -22,6 +22,7 @@ pub(super) struct Completed {
 }
 pub(super) struct Job {
     pub identity: Identity,
+    pub query_origin: Option<super::query_validation::QueryOrigin>,
     pub bytes: Vec<u8>,
     pub reservation: OwnedSemaphorePermit,
     pub reply: oneshot::Sender<Completed>,
@@ -38,7 +39,10 @@ pub(super) struct Executor {
 impl Executor {
     pub fn start() -> io::Result<Self> {
         let mut app = None;
-        Self::start_with(move |identity, bytes| execute(&mut app, identity, bytes))
+        let mut queries = super::query_validation::QueryValidation::default();
+        Self::start_with(move |identity, bytes| {
+            execute_with_queries(&mut app, &mut queries, identity, bytes)
+        })
     }
     fn start_with(
         mut execute: impl FnMut(&Identity, &[u8]) -> Result<ApplicationResult, DevMapError>
@@ -54,7 +58,11 @@ impl Executor {
             .spawn(move || {
                 for job in receiver {
                     let result = if crate::git_process::healthy() {
-                        execute(&job.identity, &job.bytes)
+                        super::query_validation::with_query_origin(
+                            &job.bytes,
+                            job.query_origin.as_ref(),
+                            || execute(&job.identity, &job.bytes),
+                        )
                     } else {
                         Err(crate::git_process::GitProcessError::CleanupFailed.into())
                     }
@@ -100,19 +108,34 @@ impl Drop for Executor {
         }
     }
 }
+#[cfg(test)]
 fn execute(
     app: &mut Option<RepositoryApplication>,
     identity: &Identity,
     bytes: &[u8],
 ) -> Result<ApplicationResult, DevMapError> {
-    crate::git_process::with_operation(|| execute_inner(app, identity, bytes))
+    crate::git_process::with_operation(|| execute_inner(app, identity, bytes, None))
+}
+pub(super) fn execute_with_queries(
+    app: &mut Option<RepositoryApplication>,
+    queries: &mut super::query_validation::QueryValidation,
+    identity: &Identity,
+    bytes: &[u8],
+) -> Result<ApplicationResult, DevMapError> {
+    crate::git_process::with_operation(|| execute_inner(app, identity, bytes, Some(queries)))
 }
 fn execute_inner(
     app: &mut Option<RepositoryApplication>,
     identity: &Identity,
     bytes: &[u8],
+    queries: Option<&mut super::query_validation::QueryValidation>,
 ) -> Result<ApplicationResult, DevMapError> {
     let request: ApplicationRequest = serde_json::from_slice(bytes)?;
+    if let (ApplicationRequest::Query { query }, Some(queries)) = (&request, queries) {
+        return Ok(ApplicationResult::Snapshot {
+            snapshot: Box::new(queries.project(app, identity, query, OffsetDateTime::now_utc())?),
+        });
+    }
     let workspace = SourceGitInspector::open(&identity.source)?.workspace_allow_unborn()?;
     if std::fs::canonicalize(&workspace.root)? != identity.source
         || std::fs::canonicalize(&workspace.git_dir)? != identity.git_dir
@@ -206,6 +229,7 @@ mod tests {
         admission
             .sender
             .try_send(Job {
+                query_origin: None,
                 identity: dummy_identity(),
                 bytes: vec![1],
                 reservation,
@@ -228,6 +252,7 @@ mod tests {
         admission
             .sender
             .try_send(Job {
+                query_origin: None,
                 identity: dummy_identity(),
                 bytes: vec![2],
                 reservation,
@@ -385,6 +410,7 @@ mod sharing_tests {
             admission
                 .sender
                 .try_send(Job {
+                    query_origin: None,
                     identity: id,
                     bytes,
                     reservation,
