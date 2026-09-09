@@ -202,6 +202,7 @@ pub(crate) fn profile_frozen_read_stages(
         inventory(w, origins, activation.manifest.evaluated_at.clone())
     })?;
     validate_inventory_equality(&captured, &activation.manifest)?;
+    profile_manifest_file_io(&captured, &mut report)?;
     let observed = stage("observe_active_origins_full", &mut report, || {
         observe_active_origins(w, c, false)
     })?;
@@ -217,6 +218,99 @@ pub(crate) fn profile_frozen_read_stages(
             "profiling origin observation differs from frozen fixture",
         ));
     }
+    Ok(())
+}
+
+#[cfg(test)]
+fn profile_manifest_file_io(
+    manifest: &FrozenManifest,
+    report: &mut impl FnMut(&'static str, u128, usize),
+) -> Result<(), DevMapError> {
+    use sha2::{Digest, Sha256};
+    use std::time::{Duration, Instant};
+    if manifest.files.len() > MAX_FILES {
+        return Err(fail("profiling file limit"));
+    }
+    let start_all = Instant::now();
+    let mut opening = Duration::ZERO;
+    let mut reading = Duration::ZERO;
+    let mut hashing = Duration::ZERO;
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    for expected in &manifest.files {
+        let origin = manifest
+            .origins
+            .get(expected.origin)
+            .ok_or_else(|| fail("profiling origin index"))?;
+        let relative = Path::new(&expected.relative);
+        if relative
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(fail("profiling relative path"));
+        }
+        let path = origin.git_dir.join("devmap").join(relative);
+        let start = Instant::now();
+        safe::checked_canonical_directory(path.parent().ok_or_else(|| fail("profiling parent"))?)?;
+        let mut file = safe::checked_file(&path, false, false)?;
+        if super::super::link_count(&file)? != 1 {
+            return Err(fail("hard-linked legacy artifact refused"));
+        }
+        opening += start.elapsed();
+        let mut hash = Sha256::new();
+        let mut bytes = 0u64;
+        loop {
+            let remaining = MAX_BYTES - total;
+            let length = (remaining.min(buffer.len() as u64) as usize).max(1);
+            let start = Instant::now();
+            let result = file.read(&mut buffer[..length]);
+            reading += start.elapsed();
+            let count = match result {
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if count == 0 {
+                break;
+            }
+            if count as u64 > remaining {
+                return Err(fail("profiling byte limit"));
+            }
+            bytes += count as u64;
+            total += count as u64;
+            let start = Instant::now();
+            hash.update(&buffer[..count]);
+            hashing += start.elapsed();
+        }
+        let start = Instant::now();
+        let digest = format!("{:x}", hash.finalize());
+        hashing += start.elapsed();
+        if bytes != expected.bytes || digest != expected.sha256 {
+            return Err(fail("profiling full file bytes/hash mismatch"));
+        }
+    }
+    let elapsed = start_all.elapsed();
+    report(
+        "manifest_files_checked_open_linkcount",
+        opening.as_micros(),
+        0,
+    );
+    report("manifest_files_stream_read", reading.as_micros(), 0);
+    report("manifest_files_sha_update_finalize", hashing.as_micros(), 0);
+    report("manifest_files_independent_total", elapsed.as_micros(), 0);
+    // Contains iteration, timing overhead, comparisons and close costs. It is
+    // NOT a measurement of production walk metadata or a subtraction across runs.
+    report(
+        "manifest_files_other_residual",
+        elapsed
+            .saturating_sub(opening + reading + hashing)
+            .as_micros(),
+        0,
+    );
+    println!(
+        "profile_manifest_files={} profile_manifest_bytes={total}",
+        manifest.files.len()
+    );
     Ok(())
 }
 

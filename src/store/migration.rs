@@ -790,13 +790,13 @@ fn walk(
             {
                 return Err(fail("legacy inventory resource limit"));
             }
-            let bytes = read(&path)?;
-            *total += bytes.len() as u64;
+            let (bytes, sha256) = inventory_hash(&path, MAX_BYTES.saturating_sub(*total))?;
+            *total += bytes;
             manifest.files.push(FrozenFile {
                 origin,
                 relative,
-                sha256: sha256_hex(&bytes),
-                bytes: bytes.len() as u64,
+                sha256,
+                bytes,
                 record_count: 0,
                 outcome: kind.into(),
             });
@@ -833,6 +833,156 @@ fn read(path: &Path) -> Result<Vec<u8>, DevMapError> {
         return Err(fail("legacy file resource limit"));
     }
     Ok(bytes)
+}
+fn inventory_hash(path: &Path, remaining: u64) -> Result<(u64, String), DevMapError> {
+    safe::checked_canonical_directory(path.parent().ok_or_else(|| fail("file has no parent"))?)?;
+    let file = safe::checked_file(path, false, false)?;
+    if super::link_count(&file)? != 1 {
+        return Err(fail("hard-linked legacy artifact refused"));
+    }
+    inventory_hash_reader(file, remaining)
+}
+
+fn inventory_hash_reader(
+    mut reader: impl Read,
+    remaining: u64,
+) -> Result<(u64, String), DevMapError> {
+    use sha2::{Digest, Sha256};
+    let limit = remaining.min(MAX_BYTES);
+    let mut total = 0u64;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        // At the limit, one byte distinguishes EOF from growth/overflow. The
+        // probe is never hashed or admitted. Subtraction is safe by invariant.
+        let length = usize::try_from((limit - total).min(buffer.len() as u64))
+            .unwrap()
+            .max(1);
+        let count = match reader.read(&mut buffer[..length]) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if count == 0 {
+            return Ok((total, format!("{:x}", hash.finalize())));
+        }
+        if count as u64 > limit - total {
+            return Err(fail(if remaining >= MAX_BYTES {
+                "legacy file resource limit"
+            } else {
+                "legacy inventory resource limit"
+            }));
+        }
+        total += count as u64;
+        hash.update(&buffer[..count]);
+    }
+}
+
+#[cfg(test)]
+mod inventory_hash_tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_short_reads_and_errors_preserve_read_semantics() {
+        struct ShortReader {
+            bytes: std::io::Cursor<Vec<u8>>,
+            interrupted: bool,
+            fail_at_end: bool,
+        }
+        impl Read for ShortReader {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                if self.fail_at_end && self.bytes.position() == self.bytes.get_ref().len() as u64 {
+                    return Err(std::io::Error::other("owned reader failure"));
+                }
+                let length = buffer.len().min(3);
+                self.bytes.read(&mut buffer[..length])
+            }
+        }
+        let bytes = b"short-read-complete-bytes".to_vec();
+        let make = |fail_at_end| ShortReader {
+            bytes: std::io::Cursor::new(bytes.clone()),
+            interrupted: false,
+            fail_at_end,
+        };
+        assert_eq!(
+            inventory_hash_reader(make(false), bytes.len() as u64).unwrap(),
+            (bytes.len() as u64, sha256_hex(&bytes))
+        );
+        let error = inventory_hash_reader(make(true), bytes.len() as u64).unwrap_err();
+        assert!(error.to_string().contains("owned reader failure"));
+    }
+
+    #[test]
+    fn actual_bytes_exceeding_remaining_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("events.ndjson");
+        fs::write(&path, b"12345678").unwrap();
+        // A stale metadata precheck can have admitted fewer bytes than now read.
+        // Exercise the remaining-budget boundary directly without a timing race.
+        assert!(inventory_hash(&path, 7).is_err());
+        assert!(inventory_hash(&path, 0).is_err());
+    }
+
+    #[test]
+    fn growth_after_metadata_admission_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("events.ndjson");
+        fs::write(&path, b"1234").unwrap();
+        let admitted = fs::metadata(&path).unwrap().len();
+        let mut writer = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writer.write_all(b"5678").unwrap();
+        drop(writer);
+        // Deliberate sequential growth after metadata, not a concurrency claim.
+        assert!(inventory_hash(&path, admitted).is_err());
+    }
+
+    #[test]
+    fn exact_empty_and_multichunk_hashes_match_original() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("events.ndjson");
+        for bytes in [
+            Vec::new(),
+            b"12345678".to_vec(),
+            "完整字节🙂\n".repeat(20000).into_bytes(),
+        ] {
+            fs::write(&path, &bytes).unwrap();
+            assert_eq!(
+                inventory_hash(&path, bytes.len() as u64).unwrap(),
+                (bytes.len() as u64, sha256_hex(&bytes))
+            );
+        }
+    }
+
+    #[test]
+    fn hardlinked_and_non_file_inputs_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("events.ndjson");
+        fs::write(&path, b"content").unwrap();
+        fs::hard_link(&path, directory.path().join("alias")).unwrap();
+        assert!(inventory_hash(&path, MAX_BYTES).is_err());
+        assert!(inventory_hash(directory.path(), MAX_BYTES).is_err());
+        assert!(inventory_hash(&directory.path().join("missing"), MAX_BYTES).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_file_and_parent_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let real = directory.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let file = real.join("events.ndjson");
+        fs::write(&file, b"bytes").unwrap();
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(&file, &alias).unwrap();
+        assert!(inventory_hash(&alias, MAX_BYTES).is_err());
+        let parent = directory.path().join("parent");
+        std::os::unix::fs::symlink(&real, &parent).unwrap();
+        assert!(inventory_hash(&parent.join("events.ndjson"), MAX_BYTES).is_err());
+    }
 }
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), DevMapError> {
     let mut file = safe::checked_new_file(path)?;
