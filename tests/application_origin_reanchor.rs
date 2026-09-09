@@ -76,6 +76,9 @@ fn sql_rows(w: &SourceWorkspace) -> SqlRows {
         "binding_records",
         "binding_watermarks",
         "migration_sources",
+        "route_origin_links",
+        "binding_origin_links",
+        "binding_origin_cursors",
     ] {
         let mut statement = c
             .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))

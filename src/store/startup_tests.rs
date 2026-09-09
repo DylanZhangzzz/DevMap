@@ -110,7 +110,7 @@ fn startup_recovery_rejects_extra_registry_row() {
         validate_shadow(&store, &manifest)
             .unwrap_err()
             .to_string()
-            .contains("unowned records")
+            .contains("imported worktree registry inventory mismatch")
     );
     let retained: i64 = store
         .connection()

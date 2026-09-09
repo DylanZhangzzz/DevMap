@@ -141,6 +141,7 @@ pub enum MutationCommand {
 /// Local dispatch only; this is not a serialized permission supplied by a client.
 pub(crate) enum StartupAdmission {
     Strict,
+    QualifiedOrigins,
     RouteFreeJournal { session_id: String },
 }
 
@@ -158,7 +159,7 @@ impl MutationCommand {
         workspace: &SourceWorkspace,
     ) -> Result<StartupAdmission, DevMapError> {
         let session = match self {
-            Self::SetRoute { .. } => None,
+            Self::SetRoute { .. } => return Ok(StartupAdmission::QualifiedOrigins),
             Self::RecordRequirement { common, .. }
             | Self::RecordDecision { common, .. }
             | Self::RecordEvidence { common, .. } => {

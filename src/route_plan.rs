@@ -135,11 +135,32 @@ impl RoutePlanStore {
 
     pub fn set(&self, input: PlanInput) -> Result<RoutePlan, DevMapError> {
         validate_prepared_input(&input)?;
-        crate::store::domain_write(&self.workspace, |tx| {
-            if let Some(tx) = tx {
-                let records = sql_records(tx, &repository_id(&self.workspace))?;
+        crate::store::origin_write(&self.workspace, |tx| {
+            if let Some((tx, admission)) = tx {
+                let mut records = sql_records(tx, &repository_id(&self.workspace))?;
+                let links = crate::store::origin_links::validate_routes(tx, &records)?;
                 let (plan, addition) = self.build(input, &records)?;
                 if let Some(record) = addition {
+                    // Same-ID intent edits retain their historical identity,
+                    // including absent/replaced targets. Only new destinations
+                    // acquire live authority; receipt/CAS have already resolved.
+                    let previous = records
+                        .iter()
+                        .rev()
+                        .find(|r| r.plan.route_id == record.plan.route_id);
+                    let link = if let Some(previous) =
+                        previous.filter(|r| r.plan.worktree_id == record.plan.worktree_id)
+                    {
+                        links
+                            .get(&(previous.plan.route_id.clone(), previous.plan.revision))
+                            .expect("validated route coverage")
+                            .clone()
+                    } else {
+                        crate::store::origin_links::register_origin(
+                            tx,
+                            admission.current_origin(&record.plan.worktree_id)?,
+                        )?
+                    };
                     let size = records.iter().chain(std::iter::once(&record)).try_fold(
                         0u64,
                         |n, r| -> Result<u64, DevMapError> {
@@ -150,6 +171,9 @@ impl RoutePlanStore {
                         return Err(invalid("route plan journal limit reached"));
                     }
                     tx.execute("INSERT INTO route_records(route_id,revision,request_id,input_json,plan_json) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![record.plan.route_id,i64::try_from(record.plan.revision).map_err(|_| invalid("revision overflow"))?,record.input.request_id,serde_json::to_string(&record.input)?,serde_json::to_string(&record.plan)?])?;
+                    crate::store::origin_links::insert_route(tx, &record.plan, &link)?;
+                    records.push(record);
+                    crate::store::origin_links::validate_routes(tx, &records)?;
                     tx.execute(
                         "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
                         [],

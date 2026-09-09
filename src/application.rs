@@ -522,7 +522,7 @@ impl RepositoryApplication {
         if setup {
             // Full merged input and source reports are validated before setup.
             // Direct embedded callers retain their explicit legacy policy.
-            crate::store::migration::prepare_first_write(&view.workspace)?;
+            crate::store::migration::prepare_first_origin_write(&view.workspace)?;
         }
         crate::journal::observe_task_bindings(&view.workspace, &associations, &binding_time)?;
         view.tasks = tasks;

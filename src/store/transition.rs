@@ -16,9 +16,16 @@ impl Guard {
         let common = safe::checked_canonical_directory(&workspace.git_common_dir)?;
         platform::validate_chain(&common)?;
         let parent = common.join("devmap");
+        let directory = parent.join(DIRECTORY);
+        // With no existing gate, reject unsupported stores before creating
+        // bookkeeping. When a gate exists, another first writer may still be
+        // initializing SQLite: wait for its lock before inspecting that schema.
+        // Every caller revalidates the selector/store after acquiring the gate.
+        if safe::checked_metadata(&directory.join("lock"))?.is_none() {
+            drop(super::RepositoryStore::open_existing(workspace)?);
+        }
         safe::ensure_directory(&parent)?;
         platform::validate_chain(&parent)?;
-        let directory = parent.join(DIRECTORY);
         platform::private_dir(&directory)?;
         let path = directory.join("lock");
         let file = platform::lock_file(&path)?;

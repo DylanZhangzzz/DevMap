@@ -18,9 +18,9 @@ use crate::git_relationship::{
     IntegrationBranch,
 };
 use crate::git_topology::{GitTopologyCollector, TopologyBoundary, TopologyGraph};
-use crate::journal::{JournalIntegrity, JournalSummary, summarize_existing_sessions};
+use crate::journal::{JournalIntegrity, JournalSummary};
 use crate::presence::{
-    Confidence, PresenceLoadReport, PresenceRecord, PresenceStatus, PresenceStore, StatusSource,
+    Confidence, PresenceLoadReport, PresenceRecord, PresenceStatus, StatusSource,
 };
 use crate::worktrees::{WorktreeDescriptor, WorktreeScanner, repository_id};
 
@@ -759,12 +759,43 @@ pub(crate) type DockRoutePlans = (
     BTreeMap<String, (String, String)>,
 );
 
+#[derive(Clone)]
+pub(crate) struct DockBindingRecord {
+    pub observation: crate::journal::TaskBindingObservation,
+    pub visible_worktrees: BTreeSet<String>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct DockBindingInputs {
+    pub records: Vec<DockBindingRecord>,
+    pub incomplete_worktrees: BTreeSet<String>,
+}
+impl From<Vec<crate::journal::TaskBindingObservation>> for DockBindingInputs {
+    fn from(records: Vec<crate::journal::TaskBindingObservation>) -> Self {
+        Self {
+            records: records
+                .into_iter()
+                .map(|observation| {
+                    let visible_worktrees = std::iter::once(observation.worktree_id.clone())
+                        .chain(observation.from_worktree_id.clone())
+                        .collect();
+                    DockBindingRecord {
+                        observation,
+                        visible_worktrees,
+                    }
+                })
+                .collect(),
+            incomplete_worktrees: BTreeSet::new(),
+        }
+    }
+}
+
 /// Durable inputs already read from one validated storage snapshot.
 pub(crate) struct DockStorageInputs {
     pub presence: PresenceLoadReport,
     pub journals: BTreeMap<String, JournalSummary>,
     pub routes: Result<DockRoutePlans, DevMapError>,
-    pub bindings: Result<Vec<crate::journal::TaskBindingObservation>, DevMapError>,
+    pub bindings: Result<DockBindingInputs, DevMapError>,
 }
 
 impl Clone for DockStorageInputs {
@@ -973,7 +1004,7 @@ fn task_observation(
 fn apply_storage_inputs(
     next: &mut DockReadModel,
     routes: Result<DockRoutePlans, DevMapError>,
-    bindings: Result<Vec<crate::journal::TaskBindingObservation>, DevMapError>,
+    bindings: Result<DockBindingInputs, DevMapError>,
     mut target_exists: impl FnMut(&str) -> Result<bool, DevMapError>,
 ) -> Result<(), DevMapError> {
     match routes {
@@ -1008,22 +1039,25 @@ fn apply_storage_inputs(
     }
     match bindings {
         Ok(bindings) => {
+            let mut truncated = false;
             for facts in &mut next.workspace_facts {
                 let matches = bindings
+                    .records
                     .iter()
-                    .filter(|binding| {
-                        binding.worktree_id == facts.worktree_id
-                            || binding.from_worktree_id.as_deref() == Some(&facts.worktree_id)
-                    })
+                    .filter(|binding| binding.visible_worktrees.contains(&facts.worktree_id))
                     .collect::<Vec<_>>();
-                facts.bindings_complete = matches.len() <= 32;
-                facts.bindings = matches.into_iter().rev().take(32).rev().cloned().collect();
+                truncated |= matches.len() > 32;
+                facts.bindings_complete = matches.len() <= 32
+                    && !bindings.incomplete_worktrees.contains(&facts.worktree_id);
+                facts.bindings = matches
+                    .into_iter()
+                    .rev()
+                    .take(32)
+                    .rev()
+                    .map(|record| record.observation.clone())
+                    .collect();
             }
-            if next
-                .workspace_facts
-                .iter()
-                .any(|facts| !facts.bindings_complete)
-            {
+            if truncated {
                 next.truncated = true;
                 next.warnings.push(DockWarning {
                     code: "task_binding_history_truncated".into(),
@@ -1176,6 +1210,40 @@ impl DockService {
     pub fn refresh(&mut self, now: OffsetDateTime) -> Result<&DockReadModel, DevMapError> {
         crate::git_process::with_operation(|| {
             let worktrees = WorktreeScanner::scan(&self.workspace)?;
+            let binding_observation = self.task_inventory_synced_at.as_ref().map(|observed_at| {
+                let associations = self
+                    .observed_tasks
+                    .iter()
+                    .filter(|task| task.lifecycle == TaskLifecycle::Present)
+                    .filter_map(|task| {
+                        worktrees
+                            .iter()
+                            .find(|worktree| {
+                                same_workspace_path(&task.workspace_path, &worktree.root)
+                            })
+                            .map(|worktree| {
+                                (
+                                    task.host.clone(),
+                                    task.session_id.clone(),
+                                    worktree.worktree_id.clone(),
+                                )
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                crate::journal::observe_task_bindings(&self.workspace, &associations, observed_at)
+            });
+            // Direct embedded presentation uses the same pinned and qualified
+            // inputs as the shared application; raw history getters remain raw.
+            let (_, inputs) = crate::store::snapshot::InputReader::new().read(&self.workspace)?;
+            let DockStorageInputs {
+                presence,
+                journals,
+                routes: route_result,
+                mut bindings,
+            } = inputs;
+            if let Some(Err(error)) = binding_observation {
+                bindings = Err(error);
+            }
             let topology_key = topology_cache_key(&self.workspace, &worktrees)?;
             let topology = match topology_key {
                 Some(key) if self.topology_cache_key.as_deref() == Some(&key) => self
@@ -1194,19 +1262,6 @@ impl DockService {
                     GitTopologyCollector::scan(&self.workspace, &worktrees)?
                 }
             };
-            let presence = PresenceStore::open_existing(&self.workspace)?
-                .map(|store| store.load_all())
-                .unwrap_or(PresenceLoadReport {
-                    records: Vec::new(),
-                    warnings: Vec::new(),
-                    truncated: false,
-                });
-            let sessions = presence
-                .records
-                .iter()
-                .map(|record| record.session_id.clone())
-                .collect::<BTreeSet<_>>();
-            let journals = summarize_existing_sessions(&self.workspace, &sessions);
             let task_observation = task_observation(
                 &self.observed_tasks,
                 self.task_inventory_synced_at.as_ref(),
@@ -1224,36 +1279,7 @@ impl DockService {
                 None,
             )?;
             next.task_inventory_synced_at = self.task_inventory_synced_at.clone();
-            let route_result = crate::route_plan::RoutePlanStore::open(&self.workspace)
-                .and_then(|store| store.list_with_starts());
-            let binding_result = if let Some(observed_at) = &self.task_inventory_synced_at {
-                let associations = self
-                    .observed_tasks
-                    .iter()
-                    .filter(|task| task.lifecycle == TaskLifecycle::Present)
-                    .filter_map(|task| {
-                        next.lanes
-                            .iter()
-                            .find(|lane| {
-                                same_workspace_path(
-                                    &task.workspace_path,
-                                    Path::new(&lane.workspace_path),
-                                )
-                            })
-                            .map(|lane| {
-                                (
-                                    task.host.clone(),
-                                    task.session_id.clone(),
-                                    lane.worktree_id.clone(),
-                                )
-                            })
-                    })
-                    .collect::<Vec<_>>();
-                crate::journal::observe_task_bindings(&self.workspace, &associations, observed_at)
-            } else {
-                crate::journal::read_task_bindings(&self.workspace)
-            };
-            apply_storage_inputs(&mut next, route_result, binding_result, |target| {
+            apply_storage_inputs(&mut next, route_result, bindings, |target| {
                 Ok(crate::git_process::output(
                     Command::new("git")
                         .arg("-C")
@@ -2367,7 +2393,7 @@ mod projection_tests {
                     },
                     journals: BTreeMap::new(),
                     routes: Ok((plans, starts)),
-                    bindings: Ok(vec![]),
+                    bindings: Ok(vec![].into()),
                 },
                 now,
                 &[],

@@ -1,5 +1,6 @@
 //! Repository-local transactional storage. Creating a store does not activate it.
 pub mod migration;
+pub(crate) mod origin_links;
 pub(crate) mod snapshot;
 pub(crate) mod transition;
 use crate::{error::DevMapError, fs_security, git::SourceWorkspace, worktrees};
@@ -9,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-const VERSION: i64 = 1;
+const VERSION: i64 = 2;
 const TIMEOUT: Duration = Duration::from_secs(2);
 pub struct RepositoryStore {
     connection: Connection,
@@ -27,13 +28,17 @@ impl RepositoryStore {
     ) -> Result<Self, DevMapError> {
         let (common, path) = location(workspace)?;
         fs_security::ensure_directory(path.parent().unwrap())?;
-        let _initialization = initialization_lock(path.parent().unwrap())?;
         let existing = fs_security::checked_metadata(&path)?.is_some();
+        // The transition guard excludes another candidate's initialization.
+        // Reject an incompatible existing store before creating bookkeeping,
+        // including when its transition gate predates this invocation.
         if existing {
             let probe =
                 Self::open_existing(workspace)?.ok_or_else(|| err("database disappeared"))?;
             probe.integrity_check()?;
-        } else {
+        }
+        let _initialization = initialization_lock(path.parent().unwrap())?;
+        if !existing {
             migration::refuse_missing_database(workspace)?;
             reject_sidecars(&path)?;
             fs_security::ensure_directory(path.parent().unwrap())?;
@@ -214,7 +219,7 @@ fn validate(c: &Connection, w: &SourceWorkspace, common: &Path) -> Result<(), De
     if id != worktrees::repository_id(w) || dir != common.to_string_lossy() {
         return Err(err("repository identity mismatch"));
     }
-    Ok(())
+    origin_links::validate_schema(c)
 }
 #[cfg(unix)]
 fn link_count(f: &File) -> Result<u64, DevMapError> {
@@ -581,6 +586,69 @@ pub(crate) fn journal_write_guarded<T>(
         Ok(result)
     })
 }
+/// Closed route/binding admission. Raw accepted history is validated by the
+/// domain writer; current targets are resolved only when that operation needs
+/// a new association. This does not authorize journal or standalone presence.
+pub(crate) struct OriginAdmission {
+    report: migration::ActiveOriginReport,
+    actor: migration::FrozenOrigin,
+}
+impl OriginAdmission {
+    fn check(workspace: &SourceWorkspace, c: &Connection) -> Result<Self, DevMapError> {
+        let report = migration::observe_active_read_origins(workspace, c)?;
+        let git = fs_security::checked_canonical_directory(&workspace.git_dir)?;
+        let root = fs_security::checked_canonical_directory(&workspace.root)?;
+        let actor = report
+            .current
+            .values()
+            .find(|origin| origin.git_dir == git)
+            .ok_or_else(|| err("origin writer is not a current repository workspace"))?
+            .clone();
+        if fs_security::checked_canonical_directory(&actor.workspace_path)? != root
+            || crate::journal::worktree_incarnation(workspace)? != actor.incarnation
+        {
+            return Err(err("origin writer workspace identity mismatch"));
+        }
+        Ok(Self { report, actor })
+    }
+    pub(crate) fn current_origin(
+        &self,
+        worktree_id: &str,
+    ) -> Result<&migration::FrozenOrigin, DevMapError> {
+        self.report
+            .current
+            .get(worktree_id)
+            .ok_or_else(|| err("target worktree is not currently verified"))
+    }
+    fn recheck(&self, workspace: &SourceWorkspace, c: &Connection) -> Result<(), DevMapError> {
+        let after = Self::check(workspace, c)?;
+        if after.actor != self.actor || after.report.fingerprint != self.report.fingerprint {
+            return Err(err("repository origins changed during acceptance"));
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn origin_write<T>(
+    workspace: &SourceWorkspace,
+    f: impl FnOnce(Option<(&Transaction<'_>, &OriginAdmission)>) -> Result<T, DevMapError>,
+) -> Result<T, DevMapError> {
+    let guard = transition::Guard::acquire(workspace)?;
+    if RepositoryStore::open_existing(workspace)?.is_none() {
+        return f(None);
+    }
+    let mut store = RepositoryStore::open_guarded(workspace, &guard)?;
+    store.transaction(|tx| {
+        if !is_active(tx)? {
+            return f(None);
+        }
+        let admission = OriginAdmission::check(workspace, tx)?;
+        let result = f(Some((tx, &admission)))?;
+        admission.recheck(workspace, tx)?;
+        Ok(result)
+    })
+}
+
 /// Serialize selector inspection and writes with activation of an existing shadow.
 pub(crate) fn domain_write<T>(
     workspace: &SourceWorkspace,

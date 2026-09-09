@@ -191,6 +191,9 @@ fn sql_snapshot(f: &Fixture) -> Vec<Vec<String>> {
         "SELECT json_array(route_id,revision,request_id,input_json,plan_json) FROM route_records ORDER BY route_id,revision",
         "SELECT json_array(observation_id,host,task_id,observed_at,record_json) FROM binding_records ORDER BY observation_id",
         "SELECT json_array(source_scope,observed_at,record_json) FROM binding_watermarks ORDER BY source_scope",
+        "SELECT json_array(route_id,revision,worktree_id,incarnation,qualification) FROM route_origin_links ORDER BY route_id,revision",
+        "SELECT json_array(observation_id,destination_worktree_id,destination_incarnation,destination_qualification,source_worktree_id,source_incarnation,source_qualification) FROM binding_origin_links ORDER BY observation_id",
+        "SELECT json_array(source_scope,observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id) FROM binding_origin_cursors ORDER BY source_scope",
     ];
     let rows = sql
         .iter()
@@ -403,23 +406,9 @@ fn same_path_replacement_cannot_inherit_old_session_or_live_presence() {
             .is_err()
     );
     assert!(PresenceStore::open(&replacement).is_err());
-    assert!(
-        devmap::route_plan::RoutePlanStore::open(&replacement)
-            .unwrap()
-            .set(devmap::route_plan::PlanInput {
-                delivery: Default::default(),
-                request_id: "forbidden-lifecycle-route".into(),
-                route_id: None,
-                expected_revision: 0,
-                worktree_id: f.removed_id.clone(),
-                goal: "not admitted".into(),
-                target_ref: None,
-                milestones: vec![],
-                source: "user".into(),
-                abandoned: false,
-            })
-            .is_err()
-    );
+    // Independent new route acceptance has its own qualified transaction and
+    // is exercised in sqlite_native_origin_lifecycle. Journal-only admission
+    // must still reject actual route-bearing captures below.
     assert_eq!(sql_snapshot(&f), before);
     let model = qualified_read(&f.survivor);
     assert_old_presence_is_not_live(&model);

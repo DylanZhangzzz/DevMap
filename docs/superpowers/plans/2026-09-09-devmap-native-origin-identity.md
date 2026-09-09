@@ -47,7 +47,7 @@ InputReader pins one SQL generation and loads raw domain bytes, origin links and
 
 Origin observation should include relevant registry incarnations as well as manifest origins. Frozen legacy inventory/provenance checks remain separate and strict for present old sources. Native registry origins have no fabricated frozen files. Current filesystem identity determines whether each known link matches, is unavailable or was replaced; unknown stays unknown.
 
-Latest route revisions and their start evidence qualify by their own immutable links; never suppress every plan sharing a worktree_id. New route on replacement must remain visible while old route is omitted from live attachment with a warning. Binding source/destination qualify independently. Prefer a private report carrying filtered valid bindings plus complete=false and affected worktree IDs, replacing the current all-or-error overlay limitation without changing public Dock fields. Keep raw cache untouched; requalify live association each read and include relevant origin observations in the existing fingerprint invalidation. No TTL bypass of corruption checks.
+Latest route revisions qualify for current workspace attachment by their own immutable links; never suppress every plan sharing a worktree_id. Validate every revision's identity link, including the first record, as immutable historical metadata. Plan start is the creation of that route, not the creation or execution origin of its current workspace. After explicit retarget, the same route may display its original start_commit/time/source under its newly qualified destination even if the original workspace is unavailable. Do not rewrite those values or promote them into recorded_creation. This preserves the existing separate "Creation not recorded" and "Plan start" presentation. New route on replacement must remain visible while old route is omitted from live attachment with a warning. Binding source/destination qualify independently. Prefer a private report carrying filtered valid bindings plus complete=false and affected worktree IDs, replacing the current all-or-error overlay limitation without changing public Dock fields. Keep raw cache untouched; requalify live association each read and include relevant origin observations in the existing fingerprint invalidation. No TTL bypass of corruption checks.
 
 ## Frozen legacy import and unknown provenance
 
@@ -122,7 +122,7 @@ Current RoutePlanStore::build allows a revision when its previous plan has the s
 Use these cases explicitly:
 - New route: require verified current target incarnation and register/link it atomically. A new route at reused ID A may target A2 without making an older A1 route current.
 - Existing route, unchanged worktree ID: inherit the preceding revision's immutable identity qualification. An absent target can still receive an abandonment/intent revision; an existing replacement must never silently promote the inherited A1 link to A2. Such a historical revision remains excluded from live attachment. Unknown identity remains unknown. Live execution/capture permission is separate from editing history.
-- Existing route, explicitly different worktree ID: retain the product's retarget path, require a verified live new destination, link the new revision to that destination, preserve the original start_commit and first-record start evidence. Do not require an unavailable original source to reappear merely to retarget intent; do not relabel its original start evidence as proof from the new destination.
+- Existing route, explicitly different worktree ID: retain the product's retarget path, require a verified live new destination, link the new revision to that destination, preserve the original start_commit and first-record start evidence. Do not require an unavailable original source to reappear merely to retarget intent. The retained Plan start continues to describe the same route's historical creation, including when displayed under its new destination; it must not populate the destination's recorded_creation or certify execution there.
 - Exact replay precedes live-target resolution and returns its original result; changed request payload conflicts. Stale expected_revision returns the existing structured current-plan/revision conflict before evaluating whether a new revision could be admitted. Neither branch inserts a registry row or changes generation.
 
 Add explicit absent-old-target abandonment, same-ID replacement historical edit (no rebind), A-to-B retarget after A removal, stale-CAS after replacement, and old-receipt replay after removal tests. Keep capture validation strict and record-qualified; accepting an intent revision does not authorize capture on a replaced route.
@@ -149,3 +149,47 @@ the global plan, SQLite-managed WAL/SHM bookkeeping from a checked read-only
 connection to an existing live database remains permitted and must be reported
 separately from domain mutation. Do not use immutable mode on a mutable store
 to obtain a misleading byte-for-byte sidecar assertion.
+
+## Implementation checkpoint — 2026-09-09
+
+Schema 2 is implemented with immutable route-revision and binding-side origin
+links, an independent binding cursor, qualified native writer admission, frozen
+baseline import and qualified live projection. Public domain JSON and the two
+frozen frontend asset hashes remain unchanged. Existing schema 1 is explicitly
+rejected; no in-place converter or migration of the retained scale corpus was
+performed.
+
+Evidence retained under `target/verification`:
+
+- `task6-schema2-all-targets-first.log`: 486 passed, 8 failed, 6 ignored across
+  57 targets. This is a negative full-suite result, not completion evidence.
+- The recovery assertion expected an older error message; the stronger exact
+  registry mismatch now passes in `task6-schema2-recovery-fix.log` (1 test).
+- The old binding-import fixture manually inserted only schema-1 domain rows.
+  Binding and route import fixtures now use real freeze/import/activate and
+  retain byte/chronology/rollback checks. `task6-schema2-review-fixes.log` passes
+  binding (2), schema (6), route (5), and startup (8) tests, including simultaneous
+  first writes.
+- Independent review found that an existing transition gate could allow a new
+  `store-init.lock` before rejecting schema 1. The genuine old-schema fixture
+  failed in `task6-schema2-existing-gate-red.log`; validation now runs under the
+  acquired transition guard before creating initialization bookkeeping. The
+  corrected test is included in the six passing schema checks.
+- Native lifecycle (5), frozen lifecycle (8), migration (20), and shared runtime
+  mutation (6) tests passed in the full run, including same-path replacement,
+  receipt/CAS preservation, public no-session presence rejection, and committed
+  response abandonment followed by owner restart.
+- `task6-dock-mcp-isolated-suite.log`: all 18 tests pass with the original test
+  executable and serialized test scheduling. Concurrent full-suite contention
+  is a distinct issue from the independently reproducible performance failures.
+
+Open gates remain explicit. The 100-workspace timing check failed in four of
+five isolated original-executable runs. Temporary instrumentation (removed from
+source after measurement) measured Git inputs at 1.143 s and model work at
+0.221 s. The 256-real-workspace case still exceeds the Git operation deadline
+when isolated; its paired freshness test passes. No deadline or latency limit
+was increased. Real worktree move has a separate preserved RED in
+`task6-native-worktree-move-red.log`: verified physical identity survives, all
+14 SQL tables remain unchanged on rejected reads, but a fresh new-path handle
+cannot yet replay the original session. Performance, verified move support,
+new schema-2 scale data and final browser/host acceptance remain outstanding.

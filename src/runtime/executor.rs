@@ -126,6 +126,9 @@ fn execute_inner(
             crate::mutation::StartupAdmission::Strict => {
                 crate::store::migration::prepare_first_write(&workspace)?;
             }
+            crate::mutation::StartupAdmission::QualifiedOrigins => {
+                crate::store::migration::prepare_first_origin_write(&workspace)?;
+            }
             crate::mutation::StartupAdmission::RouteFreeJournal { session_id } => {
                 crate::store::migration::prepare_first_journal_write(&workspace, &session_id)?;
             }

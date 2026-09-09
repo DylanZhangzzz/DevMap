@@ -50,3 +50,39 @@ CREATE TABLE journal_heads (
  byte_length INTEGER NOT NULL CHECK(byte_length>=0),
  CHECK((record_count=0 AND last_sha256 IS NULL) OR (record_count>0 AND length(last_sha256)=64))
 ) STRICT;
+CREATE TABLE route_origin_links (
+ route_id TEXT NOT NULL, revision INTEGER NOT NULL,
+ worktree_id TEXT NOT NULL CHECK(length(CAST(worktree_id AS BLOB)) BETWEEN 1 AND 256),
+ incarnation TEXT CHECK(incarnation IS NULL OR length(CAST(incarnation AS BLOB)) BETWEEN 1 AND 512),
+ qualification TEXT NOT NULL CHECK(qualification IN ('native_verified','frozen_baseline','unknown')),
+ CHECK((qualification='unknown' AND incarnation IS NULL) OR (qualification!='unknown' AND incarnation IS NOT NULL)),
+ PRIMARY KEY(route_id,revision), FOREIGN KEY(route_id,revision) REFERENCES route_records(route_id,revision),
+ FOREIGN KEY(worktree_id,incarnation) REFERENCES worktree_registry(worktree_id,incarnation)
+) STRICT;
+CREATE TABLE binding_origin_links (
+ observation_id TEXT PRIMARY KEY REFERENCES binding_records(observation_id),
+ destination_worktree_id TEXT NOT NULL CHECK(length(CAST(destination_worktree_id AS BLOB)) BETWEEN 1 AND 256),
+ destination_incarnation TEXT CHECK(destination_incarnation IS NULL OR length(CAST(destination_incarnation AS BLOB)) BETWEEN 1 AND 512),
+ destination_qualification TEXT NOT NULL CHECK(destination_qualification IN ('native_verified','frozen_baseline','unknown')),
+ source_worktree_id TEXT CHECK(source_worktree_id IS NULL OR length(CAST(source_worktree_id AS BLOB)) BETWEEN 1 AND 256),
+ source_incarnation TEXT CHECK(source_incarnation IS NULL OR length(CAST(source_incarnation AS BLOB)) BETWEEN 1 AND 512),
+ source_qualification TEXT NOT NULL CHECK(source_qualification IN ('native_verified','frozen_baseline','unknown','not_applicable')),
+ CHECK((destination_qualification='unknown' AND destination_incarnation IS NULL) OR (destination_qualification!='unknown' AND destination_incarnation IS NOT NULL)),
+ CHECK((source_qualification='not_applicable' AND source_worktree_id IS NULL AND source_incarnation IS NULL) OR
+       (source_qualification='unknown' AND source_worktree_id IS NOT NULL AND source_incarnation IS NULL) OR
+       (source_qualification IN ('native_verified','frozen_baseline') AND source_worktree_id IS NOT NULL AND source_incarnation IS NOT NULL)),
+ FOREIGN KEY(destination_worktree_id,destination_incarnation) REFERENCES worktree_registry(worktree_id,incarnation),
+ FOREIGN KEY(source_worktree_id,source_incarnation) REFERENCES worktree_registry(worktree_id,incarnation)
+) STRICT;
+CREATE TABLE binding_origin_cursors (
+ source_scope TEXT PRIMARY KEY REFERENCES binding_watermarks(source_scope) CHECK(length(CAST(source_scope AS BLOB)) BETWEEN 1 AND 4096),
+ observed_at TEXT NOT NULL CHECK(length(CAST(observed_at AS BLOB)) BETWEEN 1 AND 128),
+ current_worktree_id TEXT CHECK(current_worktree_id IS NULL OR length(CAST(current_worktree_id AS BLOB)) BETWEEN 1 AND 256),
+ current_incarnation TEXT CHECK(current_incarnation IS NULL OR length(CAST(current_incarnation AS BLOB)) BETWEEN 1 AND 512),
+ qualification TEXT NOT NULL CHECK(qualification IN ('native_verified','frozen_baseline','unknown','unobserved')),
+ history_observation_id TEXT REFERENCES binding_records(observation_id),
+ CHECK((qualification='unobserved' AND current_worktree_id IS NULL AND current_incarnation IS NULL AND history_observation_id IS NULL) OR
+       (qualification='unknown' AND current_worktree_id IS NOT NULL AND current_incarnation IS NULL) OR
+       (qualification IN ('native_verified','frozen_baseline') AND current_worktree_id IS NOT NULL AND current_incarnation IS NOT NULL)),
+ FOREIGN KEY(current_worktree_id,current_incarnation) REFERENCES worktree_registry(worktree_id,incarnation)
+) STRICT;

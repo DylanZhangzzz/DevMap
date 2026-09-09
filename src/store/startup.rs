@@ -18,24 +18,28 @@ struct Attempt {
 }
 
 pub fn prepare_first_write(w: &SourceWorkspace) -> Result<WriteBackend, DevMapError> {
-    prepare_first_write_for(w, None)
+    prepare_first_write_for(w, false)
 }
 
 pub(crate) fn prepare_first_journal_write(
     w: &SourceWorkspace,
-    session_id: &str,
+    _session_id: &str,
 ) -> Result<WriteBackend, DevMapError> {
-    prepare_first_write_for(w, Some(session_id))
+    prepare_first_write_for(w, true)
+}
+
+pub(crate) fn prepare_first_origin_write(w: &SourceWorkspace) -> Result<WriteBackend, DevMapError> {
+    prepare_first_write_for(w, true)
 }
 
 fn prepare_first_write_for(
     w: &SourceWorkspace,
-    journal_session: Option<&str>,
+    qualified_domain: bool,
 ) -> Result<WriteBackend, DevMapError> {
     let guard = transition::Guard::acquire(w)?;
-    let active = if journal_session.is_some() {
-        // Startup selects a backend, not journal write authority. Actual open
-        // and append independently validate target/session/source admission.
+    let active = if qualified_domain {
+        // Startup selects a backend. The closed journal or route/binding
+        // transaction independently validates its domain-specific admission.
         match RepositoryStore::open_existing(w)? {
             Some(store) if is_active(store.connection())? => {
                 validated_activation(w, store.connection())?;
@@ -410,6 +414,9 @@ fn validate_shadow(store: &RepositoryStore, manifest: &FrozenManifest) -> Result
         "presence_records",
         "binding_records",
         "binding_watermarks",
+        "route_origin_links",
+        "binding_origin_links",
+        "binding_origin_cursors",
         "migration_sources",
         "presence_projection",
         "journal_heads",

@@ -424,34 +424,19 @@ pub(crate) fn observe_task_bindings(
         return read_task_bindings(workspace);
     }
     let timestamp = validate_binding_observation(associations, observed_at)?;
-    crate::store::domain_write(workspace, |tx| {
+    crate::store::origin_write(workspace, |tx| {
         let repository = crate::worktrees::repository_id(workspace);
-        if let Some(tx) = tx {
+        if let Some((tx, admission)) = tx {
             let snapshot = sql_binding_snapshot(tx, &repository)?;
-            let mut records = snapshot.records;
-            let mut watermarks = snapshot.watermarks;
-            let before = records.len();
-            let (changed, _) = update_bindings(
+            return update_sql_bindings(
+                tx,
+                admission,
                 &repository,
-                &mut records,
-                &mut watermarks,
+                snapshot,
                 associations,
                 observed_at,
                 timestamp,
-            )?;
-            if changed {
-                for record in &records[before..] {
-                    tx.execute("INSERT INTO binding_records(observation_id,host,task_id,observed_at,record_json) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![binding_id(record)?,record.host,record.task_id,record.observed_at,serde_json::to_string(record)?])?;
-                }
-                for ((host, task), at) in &watermarks {
-                    tx.execute("INSERT INTO binding_watermarks(source_scope,observed_at,record_json) VALUES(?1,?2,?3) ON CONFLICT(source_scope) DO UPDATE SET observed_at=excluded.observed_at,record_json=excluded.record_json", rusqlite::params![serde_json::to_string(&(host,task))?,at,serde_json::to_string(&(host,task,at))?])?;
-                }
-                tx.execute(
-                    "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
-                    [],
-                )?;
-            }
-            return Ok(records);
+            );
         }
         let path = binding_path(workspace, true)?.expect("created binding directory");
         let mut file = checked_file(&path, true, true)?;
@@ -484,6 +469,104 @@ pub(crate) fn observe_task_bindings(
         }
         Ok(records)
     })
+}
+fn update_sql_bindings(
+    tx: &rusqlite::Transaction<'_>,
+    admission: &crate::store::OriginAdmission,
+    repository: &str,
+    mut snapshot: BindingSnapshot,
+    associations: &[(String, String, String)],
+    observed_at: &str,
+    timestamp: time::OffsetDateTime,
+) -> Result<Vec<TaskBindingObservation>, DevMapError> {
+    use crate::store::origin_links::{self, BindingCursor, BindingLink};
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    let mut metadata = origin_links::validate_bindings(tx, &snapshot)?;
+    let mut changed = false;
+    for (host, task, worktree) in associations {
+        let key = (host.clone(), task.clone());
+        let prior = metadata.cursors.get(&key).cloned();
+        if let Some(cursor) = &prior {
+            let prior_time = OffsetDateTime::parse(&cursor.observed_at, &Rfc3339)
+                .map_err(|_| corruption("invalid binding cursor timestamp"))?;
+            if timestamp < prior_time {
+                continue;
+            }
+            if timestamp == prior_time {
+                // Watermark-only legacy evidence blocks equal-time association
+                // invention. A known equal-time observation cannot change identity.
+                if let Some(current) = &cursor.current {
+                    let target = admission.current_origin(worktree)?;
+                    if current.worktree_id != *worktree
+                        || current.incarnation.as_ref() != Some(&target.incarnation)
+                    {
+                        return Err(corruption("conflicting equal-time binding origin"));
+                    }
+                }
+                continue;
+            }
+        }
+        let destination = origin_links::register_origin(tx, admission.current_origin(worktree)?)?;
+        let previous = snapshot
+            .records
+            .iter()
+            .rev()
+            .find(|r| &r.host == host && &r.task_id == task);
+        let mut history = prior
+            .as_ref()
+            .and_then(|p| p.history_observation_id.clone());
+        if previous.is_none_or(|r| r.worktree_id != *worktree) {
+            let record = TaskBindingObservation {
+                schema_version: "devmap/task-binding/1".into(),
+                repository_id: repository.into(),
+                kind: if previous.is_some() {
+                    "task_migration_observed"
+                } else {
+                    "task_association_observed"
+                }
+                .into(),
+                host: host.clone(),
+                task_id: task.clone(),
+                worktree_id: worktree.clone(),
+                from_worktree_id: previous.map(|r| r.worktree_id.clone()),
+                source: "host_task_inventory".into(),
+                observed_at: observed_at.into(),
+                previous_observed_at: previous.map(|r| r.observed_at.clone()),
+                event_at: None,
+            };
+            let link = BindingLink {
+                destination: destination.clone(),
+                source: prior.as_ref().and_then(|p| p.current.clone()),
+            };
+            let id = binding_id(&record)?;
+            tx.execute("INSERT INTO binding_records(observation_id,host,task_id,observed_at,record_json) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![id,record.host,record.task_id,record.observed_at,serde_json::to_string(&record)?])?;
+            origin_links::insert_binding(tx, &record, &link)?;
+            metadata.links.insert(id.clone(), link);
+            history = Some(id);
+            snapshot.records.push(record);
+        }
+        let cursor = BindingCursor {
+            observed_at: observed_at.into(),
+            current: Some(destination),
+            history_observation_id: history,
+        };
+        tx.execute("INSERT INTO binding_watermarks(source_scope,observed_at,record_json) VALUES(?1,?2,?3) ON CONFLICT(source_scope) DO UPDATE SET observed_at=excluded.observed_at,record_json=excluded.record_json",rusqlite::params![serde_json::to_string(&(host,task))?,observed_at,serde_json::to_string(&(host,task,observed_at))?])?;
+        origin_links::upsert_cursor(tx, host, task, &cursor)?;
+        snapshot.watermarks.insert(key.clone(), observed_at.into());
+        metadata.cursors.insert(key, cursor);
+        changed = true;
+    }
+    if changed {
+        // Reuse the bounded public history parser and exact metadata validator
+        // before committing any newly accepted cursor or record.
+        let accepted = sql_binding_snapshot(tx, repository)?;
+        origin_links::validate_bindings(tx, &accepted)?;
+        tx.execute(
+            "UPDATE store_meta SET generation=generation+1 WHERE singleton=1",
+            [],
+        )?;
+    }
+    Ok(snapshot.records)
 }
 fn update_bindings(
     repository: &str,

@@ -651,3 +651,238 @@ fn reassigning_journal_to_another_valid_imported_origin_prevents_activation() {
         0
     );
 }
+
+fn schema2_legacy_identity_fixture() -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    SourceWorkspace,
+    std::path::PathBuf,
+    String,
+    String,
+) {
+    let repo = committed_repo();
+    let external = tempfile::tempdir().unwrap();
+    let linked_path = external.path().join("old-origin");
+    support::git(
+        repo.path(),
+        [
+            "worktree",
+            "add",
+            "-b",
+            "old-origin",
+            linked_path.to_str().unwrap(),
+        ],
+    );
+    let w = workspace(repo.path());
+    let linked = workspace(&linked_path);
+    let rows = devmap::worktrees::WorktreeScanner::scan(&w).unwrap();
+    let main_id = rows
+        .iter()
+        .find(|row| row.root == w.root)
+        .unwrap()
+        .worktree_id
+        .clone();
+    let old_id = rows
+        .iter()
+        .find(|row| row.root == linked.root)
+        .unwrap()
+        .worktree_id
+        .clone();
+    let plans = devmap::route_plan::RoutePlanStore::open(&w).unwrap();
+    for (request, id) in [("known-route", &main_id), ("unknown-route", &old_id)] {
+        plans
+            .set(devmap::route_plan::PlanInput {
+                delivery: Default::default(),
+                request_id: request.into(),
+                route_id: None,
+                expected_revision: 0,
+                worktree_id: id.clone(),
+                goal: request.into(),
+                target_ref: None,
+                milestones: vec![],
+                source: "user".into(),
+                abandoned: false,
+            })
+            .unwrap();
+    }
+    let mut dock = devmap::dock::DockService::open(&w.root).unwrap();
+    for (path, at, timestamp) in [
+        (&linked.root, "2026-09-08T10:00:00Z", now()),
+        (
+            &w.root,
+            "2026-09-08T10:00:10Z",
+            now() + time::Duration::seconds(10),
+        ),
+    ] {
+        dock.replace_observed_tasks(
+            vec![devmap::dock::ObservedTask {
+                working_directory: None,
+                subagents: None,
+                lifecycle: devmap::dock::TaskLifecycle::Present,
+                session_id: "01a00000-0000-7000-8000-000000000013".into(),
+                display_title: "baseline task".into(),
+                host: "local".into(),
+                host_status: "active".into(),
+                workspace_path: path.to_string_lossy().into_owned(),
+                status: devmap::presence::PresenceStatus::Working,
+                updated_at: at.into(),
+            }],
+            timestamp,
+        )
+        .unwrap();
+    }
+    drop(dock);
+    // A watermark-only record carries no association. Keep its valid alternate
+    // RFC3339 spelling to detect accidental cursor normalization/backfill.
+    let watermarks = w.git_common_dir.join("devmap/task-binding-watermarks.json");
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&watermarks).unwrap()).unwrap();
+    saved["observations"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!([
+            "local",
+            "watermark-only",
+            "2026-09-08T11:00:00+00:00"
+        ]));
+    std::fs::write(&watermarks, serde_json::to_vec(&saved).unwrap()).unwrap();
+    support::git(
+        &w.root,
+        ["worktree", "remove", linked_path.to_str().unwrap()],
+    );
+    let snapshot = external.path().join("frozen");
+    let manifest = migration::freeze(&w, &snapshot, now()).unwrap();
+    assert_eq!(manifest.origins.len(), 1);
+    assert_eq!(manifest.origins[0].worktree_id, main_id);
+    (repo, external, w, snapshot, main_id, old_id)
+}
+
+#[test]
+fn schema2_frozen_shadow_rejects_extra_registry_origin() {
+    let (_repo, _external, w, snapshot, _, _) = schema2_legacy_identity_fixture();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    let c = database(&w);
+    c.execute("INSERT INTO worktree_registry(worktree_id,incarnation,git_dir,workspace_path) VALUES('extra-origin','extra-incarnation','extra-admin','extra-root')",[]).unwrap();
+    assert!(migration::activate(&w, &snapshot).is_err());
+    assert_eq!(migration::inspect(&w).unwrap().backend, "shadow");
+    assert_eq!(
+        c.query_row(
+            "SELECT count(*) FROM migration_sources WHERE source_path='@activation'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn schema2_frozen_baseline_unknown_source_and_watermark_only_preserve_evidence() {
+    let (_repo, _external, w, snapshot, main_id, old_id) = schema2_legacy_identity_fixture();
+    let source_names = [
+        "route-plans.jsonl",
+        "task-bindings.jsonl",
+        "task-binding-watermarks.json",
+    ];
+    let source_bytes =
+        source_names.map(|name| std::fs::read(w.git_common_dir.join("devmap").join(name)).unwrap());
+    migration::import_shadow(&w, &snapshot).unwrap();
+    let c = database(&w);
+    let incarnation: String = c
+        .query_row(
+            "SELECT incarnation FROM worktree_registry WHERE worktree_id=?1",
+            [&main_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let route_rows = c.prepare("SELECT json_array(r.request_id,l.qualification,l.worktree_id,l.incarnation) FROM route_records r JOIN route_origin_links l USING(route_id,revision) ORDER BY r.request_id")
+        .unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().map(Result::unwrap).map(|row|serde_json::from_str::<serde_json::Value>(&row).unwrap()).collect::<Vec<_>>();
+    assert_eq!(
+        route_rows,
+        vec![
+            serde_json::json!(["known-route", "frozen_baseline", main_id, incarnation]),
+            serde_json::json!(["unknown-route", "unknown", old_id, null])
+        ]
+    );
+    let binding_rows = c.prepare("SELECT json_array(l.destination_worktree_id,l.destination_incarnation,l.destination_qualification,l.source_worktree_id,l.source_incarnation,l.source_qualification) FROM binding_records b JOIN binding_origin_links l USING(observation_id) ORDER BY b.observed_at")
+        .unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().map(Result::unwrap).map(|row|serde_json::from_str::<serde_json::Value>(&row).unwrap()).collect::<Vec<_>>();
+    assert_eq!(
+        binding_rows,
+        vec![
+            serde_json::json!([old_id, null, "unknown", null, null, "not_applicable"]),
+            serde_json::json!([
+                main_id,
+                incarnation,
+                "frozen_baseline",
+                old_id,
+                null,
+                "unknown"
+            ])
+        ]
+    );
+    let orphan_scope = serde_json::to_string(&("local", "watermark-only")).unwrap();
+    let orphan:String = c.query_row("SELECT json_array(observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id) FROM binding_origin_cursors WHERE source_scope=?1",[&orphan_scope],|r|r.get(0)).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&orphan).unwrap(),
+        serde_json::json!(["2026-09-08T11:00:00+00:00", null, null, "unobserved", null])
+    );
+    let associated_scope =
+        serde_json::to_string(&("local", "01a00000-0000-7000-8000-000000000013")).unwrap();
+    let associated:String = c.query_row("SELECT json_array(observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id IS NOT NULL) FROM binding_origin_cursors WHERE source_scope=?1",[&associated_scope],|r|r.get(0)).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&associated).unwrap(),
+        serde_json::json!([
+            "2026-09-08T10:00:10Z",
+            main_id,
+            incarnation,
+            "frozen_baseline",
+            1
+        ])
+    );
+    let pair = migration::compare_snapshot(&w, &snapshot, &[]).unwrap();
+    assert_eq!(
+        serde_json::to_value(pair.legacy).unwrap(),
+        serde_json::to_value(pair.sql).unwrap()
+    );
+    migration::activate(&w, &snapshot).unwrap();
+    for (index, name) in source_names.iter().enumerate() {
+        assert_eq!(
+            std::fs::read(w.git_common_dir.join("devmap").join(name)).unwrap(),
+            source_bytes[index]
+        );
+    }
+    // A later native route must keep its independently accepted qualification
+    // through verify and idempotent active import, not be recomputed as baseline.
+    let plan = devmap::route_plan::RoutePlanStore::open(&w)
+        .unwrap()
+        .set(devmap::route_plan::PlanInput {
+            delivery: Default::default(),
+            request_id: "later-native".into(),
+            route_id: None,
+            expected_revision: 0,
+            worktree_id: main_id,
+            goal: "later native".into(),
+            target_ref: None,
+            milestones: vec![],
+            source: "user".into(),
+            abandoned: false,
+        })
+        .unwrap();
+    let link_before:String = c.query_row("SELECT json_array(worktree_id,incarnation,qualification) FROM route_origin_links WHERE route_id=?1 AND revision=1",[&plan.route_id],|r|r.get(0)).unwrap();
+    assert!(link_before.contains("native_verified"));
+    migration::verify(&w).unwrap();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    let link_after:String = c.query_row("SELECT json_array(worktree_id,incarnation,qualification) FROM route_origin_links WHERE route_id=?1 AND revision=1",[&plan.route_id],|r|r.get(0)).unwrap();
+    assert_eq!(link_after, link_before);
+}
+
+#[test]
+fn schema2_shadow_rejects_relabeling_frozen_route_as_native() {
+    let (_repo, _external, w, snapshot, _, _) = schema2_legacy_identity_fixture();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    let c = database(&w);
+    let changed=c.execute("UPDATE route_origin_links SET qualification='native_verified' WHERE qualification='frozen_baseline'",[]).unwrap();
+    assert_eq!(changed, 1);
+    assert!(migration::activate(&w, &snapshot).is_err());
+    assert_eq!(migration::inspect(&w).unwrap().backend, "shadow");
+}

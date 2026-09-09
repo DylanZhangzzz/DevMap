@@ -282,7 +282,7 @@ fn active_errors_never_fall_back_to_legacy() {
         b"{\n"
     );
 }
-fn binding_state(w: &SourceWorkspace) -> (u64, Vec<String>, Vec<String>) {
+fn binding_state(w: &SourceWorkspace) -> (u64, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let store = devmap::store::RepositoryStore::open_existing(w)
         .unwrap()
         .unwrap();
@@ -300,6 +300,12 @@ fn binding_state(w: &SourceWorkspace) -> (u64, Vec<String>, Vec<String>) {
         store.generation().unwrap(),
         rows("SELECT record_json FROM binding_records ORDER BY observation_id"),
         rows("SELECT record_json FROM binding_watermarks ORDER BY source_scope"),
+        rows(
+            "SELECT json_array(observation_id,destination_worktree_id,destination_incarnation,destination_qualification,source_worktree_id,source_incarnation,source_qualification) FROM binding_origin_links ORDER BY observation_id",
+        ),
+        rows(
+            "SELECT json_array(source_scope,observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id) FROM binding_origin_cursors ORDER BY source_scope",
+        ),
     )
 }
 fn rejected_partial_preserves_all_state(large_titles: bool) {

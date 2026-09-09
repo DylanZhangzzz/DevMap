@@ -212,6 +212,9 @@ impl PublicFixture {
             "SELECT record_json FROM presence_records ORDER BY session_id",
             "SELECT json_array(session_id,covered_sequence,covered_sha256) FROM presence_projection ORDER BY session_id",
             "SELECT json_array(request_id,plan_json) FROM route_records ORDER BY route_id,revision",
+            "SELECT json_array(route_id,revision,worktree_id,incarnation,qualification) FROM route_origin_links ORDER BY route_id,revision",
+            "SELECT json_array(observation_id,destination_worktree_id,destination_incarnation,destination_qualification,source_worktree_id,source_incarnation,source_qualification) FROM binding_origin_links ORDER BY observation_id",
+            "SELECT json_array(source_scope,observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id) FROM binding_origin_cursors ORDER BY source_scope",
         ] {
             rows.extend(
                 tx.prepare(sql)

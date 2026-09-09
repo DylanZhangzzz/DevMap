@@ -3,7 +3,7 @@ use devmap::{
     dock::{DockService, ObservedTask, TaskLifecycle},
     git::SourceGitInspector,
     presence::PresenceStatus,
-    store::RepositoryStore,
+    store::{RepositoryStore, migration},
 };
 fn task(p: &std::path::Path) -> ObservedTask {
     ObservedTask {
@@ -72,42 +72,106 @@ fn binding_import_preserves_serialized_history_and_independent_watermark() {
         .unwrap();
     let before =
         serde_json::to_value(s.refresh(now + time::Duration::seconds(11)).unwrap()).unwrap();
+    let history_path = w.git_common_dir.join("devmap/task-bindings.jsonl");
+    let watermark_path = w.git_common_dir.join("devmap/task-binding-watermarks.json");
+    let history_bytes = std::fs::read(&history_path).unwrap();
+    let watermark_bytes = std::fs::read(&watermark_path).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&watermark_bytes).unwrap();
+    let backup = tempfile::tempdir().unwrap();
+    let snapshot = backup.path().join("snapshot");
+    migration::freeze(&w, &snapshot, now + time::Duration::seconds(11)).unwrap();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    migration::activate(&w, &snapshot).unwrap();
     let db = RepositoryStore::open(&w).unwrap();
     let c = rusqlite::Connection::open(db.path()).unwrap();
-    for line in std::fs::read_to_string(w.git_common_dir.join("devmap/task-bindings.jsonl"))
+    let imported = c
+        .prepare("SELECT record_json FROM binding_records ORDER BY rowid")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let original = std::str::from_utf8(&history_bytes)
         .unwrap()
         .lines()
-    {
-        let r: devmap::journal::TaskBindingObservation = serde_json::from_str(line).unwrap();
-        let json = serde_json::to_string(&r).unwrap();
-        let id = devmap::canonical::sha256_hex(json.as_bytes());
-        c.execute(
-            "INSERT INTO binding_records VALUES(?1,?2,?3,?4,?5)",
-            rusqlite::params![id, r.host, r.task_id, r.observed_at, json],
-        )
-        .unwrap();
-    }
-    let saved: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(w.git_common_dir.join("devmap/task-binding-watermarks.json")).unwrap(),
-    )
-    .unwrap();
+        .map(|line| {
+            let record: devmap::journal::TaskBindingObservation =
+                serde_json::from_str(line).unwrap();
+            serde_json::to_string(&record).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(imported, original);
     for row in saved["observations"].as_array().unwrap() {
         let key =
             serde_json::to_string(&(row[0].as_str().unwrap(), row[1].as_str().unwrap())).unwrap();
-        c.execute(
-            "INSERT INTO binding_watermarks VALUES(?1,?2,?3)",
-            rusqlite::params![key, row[2].as_str().unwrap(), row.to_string()],
-        )
-        .unwrap();
+        let stored: (String, String, String) = c.query_row(
+            "SELECT w.observed_at,w.record_json,c.observed_at FROM binding_watermarks w JOIN binding_origin_cursors c USING(source_scope) WHERE source_scope=?1",
+            [key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            stored,
+            (
+                row[2].as_str().unwrap().into(),
+                row.to_string(),
+                row[2].as_str().unwrap().into()
+            )
+        );
     }
-    c.execute("UPDATE store_meta SET backend_state='active'", [])
-        .unwrap();
+    let sql_state = || {
+        let tables = [
+            "store_meta",
+            "worktree_registry",
+            "journal_sessions",
+            "journal_records",
+            "journal_heads",
+            "presence_records",
+            "presence_projection",
+            "route_records",
+            "binding_records",
+            "binding_watermarks",
+            "migration_sources",
+            "route_origin_links",
+            "binding_origin_links",
+            "binding_origin_cursors",
+        ];
+        let actual = c
+            .prepare(
+                "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+            )
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()
+            .unwrap();
+        assert_eq!(actual, tables.iter().map(|name| name.to_string()).collect());
+        tables
+            .into_iter()
+            .map(|table| {
+                let mut statement = c
+                    .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
+                    .unwrap();
+                let columns = statement.column_count();
+                let rows = statement
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap();
+                (table, rows)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
     let after =
         serde_json::to_value(s.refresh(now + time::Duration::seconds(11)).unwrap()).unwrap();
     assert_eq!(before["workspace_facts"], after["workspace_facts"]);
+    let accepted_state = sql_state();
     s.replace_observed_tasks(vec![task(repo.path())], now + time::Duration::seconds(5))
         .unwrap();
     assert_eq!(db.generation().unwrap(), 0);
+    assert_eq!(sql_state(), accepted_state);
     c.execute_batch("CREATE TRIGGER reject_watermark BEFORE UPDATE ON binding_watermarks BEGIN SELECT RAISE(ABORT,'injected failure'); END;").unwrap();
     s.replace_observed_tasks(vec![task(repo.path())], now + time::Duration::seconds(12))
         .unwrap();
@@ -124,6 +188,7 @@ fn binding_import_preserves_serialized_history_and_independent_watermark() {
             .all(|facts| !facts.bindings_complete)
     );
     assert_eq!(db.generation().unwrap(), 0);
+    assert_eq!(sql_state(), accepted_state);
     assert_eq!(
         c.query_row("SELECT COUNT(*) FROM binding_records", [], |r| r
             .get::<_, i64>(0))
@@ -134,4 +199,6 @@ fn binding_import_preserves_serialized_history_and_independent_watermark() {
     s.replace_observed_tasks(vec![task(repo.path())], now + time::Duration::seconds(12))
         .unwrap();
     assert_eq!(db.generation().unwrap(), 1);
+    assert_eq!(std::fs::read(history_path).unwrap(), history_bytes);
+    assert_eq!(std::fs::read(watermark_path).unwrap(), watermark_bytes);
 }

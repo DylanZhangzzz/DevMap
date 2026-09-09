@@ -31,6 +31,7 @@ pub(crate) use origin_observation::{
     ActiveOriginReport, observe_active_journal_origins, observe_active_read_origins,
 };
 pub(crate) use startup::prepare_first_journal_write;
+pub(crate) use startup::prepare_first_origin_write;
 pub use startup::{WriteBackend, prepare_first_write};
 fn fail(s: impl Into<String>) -> DevMapError {
     DevMapError::Store(s.into())
@@ -477,7 +478,7 @@ fn compare_projection(
             },
             journals: legacy_journals,
             routes: Ok(latest_routes(&p.routes)),
-            bindings: Ok(p.bindings.records.clone()),
+            bindings: Ok(p.bindings.records.clone().into()),
         },
         now,
         tasks,
@@ -523,7 +524,9 @@ fn compare_projection(
                 c,
                 &m.repository_id,
             )?)),
-            bindings: Ok(journal::sql_binding_snapshot(c, &m.repository_id)?.records),
+            bindings: Ok(journal::sql_binding_snapshot(c, &m.repository_id)?
+                .records
+                .into()),
         },
         now,
         tasks,
@@ -1149,7 +1152,13 @@ fn import(tx: &Transaction<'_>, m: &FrozenManifest, p: &Parsed) -> Result<(), De
                 serde_json::to_string(&r.plan)?
             ],
         )?;
+        super::origin_links::insert_route(
+            tx,
+            &r.plan,
+            &super::origin_links::frozen_link(&r.plan.worktree_id, &m.origins),
+        )?;
     }
+    let binding_metadata = super::origin_links::frozen_bindings(&p.bindings, &m.origins)?;
     for b in &p.bindings.records {
         tx.execute(
             "INSERT INTO binding_records VALUES(?1,?2,?3,?4,?5)",
@@ -1161,6 +1170,12 @@ fn import(tx: &Transaction<'_>, m: &FrozenManifest, p: &Parsed) -> Result<(), De
                 serde_json::to_string(b)?
             ],
         )?;
+        let identity = journal::binding_id(b)?;
+        let link = binding_metadata
+            .links
+            .get(&identity)
+            .ok_or_else(|| fail("frozen binding identity link missing"))?;
+        super::origin_links::insert_binding(tx, b, link)?;
     }
     for ((host, task), time) in &p.bindings.watermarks {
         tx.execute(
@@ -1171,6 +1186,11 @@ fn import(tx: &Transaction<'_>, m: &FrozenManifest, p: &Parsed) -> Result<(), De
                 serde_json::to_string(&(host, task, time))?
             ],
         )?;
+        let cursor = binding_metadata
+            .cursors
+            .get(&(host.clone(), task.clone()))
+            .ok_or_else(|| fail("frozen binding cursor missing"))?;
+        super::origin_links::upsert_cursor(tx, host, task, cursor)?;
     }
     for j in &p.journals {
         if !j.journal_present {
@@ -1245,6 +1265,14 @@ fn import(tx: &Transaction<'_>, m: &FrozenManifest, p: &Parsed) -> Result<(), De
 }
 fn compare_domains(c: &Connection, m: &FrozenManifest, p: &Parsed) -> Result<(), DevMapError> {
     validate_provenance(c, m)?;
+    // This is exact frozen-snapshot comparison, not active-store verification.
+    // Preserve the existing full-manifest registry baseline and reject extras;
+    // native additions are validated separately without relabeling their links.
+    let registry_count: i64 =
+        c.query_row("SELECT count(*) FROM worktree_registry", [], |r| r.get(0))?;
+    if registry_count != m.origins.len() as i64 {
+        return Err(fail("imported worktree registry inventory mismatch"));
+    }
     for o in &m.origins {
         let saved:(String,String,Option<String>)=c.query_row("SELECT git_dir,workspace_path,retired_at FROM worktree_registry WHERE worktree_id=?1 AND incarnation=?2",params![o.worktree_id,o.incarnation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
         if saved
@@ -1262,9 +1290,27 @@ fn compare_domains(c: &Connection, m: &FrozenManifest, p: &Parsed) -> Result<(),
     {
         return Err(fail("route input/revision comparison failed"));
     }
+    let expected_route_links = p
+        .routes
+        .iter()
+        .map(|record| {
+            (
+                (record.plan.route_id.clone(), record.plan.revision),
+                super::origin_links::frozen_link(&record.plan.worktree_id, &m.origins),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if super::origin_links::validate_routes(c, &p.routes)? != expected_route_links {
+        return Err(fail("imported route identity links mismatch"));
+    }
     let bindings = journal::sql_binding_snapshot(c, &m.repository_id)?;
     if bindings.records != p.bindings.records || bindings.watermarks != p.bindings.watermarks {
         return Err(fail("binding history/watermark comparison failed"));
+    }
+    if super::origin_links::validate_bindings(c, &bindings)?
+        != super::origin_links::frozen_bindings(&p.bindings, &m.origins)?
+    {
+        return Err(fail("imported binding identity links/cursors mismatch"));
     }
     let expected = p.journals.iter().filter(|j| j.journal_present).count() as i64;
     if c.query_row("SELECT count(*) FROM journal_sessions", [], |r| {
@@ -1371,8 +1417,10 @@ fn validate_provenance(c: &Connection, m: &FrozenManifest) -> Result<(), DevMapE
     Ok(())
 }
 fn validate_domains(c: &Connection, repository: &str) -> Result<(), DevMapError> {
-    route_plan::sql_records(c, repository)?;
-    journal::sql_binding_snapshot(c, repository)?;
+    let routes = route_plan::sql_records(c, repository)?;
+    super::origin_links::validate_routes(c, &routes)?;
+    let bindings = journal::sql_binding_snapshot(c, repository)?;
+    super::origin_links::validate_bindings(c, &bindings)?;
     let mut stmt = c.prepare("SELECT session_id FROM journal_sessions")?;
     for id in stmt.query_map([], |r| r.get::<_, String>(0))? {
         journal::sql_records(c, &id?)?;

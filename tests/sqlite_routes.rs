@@ -2,7 +2,7 @@ mod support;
 use devmap::{
     git::SourceGitInspector,
     route_plan::{PlanInput, RoutePlanStore},
-    store::RepositoryStore,
+    store::{RepositoryStore, migration},
     worktrees::WorktreeScanner,
 };
 #[test]
@@ -127,30 +127,39 @@ fn imported_routes_are_byte_equivalent_and_shadow_is_legacy() {
     i.abandoned = true;
     s.set(i).unwrap();
     let before = serde_json::to_vec(&s.list().unwrap()).unwrap();
-    let c = rusqlite::Connection::open(db.path()).unwrap();
+    let legacy_path = w.git_common_dir.join("devmap/route-plans.jsonl");
+    let legacy_bytes = std::fs::read(&legacy_path).unwrap();
     assert_eq!(db.generation().unwrap(), 0);
-    for line in std::fs::read_to_string(w.git_common_dir.join("devmap/route-plans.jsonl"))
-        .unwrap()
-        .lines()
-    {
-        let r: serde_json::Value = serde_json::from_str(line).unwrap();
-        c.execute(
-            "INSERT INTO route_records VALUES(?1,?2,?3,?4,?5)",
-            rusqlite::params![
-                r["plan"]["route_id"].as_str().unwrap(),
-                r["plan"]["revision"].as_i64().unwrap(),
-                r["input"]["request_id"].as_str().unwrap(),
-                r["input"].to_string(),
-                r["plan"].to_string()
-            ],
-        )
-        .unwrap();
-    }
-    c.execute("UPDATE store_meta SET backend_state='active'", [])
-        .unwrap();
+    let c = rusqlite::Connection::open(db.path()).unwrap();
+    assert_eq!(
+        c.query_row("SELECT count(*) FROM route_records", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "route writes while shadow must still use legacy storage"
+    );
+    let backup = tempfile::tempdir().unwrap();
+    let snapshot = backup.path().join("snapshot");
+    migration::freeze(&w, &snapshot, time::OffsetDateTime::now_utc()).unwrap();
+    migration::import_shadow(&w, &snapshot).unwrap();
+    assert_eq!(migration::inspect(&w).unwrap().backend, "shadow");
     assert_eq!(before, serde_json::to_vec(&s.list().unwrap()).unwrap());
+    assert_eq!(
+        c.query_row(
+            "SELECT count(*) FROM route_origin_links WHERE qualification='frozen_baseline'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        2
+    );
+    migration::activate(&w, &snapshot).unwrap();
+    assert_eq!(migration::inspect(&w).unwrap().backend, "active");
+    assert_eq!(before, serde_json::to_vec(&s.list().unwrap()).unwrap());
+    assert_eq!(std::fs::read(&legacy_path).unwrap(), legacy_bytes);
     c.execute("UPDATE route_records SET plan_json=json_set(plan_json,'$.start_commit',?1) WHERE revision=2",["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]).unwrap();
     assert!(s.list().is_err());
+    assert_eq!(std::fs::read(legacy_path).unwrap(), legacy_bytes);
 }
 
 fn setup() -> (tempfile::TempDir, RoutePlanStore, PlanInput) {

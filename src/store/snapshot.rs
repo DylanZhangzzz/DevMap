@@ -1,7 +1,7 @@
 //! A generation-pinned, read-only input cache. No store creation or domain repair.
 use super::RepositoryStore;
 use crate::{
-    dock::{DockRoutePlans, DockStorageInputs},
+    dock::{DockBindingInputs, DockRoutePlans, DockStorageInputs},
     error::DevMapError,
     git::SourceWorkspace,
     journal::{self, JournalIntegrity, JournalSummary},
@@ -192,6 +192,12 @@ fn qualify_origins(
     inputs: &mut DockStorageInputs,
 ) -> Result<(), DevMapError> {
     use rusqlite::OptionalExtension;
+    let repository: String = c.query_row(
+        "SELECT repository_id FROM store_meta WHERE singleton=1",
+        [],
+        |row| row.get(0),
+    )?;
+    let mut registry = BTreeMap::new();
     let replaced = origins.replaced_worktrees();
     let mut retained = Vec::new();
     for record in inputs.presence.records.drain(..) {
@@ -235,40 +241,105 @@ fn qualify_origins(
         });
     }
     if let Ok((plans, starts)) = &mut inputs.routes {
-        plans.retain(|plan| {
-            if !replaced.contains(&plan.worktree_id) {
-                return true;
+        let records = route_plan::sql_records(c, &repository)?;
+        let links = super::origin_links::validate_routes(c, &records)?;
+        let mut retained = Vec::new();
+        for plan in plans.drain(..) {
+            let link = links
+                .get(&(plan.route_id.clone(), plan.revision))
+                .ok_or_else(|| DevMapError::Store("route identity link missing".into()))?;
+            // A missing workspace can retain historical intent. A currently
+            // present path must match this revision's immutable incarnation.
+            if matches!(
+                link_availability(c, origins, link, &mut registry)?,
+                LinkAvailability::Current | LinkAvailability::Missing
+            ) {
+                retained.push(plan);
+                continue;
             }
             inputs.presence.warnings.push(presence::PresenceWarning {
                 code: "planned_workspace_unavailable",
                 subject_id: Some(plan.route_id.clone()),
             });
             starts.remove(&plan.route_id);
-            false
-        });
+        }
+        *plans = retained;
     }
-    if !replaced.is_empty()
-        && inputs.bindings.as_ref().is_ok_and(|records| {
-            records.iter().any(|binding| {
-                replaced.contains(&binding.worktree_id)
-                    || binding
-                        .from_worktree_id
-                        .as_ref()
-                        .is_some_and(|id| replaced.contains(id))
-            })
-        })
-    {
-        for id in &replaced {
+    if let Ok(bindings) = &mut inputs.bindings {
+        let snapshot = journal::sql_binding_snapshot(c, &repository)?;
+        let metadata = super::origin_links::validate_bindings(c, &snapshot)?;
+        for record in &mut bindings.records {
+            let id = journal::binding_id(&record.observation)?;
+            let links = metadata
+                .links
+                .get(&id)
+                .ok_or_else(|| DevMapError::Store("binding identity link missing".into()))?;
+            record.visible_worktrees.clear();
+            for link in std::iter::once(&links.destination).chain(links.source.as_ref()) {
+                if matches!(
+                    link_availability(c, origins, link, &mut registry)?,
+                    LinkAvailability::Current
+                ) {
+                    record.visible_worktrees.insert(link.worktree_id.clone());
+                } else {
+                    bindings
+                        .incomplete_worktrees
+                        .insert(link.worktree_id.clone());
+                }
+            }
+        }
+        for id in &bindings.incomplete_worktrees {
             inputs.presence.warnings.push(presence::PresenceWarning {
                 code: "task_binding_history_unavailable",
                 subject_id: Some(id.clone()),
             });
         }
-        inputs.bindings = Err(DevMapError::Store(
-            "binding incarnation unavailable after origin replacement".into(),
-        ));
     }
     Ok(())
+}
+
+enum LinkAvailability {
+    Current,
+    Missing,
+    Unavailable,
+}
+type RegistryOrigins = BTreeMap<(String, String), (super::migration::FrozenOrigin, Option<String>)>;
+fn link_availability(
+    c: &rusqlite::Connection,
+    origins: &super::migration::ActiveOriginReport,
+    link: &super::origin_links::OriginLink,
+    registry: &mut RegistryOrigins,
+) -> Result<LinkAvailability, DevMapError> {
+    let Some(incarnation) = &link.incarnation else {
+        // Unknown identity may remain historical intent for a missing target;
+        // it cannot become attached merely because that path ID is now live.
+        return Ok(if origins.current.contains_key(&link.worktree_id) {
+            LinkAvailability::Unavailable
+        } else {
+            LinkAvailability::Missing
+        });
+    };
+    let key = (link.worktree_id.clone(), incarnation.clone());
+    if !registry.contains_key(&key) {
+        registry.insert(
+            key.clone(),
+            super::origin_links::registered_origin(c, &key.0, &key.1)?,
+        );
+    }
+    let (registered, retired) = &registry[&key];
+    let Some(current) = origins.current.get(&link.worktree_id) else {
+        return Ok(LinkAvailability::Missing);
+    };
+    if current.incarnation != *incarnation || retired.is_some() {
+        return Ok(LinkAvailability::Unavailable);
+    }
+    if registered.git_dir != current.git_dir || registered.workspace_path != current.workspace_path
+    {
+        return Err(DevMapError::Store(
+            "current origin registry paths mismatch".into(),
+        ));
+    }
+    Ok(LinkAvailability::Current)
 }
 fn legacy(workspace: &SourceWorkspace) -> Result<DockStorageInputs, DevMapError> {
     let presence = PresenceStore::open_existing_legacy(workspace)?
@@ -289,7 +360,8 @@ fn legacy(workspace: &SourceWorkspace) -> Result<DockStorageInputs, DevMapError>
         routes: route_plan::RoutePlanStore::open(workspace)
             .and_then(|s| s.legacy_snapshot())
             .map(|r| latest_routes(&r)),
-        bindings: journal::legacy_binding_snapshot(workspace).map(|s| s.records),
+        bindings: journal::legacy_binding_snapshot(workspace)
+            .map(|s| DockBindingInputs::from(s.records)),
     })
 }
 fn latest_routes(records: &[route_plan::Record]) -> DockRoutePlans {
@@ -355,7 +427,8 @@ fn sql_inputs(
         presence,
         journals,
         routes: route_plan::sql_records(c, repository).map(|r| latest_routes(&r)),
-        bindings: journal::sql_binding_snapshot(c, repository).map(|s| s.records),
+        bindings: journal::sql_binding_snapshot(c, repository)
+            .map(|s| DockBindingInputs::from(s.records)),
     })
 }
 
@@ -604,7 +677,7 @@ mod tests {
         assert!(after.routes.is_err());
         assert!(after.bindings.is_err());
         writer
-            .execute("UPDATE store_meta SET schema_version=2", [])
+            .execute("UPDATE store_meta SET schema_version=3", [])
             .unwrap();
         assert!(
             reader.read(&workspace).is_err(),

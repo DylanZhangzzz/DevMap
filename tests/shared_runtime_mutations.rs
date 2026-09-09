@@ -351,6 +351,13 @@ fn read_state(f: &Fixture) -> SqlState {
         "SELECT json_array(route_id,revision,request_id,input_json,plan_json) FROM route_records ORDER BY route_id,revision",
         "SELECT json_array(session_id,worktree_id,incarnation,origin_path) FROM journal_sessions ORDER BY session_id",
         "SELECT json_array(worktree_id,incarnation,git_dir,workspace_path,retired_at) FROM worktree_registry ORDER BY worktree_id,incarnation",
+        "SELECT json_array(route_id,revision,worktree_id,incarnation,qualification) FROM route_origin_links ORDER BY route_id,revision",
+        "SELECT json_array(observation_id,destination_worktree_id,destination_incarnation,destination_qualification,source_worktree_id,source_incarnation,source_qualification) FROM binding_origin_links ORDER BY observation_id",
+        "SELECT json_array(source_scope,observed_at,current_worktree_id,current_incarnation,qualification,history_observation_id) FROM binding_origin_cursors ORDER BY source_scope",
+        "SELECT json_array(observation_id,host,task_id,observed_at,record_json) FROM binding_records ORDER BY observation_id",
+        "SELECT json_array(source_scope,observed_at,record_json) FROM binding_watermarks ORDER BY source_scope",
+        "SELECT json_array(source_path,source_hash,record_count,outcome,record_json) FROM migration_sources ORDER BY source_path",
+        "SELECT json_array(singleton,schema_version,repository_id,common_dir,generation,backend_state) FROM store_meta ORDER BY singleton",
     ];
     let tables: Vec<Vec<String>> = queries
         .iter()
