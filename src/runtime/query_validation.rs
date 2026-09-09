@@ -170,6 +170,16 @@ impl QueryValidation {
             *app = Some(RepositoryApplication::open(&workspace)?);
         }
         if let Some(configuration) = QueryConfiguration::acquire(&workspace)? {
+            // Capture alone must not seal a discovery failure introduced after
+            // the earlier inspector. Fresh Git validation is sandwiched by the
+            // candidate filesystem evidence and its subsequent recheck.
+            let workspace = SourceGitInspector::open(&identity.source)?.workspace_allow_unborn()?;
+            if std::fs::canonicalize(&workspace.root)? != identity.source
+                || std::fs::canonicalize(&workspace.git_dir)? != identity.git_dir
+                || std::fs::canonicalize(&workspace.git_common_dir)? != identity.common
+            {
+                return Err(source_changed());
+            }
             let proof = VerifiedQuerySource {
                 origin: crate::store::migration::application_anchor(&workspace)?,
                 common_identity: crate::fs_security::checked_directory_identity(

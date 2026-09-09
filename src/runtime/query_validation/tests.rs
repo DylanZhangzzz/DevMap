@@ -198,6 +198,50 @@ fn discovered_missing_global_config_is_observed_then_hot() {
 }
 
 #[test]
+fn removed_objects_directory_is_rejected_by_same_sealed_hot_query() {
+    let Some(root) = isolated("removed_objects_directory_is_rejected_by_same_sealed_hot_query")
+    else {
+        return;
+    };
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    let (id, q) = fixture(&repo);
+    let objects = id.common.join("objects");
+    let mut harness = QueryHarness::new(id, q);
+    let prior = harness.warm();
+    assert!(!harness.id.common.join("devmap/devmap.db").exists());
+    let retained = root.join("retained-objects");
+    fs::rename(&objects, &retained).unwrap();
+    assert!(retained.is_dir());
+    assert!(!objects.exists());
+
+    let direct =
+        SourceGitInspector::open(&repo).and_then(|inspector| inspector.workspace_allow_unborn());
+    assert!(
+        direct.is_err(),
+        "fresh source discovery must refuse the invalid repository"
+    );
+    let bytes = serde_json::to_vec(&crate::runtime::protocol::ApplicationRequest::Query {
+        query: harness.query.clone(),
+    })
+    .unwrap();
+    let result = with_query_origin(&bytes, Some(&harness.origin), || {
+        crate::runtime::executor::execute_with_queries(
+            &mut harness.app,
+            &mut harness.state,
+            &harness.id,
+            &bytes,
+        )
+    });
+    assert!(
+        result.is_err(),
+        "same sealed hot query must refuse missing objects; original discovery error={:?}, cached cycle={}",
+        direct.err(),
+        prior.git_cycle
+    );
+}
+
+#[test]
 fn same_bytes_replaced_config_invalidates_identity_then_hot() {
     let Some(root) = isolated("same_bytes_replaced_config_invalidates_identity_then_hot") else {
         return;
@@ -219,6 +263,106 @@ fn same_bytes_replaced_config_invalidates_identity_then_hot() {
     assert_eq!(starts, 0);
     assert_eq!(hot.model.lanes, prior.model.lanes);
 }
+
+fn skeleton_change_control(name: &str) {
+    let Some(root) = isolated(name) else {
+        return;
+    };
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    let (id, q) = fixture(&repo);
+    let mut harness = QueryHarness::new(id, q);
+    let prior = harness.warm();
+    let common = &harness.id.common;
+    match name {
+        "removed_refs_directory_invalidates_sealed_query" => {
+            fs::rename(common.join("refs"), root.join("retained-refs")).unwrap();
+        }
+        "removed_head_invalidates_sealed_query" => {
+            fs::rename(common.join("HEAD"), root.join("retained-head")).unwrap();
+        }
+        "malformed_head_invalidates_sealed_query" => {
+            fs::write(common.join("HEAD"), b"invalid head\n").unwrap();
+        }
+        "malformed_current_loose_ref_invalidates_sealed_query" => {
+            fs::write(common.join("refs/heads/main"), b"not-an-object-id\n").unwrap();
+        }
+        "replacement_objects_directory_invalidates_sealed_query" => {
+            let path = common.join("objects");
+            let before = crate::fs_security::checked_directory_identity(&path).unwrap();
+            fs::rename(&path, root.join("retained-objects")).unwrap();
+            fs::create_dir(&path).unwrap();
+            assert_ne!(
+                crate::fs_security::checked_directory_identity(&path).unwrap(),
+                before
+            );
+        }
+        "replacement_head_same_bytes_invalidates_sealed_query" => {
+            let path = common.join("HEAD");
+            let bytes = fs::read(&path).unwrap();
+            let before =
+                crate::fs_security::file_identity(&fs::File::open(&path).unwrap()).unwrap();
+            fs::rename(&path, root.join("retained-head")).unwrap();
+            fs::write(&path, bytes).unwrap();
+            assert_ne!(
+                crate::fs_security::file_identity(&fs::File::open(&path).unwrap()).unwrap(),
+                before
+            );
+        }
+        _ => panic!("unknown owned skeleton control"),
+    }
+    // Match actual fresh source discovery: in particular an empty replacement
+    // objects directory need not make Git's repository discovery fail.
+    let fresh =
+        SourceGitInspector::open(&repo).and_then(|inspector| inspector.workspace_allow_unborn());
+    let bytes = serde_json::to_vec(&crate::runtime::protocol::ApplicationRequest::Query {
+        query: harness.query.clone(),
+    })
+    .unwrap();
+    let before = crate::git_process::test_spawn_count();
+    let result = with_query_origin(&bytes, Some(&harness.origin), || {
+        crate::runtime::executor::execute_with_queries(
+            &mut harness.app,
+            &mut harness.state,
+            &harness.id,
+            &bytes,
+        )
+    });
+    let starts = crate::git_process::test_spawn_count() - before;
+    if let Err(error) = fresh {
+        assert!(
+            result.is_err(),
+            "{name}: fresh discovery refused {error}, cached query must refuse"
+        );
+    } else {
+        assert!(
+            starts > 0,
+            "{name}: changed skeleton must revalidate through fresh Git"
+        );
+        let crate::runtime::protocol::ApplicationResult::Snapshot { snapshot } = result.unwrap()
+        else {
+            panic!("{name}: expected snapshot on accepted fresh source");
+        };
+        assert_eq!(snapshot.git_cycle, prior.git_cycle);
+        assert_eq!(snapshot.git_observed_at, prior.git_observed_at);
+        assert_eq!(snapshot.model.lanes, prior.model.lanes);
+    }
+}
+
+macro_rules! skeleton_controls {
+    ($($name:ident),+ $(,)?) => {$ (
+        #[test]
+        fn $name() { skeleton_change_control(stringify!($name)); }
+    )+};
+}
+skeleton_controls!(
+    removed_refs_directory_invalidates_sealed_query,
+    removed_head_invalidates_sealed_query,
+    malformed_head_invalidates_sealed_query,
+    malformed_current_loose_ref_invalidates_sealed_query,
+    replacement_objects_directory_invalidates_sealed_query,
+    replacement_head_same_bytes_invalidates_sealed_query,
+);
 
 #[test]
 fn introduced_worktree_config_uses_original_per_client_fallback() {
@@ -315,7 +459,9 @@ fn head_change_uses_observation_cycle_until_real_ttl_expiry() {
         .head;
     assert_ne!(new_head, old_head);
     let (cached, starts) = harness.call();
-    assert_eq!(starts, 0);
+    // Changed ref bytes invalidate source discovery, while the independent
+    // observation cycle still retains its facts until the configured TTL.
+    assert!(starts > 0);
     assert_eq!(cached.git_cycle, first.git_cycle);
     assert_eq!(cached.git_observed_at, first.git_observed_at);
     assert_eq!(
@@ -328,6 +474,11 @@ fn head_change_uses_observation_cycle_until_real_ttl_expiry() {
             .head,
         old_head
     );
+    let (unchanged, starts) = harness.call();
+    assert_eq!(starts, 0, "unchanged source proof must be cached again");
+    assert_eq!(unchanged.git_cycle, cached.git_cycle);
+    assert_eq!(unchanged.git_observed_at, cached.git_observed_at);
+    assert_eq!(unchanged.model.lanes, cached.model.lanes);
     // Use a short real expiry to exercise collection without a 2-second latency claim.
     harness.max_age(Duration::from_millis(1));
     std::thread::sleep(Duration::from_millis(2));

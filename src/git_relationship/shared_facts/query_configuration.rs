@@ -5,6 +5,82 @@ use super::*;
 pub(crate) struct QueryConfiguration {
     evidence: Evidence,
     value: Option<String>,
+    source: SourceResolutionWitness,
+}
+
+// Discovery dependencies, not a replacement Git ref parser. A successful fresh
+// inspector is required after capture before this proof can authorize a query.
+struct SourceResolutionWitness {
+    common: PathBuf,
+    admin: PathBuf,
+    evidence: Evidence,
+}
+impl SourceResolutionWitness {
+    fn capture(common: &Path, admin: &Path) -> Result<Self, DevMapError> {
+        let mut evidence = blank(Vec::new());
+        directory(common, &mut evidence)?;
+        directory(admin, &mut evidence)?;
+        let objects = directory(&common.join("objects"), &mut evidence)?;
+        // Git discovery requires accessible objects/refs directories. Opening an
+        // iterator checks access without scanning the potentially huge object DB.
+        let _objects_access = std::fs::read_dir(objects)?;
+        let mut nodes = 0usize;
+        let mut path_bytes = 0usize;
+        fn refs_tree(
+            path: &Path,
+            depth: usize,
+            evidence: &mut Evidence,
+            nodes: &mut usize,
+            path_bytes: &mut usize,
+        ) -> Result<(), DevMapError> {
+            if depth > 16 {
+                return Err(decline());
+            }
+            directory(path, evidence)?;
+            for entry in std::fs::read_dir(path)? {
+                let path = entry?.path();
+                *nodes += 1;
+                *path_bytes = path_bytes.saturating_add(path.as_os_str().len());
+                if *nodes > 2048 || *path_bytes > MAX_BYTES {
+                    return Err(decline());
+                }
+                let meta = checked_metadata(&path)?.ok_or_else(decline)?;
+                if meta.is_dir() {
+                    refs_tree(&path, depth + 1, evidence, nodes, path_bytes)?;
+                } else {
+                    witness(&path, evidence)?;
+                }
+            }
+            Ok(())
+        }
+        refs_tree(
+            &common.join("refs"),
+            0,
+            &mut evidence,
+            &mut nodes,
+            &mut path_bytes,
+        )?;
+        if admin != common {
+            let refs = admin.join("refs");
+            if checked_metadata(&refs)?.is_some() {
+                refs_tree(&refs, 0, &mut evidence, &mut nodes, &mut path_bytes)?;
+            } else {
+                witness(&refs, &mut evidence)?;
+            }
+        }
+        for root in [common, admin] {
+            witness(&root.join("HEAD"), &mut evidence)?;
+            witness(&root.join("packed-refs"), &mut evidence)?;
+        }
+        Ok(Self {
+            common: common.to_owned(),
+            admin: admin.to_owned(),
+            evidence,
+        })
+    }
+    fn recheck(&self) -> Result<bool, DevMapError> {
+        Ok(Self::capture(&self.common, &self.admin)?.evidence == self.evidence)
+    }
 }
 fn environment() -> Result<Vec<(OsString, OsString)>, DevMapError> {
     let mut values: Vec<_> = std::env::vars_os().collect();
@@ -117,7 +193,23 @@ impl QueryConfiguration {
             }
         }
         let value = super::super::GitRelationshipResolver::development_configuration(workspace)?;
-        let proof = Self { evidence, value };
+        let source = SourceResolutionWitness::capture(&common, &admin)?;
+        let retained_bytes = [&evidence, &source.evidence]
+            .into_iter()
+            .flat_map(|part| part.files.values())
+            .map(|entry| match entry {
+                Witness::Missing => 0,
+                Witness::File { bytes, .. } => bytes.len(),
+            })
+            .sum::<usize>();
+        if retained_bytes > 4 * MAX_BYTES {
+            return Err(decline());
+        }
+        let proof = Self {
+            evidence,
+            value,
+            source,
+        };
         if !proof.recheck()? {
             return Err(decline());
         }
@@ -131,6 +223,9 @@ impl QueryConfiguration {
         Ok(optional(self.recheck_inner())?.unwrap_or(false))
     }
     fn recheck_inner(&self) -> Result<bool, DevMapError> {
+        if !self.source.recheck()? {
+            return Ok(false);
+        }
         let current = environment()?;
         if current != self.evidence.environment {
             return Ok(false);
