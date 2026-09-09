@@ -1,0 +1,24 @@
+# Owned four-client freshness benchmark
+
+Implementation candidate only: Node syntax checks and pure self-tests passed; no real owner, MCP, mutation smoke or acceptance run has been performed for this slice.
+
+```
+node tests/browser/shared-summary-freshness.cjs --self-test
+node tests/browser/shared-summary-freshness.cjs --config C:/approved/freshness-config.json
+```
+
+Configuration uses the existing shared-summary-performance.md receipt/candidate/python/fixture_root/run_parent contract. `mode` is smoke or acceptance. The approved receipt identifies the exact mutable fixture; dimensions are preserved in the report. Acceptance requires exactly 20 worktrees, 100 sessions and 100000 events before creating a run or starting an owner. Tiny fixtures are allowed only in smoke mode and can never pass freshness acceptance. Receipt physical identity, unique workspace sets, hardlink rejection and 14-table/backup baselines are reused unchanged.
+
+To minimize extraction risk, the existing performance file only adds a `runtime` export; its CLI, old exports, validation and cold/hot statistics remain unchanged. shared-summary-runtime.cjs imports those functions and supplies the new owned-run context. No transport is copied and requiring any module has no benchmark side effects. The generator's existing exported helpers remain available. This is the authorized narrower alternative to moving the original main orchestration.
+
+Acceptance uses 10 actual warmup changes, then 100 measured changes. All four long-lived clients observe each tracked-file dirty/clean alternation. The original bytes are restored after every clean trial and in finally; restoration rechecks the original file identity and nlink on the opened handle, including after a partial write error. The final restore may overwrite partial bytes from this harness's failed write in the owned file, but cannot follow a replaced file or hardlink. No commit/ref/config changes occur. HEAD, refs, index listing, config and original SQL/backups must remain unchanged.
+
+The timer starts immediately after successful fsync and ends when the expected workspace status response has been fully parsed and validated. Four clients poll concurrently at a 100 ms grid, with at most one in-flight capture per client; missed ticks are skipped and logged, never burst-replayed. Converged clients stop until the next change. Workspace pagination uses that fresh capture's cursor and counts toward latency. Actual status must match exactly, HEAD must match baseline, and the returned git_cycle must exceed the client's prior trial cycle. Returned observation timestamps are retained verbatim. No TTL override, reconcile or owner restart is used.
+
+Each trial has a 15-second deadline, including pagination and validation, and the run has a 45-minute bound checked before every change. A failed response or timeout aborts the cohort after all dispatched requests settle. The failed trial remains, later trials remain `not-executed`, and no replacement samples are generated. Responses and trial records retain all failed outcomes under the existing 128 MiB evidence limit; exhausting that limit fails the run. Every owned child is stopped through its retained ChildProcess, never a reported PID.
+
+Reports include individual client p50/p95/max, p95 of the 100 per-trial maximum latencies, all polling observations, skipped ticks and attempted/completed/not-executed populations. Passing requires exactly 100 complete trials, all 400 client observations, zero errors, each client's p95 ≤2000 ms and the per-trial-max p95 ≤2000 ms. Smoke uses 2 warmup/4 measured changes and always reports freshness_acceptance=false. performance_acceptance is always false because cold/hot, resource, host and UI gates remain separate.
+
+The wrapper runs full existing cursor/detail audits before and after the population; acceptance therefore retains the original multi-chunk Unicode fixture requirement. SQL and immutable inventories are checked after warmup, after measurement and after cleanup. OS cache is uncontrolled/warm; active polling is not idle-resource evidence. The endpoint must initially be absent and each Hello must match the explicitly spawned owner PID/build/nonce. An unexpected proxy-created replacement owner is a fatal continuity error and is not authorized for PID-based cleanup.
+
+Pending root verification: existing cold/hot smoke after the additive export; tiny real four-client dirty/clean freshness smoke; real error/timeout and unexpected-owner-exit cleanup smoke; then the separately authorized fixed acceptance corpus. Pure self-tests cover population sizes, tick skipping, strict cycle/status predicates, exact deadline exclusion, missing/failed populations and the difference between per-client and max-of-four p95.
