@@ -23,6 +23,8 @@ const MAX_BYTES: u64 = 512 * 1024 * 1024;
 const SNAPSHOT: &str = "@snapshot";
 const ACTIVATION: &str = "@activation";
 const FENCE: &str = "activation-intent.json";
+#[path = "migration/inventory_parallel.rs"]
+mod inventory_parallel;
 #[path = "origin_observation.rs"]
 mod origin_observation;
 pub(crate) use origin_observation::ReadOriginCache;
@@ -710,13 +712,35 @@ fn inventory(
     origins: Vec<FrozenOrigin>,
     evaluated_at: String,
 ) -> Result<FrozenManifest, DevMapError> {
+    inventory_parallel::run(w, origins, evaluated_at)
+}
+fn inventory_serial(
+    w: &SourceWorkspace,
+    origins: Vec<FrozenOrigin>,
+    evaluated_at: String,
+) -> Result<FrozenManifest, DevMapError> {
+    inventory_collect(
+        w,
+        origins,
+        evaluated_at,
+        true,
+        inventory_parallel::Limits::default(),
+    )
+}
+fn inventory_collect(
+    w: &SourceWorkspace,
+    origins: Vec<FrozenOrigin>,
+    evaluated_at: String,
+    hash: bool,
+    limits: inventory_parallel::Limits,
+) -> Result<FrozenManifest, DevMapError> {
     let mut manifest = FrozenManifest { format:"devmap-frozen-legacy/1".into(), repository_id:worktrees::repository_id(w), common_dir:safe::checked_canonical_directory(&w.git_common_dir)?, evaluated_at, origins,
         directories:BTreeSet::new(), files:Vec::new(), legacy_only:vec!["Context Git repositories and their objects remain in their original locations; not imported or modified".into()] };
     let mut total = 0;
     for index in 0..manifest.origins.len() {
         let root = manifest.origins[index].git_dir.join("devmap");
         if safe::checked_metadata(&root)?.is_some() {
-            walk(&root, &root, index, &mut manifest, &mut total)?;
+            walk(&root, &root, index, &mut manifest, &mut total, hash, limits)?;
         }
     }
     manifest
@@ -730,6 +754,8 @@ fn walk(
     origin: usize,
     manifest: &mut FrozenManifest,
     total: &mut u64,
+    hash: bool,
+    limits: inventory_parallel::Limits,
 ) -> Result<(), DevMapError> {
     safe::checked_canonical_directory(directory)?;
     for entry in fs::read_dir(directory)? {
@@ -772,11 +798,11 @@ fn walk(
             ) {
                 return Err(fail(format!("unknown legacy directory: {relative}")));
             }
-            if manifest.directories.len() >= MAX_FILES {
+            if manifest.directories.len() >= limits.directories {
                 return Err(fail("legacy directory inventory resource limit"));
             }
             manifest.directories.insert((origin, relative));
-            walk(root, &path, origin, manifest, total)?;
+            walk(root, &path, origin, manifest, total, hash, limits)?;
         } else {
             if !metadata.is_file() {
                 return Err(fail("unsupported legacy object"));
@@ -785,13 +811,19 @@ fn walk(
                 &relative,
                 manifest.origins[origin].git_dir == manifest.common_dir,
             )?;
-            if manifest.files.len() >= MAX_FILES
-                || metadata.len() > MAX_BYTES
-                || total.saturating_add(metadata.len()) > MAX_BYTES
+            if manifest.files.len() >= limits.files
+                || metadata.len() > limits.bytes
+                || total
+                    .checked_add(metadata.len())
+                    .is_none_or(|sum| sum > limits.bytes)
             {
                 return Err(fail("legacy inventory resource limit"));
             }
-            let (bytes, sha256) = inventory_hash(&path, MAX_BYTES.saturating_sub(*total))?;
+            let (bytes, sha256) = if hash {
+                inventory_hash(&path, limits.bytes.saturating_sub(*total))?
+            } else {
+                (metadata.len(), String::new())
+            };
             *total += bytes;
             manifest.files.push(FrozenFile {
                 origin,

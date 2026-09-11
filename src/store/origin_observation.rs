@@ -176,6 +176,7 @@ fn current_origins(w: &SourceWorkspace) -> Result<Vec<FrozenOrigin>, DevMapError
 pub(crate) fn profile_frozen_read_stages(
     w: &SourceWorkspace,
     c: &Connection,
+    iteration: usize,
     mut report: impl FnMut(&'static str, u128, usize),
 ) -> Result<(), DevMapError> {
     fn stage<T>(
@@ -201,9 +202,29 @@ pub(crate) fn profile_frozen_read_stages(
     if origins != activation.manifest.origins {
         return Err(fail("profiling requires exact current/frozen origins"));
     }
-    let captured = stage("legacy_inventory_complete_hash", &mut report, || {
-        inventory(w, origins, activation.manifest.evaluated_at.clone())
-    })?;
+    // Alternate order to avoid always giving the candidate the second read.
+    // These remain independent calls, not additive spans or an atomic snapshot.
+    let mut serial = None;
+    let mut captured = None;
+    for use_serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {
+        if use_serial {
+            serial = Some(stage(
+                "legacy_inventory_serial_full_hash",
+                &mut report,
+                || inventory_serial(w, origins.clone(), activation.manifest.evaluated_at.clone()),
+            )?);
+        } else {
+            captured = Some(stage(
+                "legacy_inventory_complete_hash",
+                &mut report,
+                || inventory(w, origins.clone(), activation.manifest.evaluated_at.clone()),
+            )?);
+        }
+    }
+    let captured = captured.expect("candidate inventory measured once");
+    if serial.as_ref() != Some(&captured) {
+        return Err(fail("profile serial and candidate inventories differ"));
+    }
     validate_inventory_equality(&captured, &activation.manifest)?;
     profile_manifest_file_io(&captured, &mut report)?;
     let observed = stage("observe_active_origins_full", &mut report, || {

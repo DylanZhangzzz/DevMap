@@ -165,6 +165,7 @@ fn owned_schema2_query_stage_profile() {
         crate::store::migration::profile_frozen_read_stages(
             &workspace,
             diagnostic_store.connection(),
+            iteration,
             |stage, wall_us, git_starts| {
                 println!(
                     "{}",
