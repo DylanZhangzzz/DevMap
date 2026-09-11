@@ -25,6 +25,7 @@ const ACTIVATION: &str = "@activation";
 const FENCE: &str = "activation-intent.json";
 #[path = "origin_observation.rs"]
 mod origin_observation;
+pub(crate) use origin_observation::ReadOriginCache;
 #[cfg(test)]
 pub(crate) use origin_observation::profile_frozen_read_stages;
 #[path = "startup.rs"]

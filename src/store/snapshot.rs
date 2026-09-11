@@ -1,4 +1,6 @@
 //! A generation-pinned, read-only input cache. No store creation or domain repair.
+#[cfg(test)]
+mod origin_cache_tests;
 use super::RepositoryStore;
 use crate::{
     dock::{DockBindingInputs, DockRoutePlans, DockStorageInputs},
@@ -23,6 +25,7 @@ type PresenceRegistration = (
 );
 
 pub(crate) struct InputReader {
+    origins: super::migration::ReadOriginCache,
     store: Option<RepositoryStore>,
     identity: Option<crate::fs_security::FileIdentity>,
     cached: Option<(u64, DockStorageInputs)>,
@@ -34,6 +37,7 @@ pub(crate) struct InputReader {
 impl InputReader {
     pub(crate) fn new() -> Self {
         Self {
+            origins: super::migration::ReadOriginCache::default(),
             store: None,
             identity: None,
             cached: None,
@@ -47,7 +51,11 @@ impl InputReader {
         &mut self,
         workspace: &SourceWorkspace,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
-        self.read_checked(workspace, || Ok(()))
+        let result = self.read_checked(workspace, || Ok(()));
+        if result.is_err() {
+            self.origins.clear();
+        }
+        result
     }
     fn read_checked(
         &mut self,
@@ -141,7 +149,7 @@ impl InputReader {
             tx.commit()?;
             return Ok((None, legacy(workspace)?));
         }
-        let origins = super::migration::observe_active_read_origins(workspace, &tx)?;
+        let origins = self.origins.observe(workspace, &tx)?;
         let inputs = match &self.cached {
             Some((cached_generation, inputs)) if *cached_generation == generation => inputs.clone(),
             _ => {
@@ -176,6 +184,7 @@ impl InputReader {
         self.inputs_observed_at
     }
     pub(crate) fn invalidate(&mut self) {
+        self.origins.clear();
         self.cached = None;
         self.store = None;
         self.identity = None;

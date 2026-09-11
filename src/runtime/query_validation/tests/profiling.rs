@@ -187,8 +187,8 @@ fn owned_schema2_query_stage_profile() {
         });
         assert_eq!(projected.git_cycle, first.git_cycle);
         let (snapshot, starts) = measured("sealed_query_hot", iteration, || harness.call());
-        // Active SQL origin observation currently scans Git before and after.
-        // Record the real count; this diagnostic is not a zero-Git oracle.
+        // Record the real count, including conservative proof fallbacks;
+        // this diagnostic is not a zero-Git oracle.
         println!("active_sql_hot_git_starts={starts}");
         assert_eq!(snapshot.git_cycle, first.git_cycle);
         assert_eq!(snapshot.git_observed_at, first.git_observed_at);

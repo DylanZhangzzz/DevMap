@@ -1,5 +1,8 @@
 //! Read qualification for immutable SQL history; never authorizes a write.
 use super::*;
+#[path = "origin_observation/origin_cache.rs"]
+mod origin_cache;
+pub(crate) use origin_cache::ReadOriginCache;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub(crate) enum Availability {
@@ -430,6 +433,14 @@ fn observe_active_origins(
     c: &Connection,
     journal: bool,
 ) -> Result<ActiveOriginReport, DevMapError> {
+    observe_active_origins_using(w, c, journal, || current_origins(w))
+}
+fn observe_active_origins_using(
+    w: &SourceWorkspace,
+    c: &Connection,
+    journal: bool,
+    mut enumerate: impl FnMut() -> Result<Vec<FrozenOrigin>, DevMapError>,
+) -> Result<ActiveOriginReport, DevMapError> {
     let activation = validated_activation(w, c)?;
     if journal && activation.is_none() {
         // No frozen legacy source exists. Validate this native journal target
@@ -454,7 +465,7 @@ fn observe_active_origins(
             unavailable: Vec::new(),
         });
     }
-    let before = current_origins(w)?;
+    let before = enumerate()?;
     let mut unavailable = Vec::new();
     let mut observed_paths = Vec::new();
     if let Some(record) = activation {
@@ -572,7 +583,7 @@ fn observe_active_origins(
             }
         }
     }
-    let after = current_origins(w)?;
+    let after = enumerate()?;
     if before != after {
         return Err(fail("origin identities changed during observation"));
     }
