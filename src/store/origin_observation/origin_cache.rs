@@ -177,9 +177,17 @@ pub(super) fn profile_proof_stages(
     mut report: impl FnMut(&'static str, u128, usize),
 ) -> Result<(), DevMapError> {
     let proof = Proof::acquire(w)?.ok_or_else(|| fail("profiling requires origin proof"))?;
+    let mut components = Vec::with_capacity(4);
     let count = crate::git_process::test_spawn_count();
     let start = std::time::Instant::now();
-    let valid = proof.config.recheck()?;
+    // The component records are nested in this single independent recheck.
+    // Buffer them so output formatting/I/O does not inflate the enclosing total.
+    // Never add them to the enclosing total or to other independent calls.
+    let valid = proof
+        .config
+        .profile_recheck_components(|stage, wall_us, starts| {
+            components.push((stage, wall_us, starts));
+        })?;
     report(
         "origin_proof_configuration_recheck",
         start.elapsed().as_micros(),
@@ -187,6 +195,9 @@ pub(super) fn profile_proof_stages(
     );
     if !valid {
         return Err(fail("profile origin configuration changed"));
+    }
+    for (stage, wall_us, starts) in components {
+        report(stage, wall_us, starts);
     }
     // Independent paired capture attribution retains the unchanged serial oracle.
     for serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {

@@ -222,27 +222,62 @@ impl QueryConfiguration {
     pub(crate) fn recheck(&self) -> Result<bool, DevMapError> {
         Ok(optional(self.recheck_inner())?.unwrap_or(false))
     }
+    /// Component spans of one recheck, nested inside the caller's total.
+    /// Reports only static labels, elapsed microseconds, and actual Git starts.
+    #[cfg(test)]
+    pub(crate) fn profile_recheck_components(
+        &self,
+        mut report: impl FnMut(&'static str, u128, usize),
+    ) -> Result<bool, DevMapError> {
+        let mut count = crate::git_process::test_spawn_count();
+        let mut start = std::time::Instant::now();
+        let result = self.recheck_inner_observed(|stage| {
+            let elapsed = start.elapsed().as_micros();
+            let starts = crate::git_process::test_spawn_count() - count;
+            report(stage, elapsed, starts);
+            // Exclude report callback work from the next component span.
+            count = crate::git_process::test_spawn_count();
+            start = std::time::Instant::now();
+        });
+        Ok(optional(result)?.unwrap_or(false))
+    }
     fn recheck_inner(&self) -> Result<bool, DevMapError> {
+        self.recheck_inner_observed(|_| {})
+    }
+    // One shared validation path: production uses an inlinable no-op observer.
+    // A declined/errored stage does not emit a completed component; the caller
+    // must reject the diagnostic unless the entire proof recheck returns true.
+    fn recheck_inner_observed(
+        &self,
+        mut completed: impl FnMut(&'static str),
+    ) -> Result<bool, DevMapError> {
         if !self.source.recheck()? {
             return Ok(false);
         }
+        completed("origin_proof_configuration_component_source_resolution");
         let current = environment()?;
         if current != self.evidence.environment {
             return Ok(false);
         }
+        completed("origin_proof_configuration_component_environment");
         for (path, identity) in &self.evidence.directories {
             if checked_directory_identity(path)? != *identity {
                 return Ok(false);
             }
         }
+        completed("origin_proof_configuration_component_directories");
         let mut after = blank(current);
         for path in self.evidence.files.keys() {
             witness(path, &mut after)?;
         }
-        Ok(after.files == self.evidence.files
+        let valid = after.files == self.evidence.files
             && after
                 .directories
                 .iter()
-                .all(|(p, id)| self.evidence.directories.get(p) == Some(id)))
+                .all(|(p, id)| self.evidence.directories.get(p) == Some(id));
+        if valid {
+            completed("origin_proof_configuration_component_config_witnesses");
+        }
+        Ok(valid)
     }
 }
