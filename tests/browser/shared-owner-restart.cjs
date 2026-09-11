@@ -102,7 +102,7 @@ async function main() {
     await delay(300);
     async function state(){return page.evaluate(()=>({
       details:[...document.querySelectorAll('.platform-details')].map(el=>el.getAttribute('aria-expanded')),
-      selected:[...document.querySelectorAll('.route-platform')].map(el=>el.getAttribute('aria-expanded')),
+      expanded:[...document.querySelectorAll('.route-platform')].map(el=>el.getAttribute('aria-expanded')),
       more:[...document.querySelectorAll('.platform-more')].map(el=>el.getAttribute('aria-expanded')),
       // Relative age text advances with the real clock. Retain visible identity
       // and heading here; full backend chat rows are compared separately.
@@ -111,6 +111,11 @@ async function main() {
       scroll:{left:document.querySelector('#topology-viewport').scrollLeft,top:document.querySelector('#topology-viewport').scrollTop},
       inspectorHidden:document.querySelector('#selection-details').hidden,
     }));}
+    async function selectionObservation(){return page.evaluate(()=>({
+      current:[...document.querySelectorAll('[aria-current="true"]')].map(el=>el.dataset.objectId||el.id||el.tagName),
+      focused:{tag:document.activeElement.tagName,id:document.activeElement.id,object:document.activeElement.dataset?.objectId||null},
+    }));}
+    const selectionBefore=await selectionObservation();
     const before=await state();assert.ok(before.details.includes('true'),'An expanded workspace is required');
     const beforeObservation=await page.evaluate(()=>window.__receivedDock.at(-1)?.observation_revision||0);
     await page.screenshot({path:path.join(fixture,'before.png')});
@@ -137,11 +142,14 @@ async function main() {
     assert.deepEqual(await state(),before,'Browser state changed across actual owner replacement');
     assert.equal(page.url(),opened.url);assert.equal(await page.locator('#snapshot-feedback').isVisible(),false);
     const reused=await call('devmap_open_map',{surface:'browser'});assert.equal(reused.url,opened.url);assert.equal(reused.reused,true);
+    const selectionAfter=await selectionObservation();
     assert.deepEqual(errors,[]);await page.screenshot({path:path.join(fixture,'after.png')});
     const report={scope:'actual_shared_owner_restart_browser',passed:true,candidate_sha256:build,fixture,
       mcp_pid:originalPid,owner_before:beforeOwner,owner_after:afterOwner,ui_state:before,
+      selection_observation:{before:selectionBefore,after:selectionAfter,
+        retained:JSON.stringify(selectionBefore)===JSON.stringify(selectionAfter)},
       revisions:{initial:initial.revision,opened:opened.revision,recovered:recovered.revision},
-      note:'Real candidate HTTP/SSE and persistent MCP. State retention gate; static pixel parity is tested separately. Replacement owner expires after clients disconnect.'};
+      note:'Real HTTP/SSE and persistent MCP: expanded cards, chats, zoom and scroll retention. aria-current selection and keyboard focus are reported separately; passed does not establish selection retention or pixel parity. Replacement owner expires after clients disconnect.'};
     fs.writeFileSync(path.join(fixture,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
   } finally {
     if(browser)await browser.close();for(const entry of pending.values())clearTimeout(entry.timer);pending.clear();
