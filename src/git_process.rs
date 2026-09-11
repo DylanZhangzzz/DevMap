@@ -39,6 +39,41 @@ static TEST_SPAWN_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::Ato
 pub(crate) fn test_spawn_count() -> usize {
     TEST_SPAWN_COUNT.load(Ordering::Relaxed)
 }
+#[cfg(test)]
+type Profile = std::sync::Arc<Mutex<Vec<(&'static str, Duration)>>>;
+#[cfg(test)]
+thread_local! {
+    static PROFILE: RefCell<Option<Profile>> = const { RefCell::new(None) };
+}
+#[cfg(test)]
+struct ProfileSpan(Option<Profile>, &'static str, Instant);
+#[cfg(test)]
+impl ProfileSpan {
+    fn new(profile: &Option<Profile>, name: &'static str) -> Self {
+        Self(profile.clone(), name, Instant::now())
+    }
+}
+#[cfg(test)]
+impl Drop for ProfileSpan {
+    fn drop(&mut self) {
+        if let Some(profile) = &self.0 {
+            profile.lock().unwrap().push((self.1, self.2.elapsed()));
+        }
+    }
+}
+#[cfg(test)]
+fn with_profile<T>(operation: impl FnOnce() -> T) -> (T, Profile) {
+    struct Restore(Option<Profile>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PROFILE.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let profile = Profile::default();
+    let old = PROFILE.with(|slot| slot.replace(Some(profile.clone())));
+    let _restore = Restore(old);
+    (operation(), profile)
+}
 impl GitBudget {
     pub(crate) fn deadline(&self) -> Instant {
         self.deadline
@@ -139,8 +174,16 @@ fn output_with_limits(
     command: &mut Command,
     limits: ProcessLimits,
 ) -> Result<Output, GitProcessError> {
+    #[cfg(test)]
+    let profile = PROFILE.with(|slot| slot.borrow().clone());
+    #[cfg(test)]
+    let _total_span = ProfileSpan::new(&profile, "output_total");
+    #[cfg(test)]
+    let admission_span = ProfileSpan::new(&profile, "admission");
     let operation_deadline = current_budget().deadline;
     let _permit = admit(operation_deadline)?;
+    #[cfg(test)]
+    drop(admission_span);
     let deadline = operation_deadline.min(Instant::now() + limits.command_timeout);
     // All production callers build only program/arguments/environment/current_dir.
     // output() semantics replace stdin/stdout/stderr; no shell or caller wire is involved.
@@ -171,11 +214,25 @@ fn output_with_limits(
     let run = move || {
         // Explicitly destroy the reactor before thread-local runtime context is
         // torn down. A reactor retained in TLS can deadlock on Windows shutdown.
+        #[cfg(test)]
+        let build_span = ProfileSpan::new(&profile, "reactor_build");
         let reactor = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let result = reactor.block_on(supervise(child_command, limits, deadline));
+        #[cfg(test)]
+        drop(build_span);
+        let result = reactor.block_on(supervise(
+            child_command,
+            limits,
+            deadline,
+            #[cfg(test)]
+            profile.clone(),
+        ));
+        #[cfg(test)]
+        let drop_span = ProfileSpan::new(&profile, "reactor_drop");
         drop(reactor);
+        #[cfg(test)]
+        drop(drop_span);
         result
     };
     if tokio::runtime::Handle::try_current().is_ok() {
@@ -244,13 +301,20 @@ async fn supervise(
     mut command: tokio::process::Command,
     limits: ProcessLimits,
     deadline: Instant,
+    #[cfg(test)] profile: Option<Profile>,
 ) -> Result<Output, GitProcessError> {
     if Instant::now() >= deadline {
         return Err(GitProcessError::Deadline);
     }
+    #[cfg(test)]
+    let spawn_span = ProfileSpan::new(&profile, "spawn_suspended");
     let mut child = command.spawn()?;
     #[cfg(test)]
+    drop(spawn_span);
+    #[cfg(test)]
     TEST_SPAWN_COUNT.fetch_add(1, Ordering::Relaxed);
+    #[cfg(test)]
+    let attach_span = ProfileSpan::new(&profile, "tree_attach_resume");
     let mut tree = match Tree::attach(&child) {
         Ok(tree) => Some(tree),
         Err(error) => {
@@ -258,6 +322,8 @@ async fn supervise(
             return Err(GitProcessError::Io(error));
         }
     };
+    #[cfg(test)]
+    drop(attach_span);
     let mut stdout = Box::pin(read_bounded(
         child.stdout.take().expect("piped stdout"),
         limits.stdout_bytes,
@@ -270,6 +336,8 @@ async fn supervise(
     ));
     let mut out = None;
     let mut err = None;
+    #[cfg(test)]
+    let wait_span = ProfileSpan::new(&profile, "root_wait_with_concurrent_pipe_reads");
     let result = tokio::time::timeout_at(deadline.into(), async {
         {
             #[cfg(windows)]
@@ -303,13 +371,21 @@ async fn supervise(
         Ok::<_, GitProcessError>(())
     })
     .await;
+    #[cfg(test)]
+    drop(wait_span);
+    #[cfg(test)]
+    let clean_span = ProfileSpan::new(&profile, "cleanup_confirmed");
     clean(&mut child, &mut tree, limits.cleanup_timeout).await;
+    #[cfg(test)]
+    drop(clean_span);
     if !healthy() {
         return Err(GitProcessError::CleanupFailed);
     }
     result.map_err(|_| GitProcessError::Deadline)??;
     // Root exit can precede EOF because descendants inherited pipes. They have
     // now been cancelled; drain buffered bytes under the original deadline.
+    #[cfg(test)]
+    let drain_span = ProfileSpan::new(&profile, "pipe_drain_after_cleanup");
     tokio::time::timeout_at(deadline.into(), async {
         std::future::poll_fn(|cx| {
             if out.is_none()
@@ -338,6 +414,10 @@ async fn supervise(
     })
     .await
     .map_err(|_| GitProcessError::Deadline)??;
+    #[cfg(test)]
+    drop(drain_span);
+    #[cfg(test)]
+    let _final_wait_span = ProfileSpan::new(&profile, "final_cached_child_wait");
     let status = child.wait().await?;
     Ok(Output {
         status,

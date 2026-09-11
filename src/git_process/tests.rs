@@ -10,6 +10,59 @@ use std::{
 
 static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+#[ignore = "explicit owned Git stage diagnosis only; not a performance acceptance gate"]
+fn profile_ten_sequential_git_versions() {
+    let _serial = TEST_LOCK.lock().unwrap();
+    for iteration in 0..10 {
+        let start = Instant::now();
+        let (result, profile) = with_profile(|| output(Command::new("git").arg("--version")));
+        let elapsed = start.elapsed();
+        let samples = profile.lock().unwrap();
+        for (stage, duration) in samples.iter() {
+            println!(
+                "{}",
+                serde_json::json!({"diagnostic":"git-process-stage/1", "iteration":iteration,
+                "stage":stage,"wall_ns":duration.as_nanos()})
+            );
+        }
+        println!(
+            "{}",
+            serde_json::json!({"diagnostic":"git-process-stage/1", "iteration":iteration,
+            "stage":"outer_result", "wall_ns":elapsed.as_nanos(),
+            "error":result.as_ref().err().map(ToString::to_string)})
+        );
+        let output = result.unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let version = std::str::from_utf8(&output.stdout).unwrap();
+        assert!(version.starts_with("git version ") && version.trim().len() > 12);
+        for expected in [
+            "admission",
+            "reactor_build",
+            "spawn_suspended",
+            "tree_attach_resume",
+            "root_wait_with_concurrent_pipe_reads",
+            "cleanup_confirmed",
+            "pipe_drain_after_cleanup",
+            "final_cached_child_wait",
+            "reactor_drop",
+            "output_total",
+        ] {
+            assert_eq!(
+                samples.iter().filter(|(name, _)| *name == expected).count(),
+                1,
+                "missing/duplicate stage {expected}"
+            );
+        }
+        println!(
+            "{}",
+            serde_json::json!({"diagnostic":"git-process-stage/1", "iteration":iteration,
+            "stage":"outer_complete", "wall_ns":elapsed.as_nanos(),"stdout":version})
+        );
+    }
+}
+
 fn limits() -> ProcessLimits {
     ProcessLimits {
         command_timeout: Duration::from_millis(700),
