@@ -226,7 +226,25 @@ pub(crate) fn profile_frozen_read_stages(
         return Err(fail("profile serial and candidate inventories differ"));
     }
     validate_inventory_equality(&captured, &activation.manifest)?;
-    origin_cache::profile_proof_stages(w, &mut report)?;
+    let metadata = stage("legacy_inventory_metadata_only", &mut report, || {
+        inventory_collect(
+            w,
+            origins.clone(),
+            activation.manifest.evaluated_at.clone(),
+            false,
+            inventory_parallel::Limits::default(),
+        )
+    })?;
+    let mut expected_metadata = captured.clone();
+    for file in &mut expected_metadata.files {
+        file.sha256.clear();
+    }
+    if metadata != expected_metadata {
+        return Err(fail(
+            "profile metadata inventory differs from full inventory",
+        ));
+    }
+    origin_cache::profile_proof_stages(w, iteration, &mut report)?;
     profile_manifest_file_io(&captured, &mut report)?;
     let observed = stage("observe_active_origins_full", &mut report, || {
         observe_active_origins(w, c, false)
