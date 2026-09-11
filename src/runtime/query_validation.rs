@@ -93,6 +93,16 @@ pub(super) fn with_query_origin<T>(
 #[derive(Default)]
 pub(super) struct QueryValidation {
     sources: BTreeMap<(PathBuf, PathBuf, PathBuf), VerifiedQuerySource>,
+    #[cfg(test)]
+    test_inspections: Vec<usize>,
+    #[cfg(test)]
+    test_cold_hook: Option<Box<dyn FnMut(ColdStage) + Send>>,
+}
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ColdStage {
+    CandidateCaptured,
+    AuthoritativeInspected,
 }
 /// Only successful authenticated source validation creates this private capability.
 pub(crate) struct VerifiedQuerySource {
@@ -123,6 +133,15 @@ impl VerifiedQuerySource {
     }
 }
 impl QueryValidation {
+    fn inspect(&mut self, identity: &Identity) -> Result<SourceWorkspace, DevMapError> {
+        #[cfg(test)]
+        let before = crate::git_process::test_spawn_count();
+        let result = SourceGitInspector::open(&identity.source)?.workspace_allow_unborn();
+        #[cfg(test)]
+        self.test_inspections
+            .push(crate::git_process::test_spawn_count() - before);
+        result
+    }
     pub(super) fn project(
         &mut self,
         app: &mut Option<RepositoryApplication>,
@@ -159,27 +178,37 @@ impl QueryValidation {
             }
             self.sources.remove(&key);
         }
-        let workspace = SourceGitInspector::open(&identity.source)?.workspace_allow_unborn()?;
+        // Candidate paths come only from authenticated Hello. They authorize
+        // neither application construction nor a projection before fresh Git.
+        let candidate = SourceWorkspace {
+            root: identity.source.clone(),
+            git_dir: identity.git_dir.clone(),
+            git_common_dir: identity.common.clone(),
+            head: String::new(),
+            branch: None,
+        };
+        let configuration = QueryConfiguration::acquire(&candidate)?;
+        #[cfg(test)]
+        if let Some(hook) = self.test_cold_hook.as_mut() {
+            hook(ColdStage::CandidateCaptured);
+        }
+        let workspace = self.inspect(identity)?;
         if std::fs::canonicalize(&workspace.root)? != identity.source
             || std::fs::canonicalize(&workspace.git_dir)? != identity.git_dir
             || std::fs::canonicalize(&workspace.git_common_dir)? != identity.common
         {
             return Err(DevMapError::Store("authenticated source changed".into()));
         }
+        #[cfg(test)]
+        if let Some(hook) = self.test_cold_hook.as_mut() {
+            hook(ColdStage::AuthoritativeInspected);
+        }
         if app.is_none() {
             *app = Some(RepositoryApplication::open(&workspace)?);
         }
-        if let Some(configuration) = QueryConfiguration::acquire(&workspace)? {
-            // Capture alone must not seal a discovery failure introduced after
-            // the earlier inspector. Fresh Git validation is sandwiched by the
-            // candidate filesystem evidence and its subsequent recheck.
-            let workspace = SourceGitInspector::open(&identity.source)?.workspace_allow_unborn()?;
-            if std::fs::canonicalize(&workspace.root)? != identity.source
-                || std::fs::canonicalize(&workspace.git_dir)? != identity.git_dir
-                || std::fs::canonicalize(&workspace.git_common_dir)? != identity.common
-            {
-                return Err(source_changed());
-            }
+        if let Some(configuration) = configuration {
+            // Authoritative inspection remains inside the candidate capture /
+            // proof.valid sandwich. Unsupported or changed evidence falls back.
             let proof = VerifiedQuerySource {
                 origin: crate::store::migration::application_anchor(&workspace)?,
                 common_identity: crate::fs_security::checked_directory_identity(

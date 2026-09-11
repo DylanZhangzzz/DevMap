@@ -4,9 +4,11 @@ Root execution update (2026-09-09): the real two-worktree/six-event smoke comple
 
 Query-validation candidate update: Release SHA-256 `ed78a4dba5e928066193312899f7afbbc4058467f8c576c5b48856436b6d5bc4` completed the tiny smoke in retained run `shared-summary-S24xdI`. Cold observations were 3910/3841 ms; eight hot observations ranged approximately 197–812 ms, with all response/cursor, SQL/backup preservation and owned cleanup checks passing. Both latency gates still failed; these small populations are not scale acceptance. Earlier run `shared-summary-t48DR0` remains a failure: its second query spanned roughly 70 minutes of Windows Modern Standby, confirmed by System Kernel-Power events 506/507 (lid entry 08:35:24 local, exit 09:45:14). No failed sample was removed or replaced in that report.
 
-This new harness does not create a repository, migrate a store, delete artifacts, or invoke a model. Without arguments it prints usage. It currently supports Windows named pipes. Do not point it at the retained schema-1 corpus.
+Current execution update (2026-09-11): committed candidate `ad18d83`, Release SHA-256 `654816ddfc3ecff45dd0609f934733d27bb77203636da6fc956456273dc68a58`, completed tiny run `shared-summary-Q2KPRX` with request, cursor, full SQL/backup preservation and owned cleanup checks passing. Two cold observations were 3477/3368 ms; twelve hot observations had per-client p95 values 459/203/445/461 ms. Both latency gates remain false. The fixed schema-2 scale receipt exists with SHA-256 `d968690717e51b531deaeb1f095b9c615c1474543ba32c6c9bbe789756cd4620`; it contains 20 worktrees, 100 sessions and 100000 records. Its existence and separate diagnostics do not establish this harness's full scale acceptance.
 
-Only syntax and pure helper checks have been performed in this implementation slice:
+This harness does not create a repository, migrate a store, delete artifacts, or invoke a model. Without arguments it prints usage. It currently supports Windows named pipes. Do not point it at the retained schema-1 corpus.
+
+The initial implementation was checked with these syntax and pure helper commands; real execution evidence is recorded above and in the query-path performance audit:
 
 ```powershell
 node --check tests/browser/shared-summary-performance.cjs
@@ -14,7 +16,7 @@ node tests/browser/shared-summary-performance.cjs --self-test
 node tests/browser/shared-summary-performance.cjs --fixture-self-test
 ```
 
-The fixture self-test creates only a temporary owned folder and an external-to-that-folder hard-link template, proves the writable probe rejects the link without changing the template, then removes only its exact created files/directories without recursion. The pure self-test also rejects duplicated receipt worktrees and mismatched public workspace ID sets. These checks do not validate actual process startup, cleanup failures, cursor traversal, or performance. Root must first exercise tiny, newly owned fixtures, including occupied-endpoint refusal, child launch failure, timeout/response error and unexpected owner exit. No real schema-2 scale receipt currently exists; an old manifest is not a substitute.
+The fixture self-test creates only a temporary owned folder and an external-to-that-folder hard-link template, proves the writable probe rejects the link without changing the template, then removes only its exact created files/directories without recursion. The pure self-test also rejects duplicated receipt worktrees and mismatched public workspace ID sets. Those helper checks alone do not validate actual process startup, cleanup failures, cursor traversal, or performance. Any new harness behavior still needs owned fault controls for launch, timeout/response error, occupied endpoint and unexpected exit. Use a validated schema-2 receipt; an old manifest is not a substitute.
 
 ## Explicit configuration
 

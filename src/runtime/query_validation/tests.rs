@@ -1,4 +1,5 @@
 use super::*;
+mod cold_tests;
 mod profiling;
 use std::{
     fs,
@@ -66,9 +67,12 @@ fn isolated(name: &str) -> Option<PathBuf> {
     assert!(
         status.success(),
         "{name}: {status}\n{}\n{}",
-        fs::read_to_string(stdout).unwrap(),
+        fs::read_to_string(&stdout).unwrap(),
         fs::read_to_string(stderr).unwrap()
     );
+    if name.starts_with("cold_tests::") {
+        print!("{}", fs::read_to_string(&stdout).unwrap());
+    }
     None
 }
 fn git(root: &Path, args: &[&str]) {
