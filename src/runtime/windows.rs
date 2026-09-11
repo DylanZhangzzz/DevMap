@@ -349,6 +349,46 @@ pub fn prepare_identity(command: &mut tokio::process::Command) {
     command.creation_flags(0x08000000 | 0x00000004);
 }
 pub struct IdentityTree(windows_sys::Win32::Foundation::HANDLE);
+mod pss;
+#[cfg(test)]
+mod pss_tests;
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum ResumeTestFault {
+    None,
+    CaptureUnavailable,
+    ForeignThread,
+    ResourceBound,
+    ResumeFailure,
+    OpenedOwnerMismatch,
+    OpenedCreationMismatch,
+    MarkerReleaseFailure,
+    SnapshotReleaseFailure,
+}
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+enum ResumePath {
+    Pss,
+    Toolhelp,
+}
+#[cfg(test)]
+impl IdentityTree {
+    fn attach_test(
+        child: &tokio::process::Child,
+        fault: ResumeTestFault,
+    ) -> io::Result<(Self, ResumePath)> {
+        Self::attach_inner(child, fault).map(|(tree, pss)| {
+            (
+                tree,
+                if pss {
+                    ResumePath::Pss
+                } else {
+                    ResumePath::Toolhelp
+                },
+            )
+        })
+    }
+}
 // HANDLE ownership is unique and kernel operations are thread safe.
 unsafe impl Send for IdentityTree {}
 impl Drop for IdentityTree {
@@ -360,6 +400,17 @@ impl Drop for IdentityTree {
 }
 impl IdentityTree {
     pub fn attach(child: &tokio::process::Child) -> io::Result<Self> {
+        Self::attach_inner(
+            child,
+            #[cfg(test)]
+            ResumeTestFault::None,
+        )
+        .map(|(tree, _)| tree)
+    }
+    fn attach_inner(
+        child: &tokio::process::Child,
+        #[cfg(test)] fault: ResumeTestFault,
+    ) -> io::Result<(Self, bool)> {
         use windows_sys::Win32::{
             Foundation::INVALID_HANDLE_VALUE,
             System::{
@@ -393,6 +444,13 @@ impl IdentityTree {
             {
                 return Err(io::Error::last_os_error());
             }
+            if pss::resume(
+                child,
+                #[cfg(test)]
+                fault,
+            )? {
+                return Ok((tree, true));
+            }
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if snapshot == INVALID_HANDLE_VALUE {
                 return Err(io::Error::last_os_error());
@@ -416,7 +474,7 @@ impl IdentityTree {
             if !found {
                 return Err(invalid("identity primary thread could not resume"));
             }
-            Ok(tree)
+            Ok((tree, false))
         }
     }
 }
