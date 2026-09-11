@@ -2,6 +2,9 @@
 use super::*;
 use crate::git_relationship::QueryConfiguration;
 
+#[path = "origin_cache_admission.rs"]
+mod admission;
+
 #[derive(Default)]
 pub(crate) struct ReadOriginCache {
     entry: Option<Proof>,
@@ -97,7 +100,7 @@ impl Proof {
         let Some(config) = QueryConfiguration::acquire(w)? else {
             return Ok(None);
         };
-        let before = Evidence::capture(w)?;
+        let before = parallel::candidate(w, &parallel::NoHooks)?;
         // Authoritative enumeration occurs inside the physical/config sandwich.
         let origins = current_origins(w)?;
         // Compare physical locations using checked canonical paths, retaining
@@ -106,7 +109,7 @@ impl Proof {
         for origin in &mut physical_origins {
             origin.workspace_path = safe::checked_canonical_directory(&origin.workspace_path)?;
         }
-        let after = Evidence::capture(w)?;
+        let after = parallel::candidate(w, &parallel::NoHooks)?;
         if before != after || before.roots != physical_origins || !config.recheck()? {
             return Ok(None);
         }
@@ -123,7 +126,10 @@ impl Proof {
         }
         validate_proof_checks(
             || self.config.recheck(),
-            || Ok(optional(Evidence::capture(w))?.is_some_and(|e| e == self.evidence)),
+            || {
+                Ok(optional(parallel::candidate(w, &parallel::NoHooks))?
+                    .is_some_and(|e| e == self.evidence))
+            },
             Ok(()),
         )
     }
@@ -182,16 +188,27 @@ pub(super) fn profile_proof_stages(
     if !valid {
         return Err(fail("profile origin configuration changed"));
     }
-    let count = crate::git_process::test_spawn_count();
-    let start = std::time::Instant::now();
-    let evidence = Evidence::capture(w)?;
-    report(
-        "origin_proof_evidence_capture",
-        start.elapsed().as_micros(),
-        crate::git_process::test_spawn_count() - count,
-    );
-    if evidence != proof.evidence {
-        return Err(fail("profile origin evidence changed"));
+    // Independent paired capture attribution retains the unchanged serial oracle.
+    for serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {
+        let count = crate::git_process::test_spawn_count();
+        let start = std::time::Instant::now();
+        let evidence = if serial {
+            Evidence::capture(w)?
+        } else {
+            parallel::candidate(w, &parallel::NoHooks)?
+        };
+        report(
+            if serial {
+                "origin_proof_serial_evidence_capture"
+            } else {
+                "origin_proof_evidence_capture"
+            },
+            start.elapsed().as_micros(),
+            crate::git_process::test_spawn_count() - count,
+        );
+        if evidence != proof.evidence {
+            return Err(fail("profile origin evidence changed"));
+        }
     }
     for serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {
         let count = crate::git_process::test_spawn_count();
@@ -199,7 +216,8 @@ pub(super) fn profile_proof_stages(
         let valid = if serial {
             proof.source == w.root
                 && proof.config.recheck()?
-                && optional(Evidence::capture(w))?.is_some_and(|e| e == proof.evidence)
+                && optional(parallel::candidate(w, &parallel::NoHooks))?
+                    .is_some_and(|e| e == proof.evidence)
         } else {
             proof.valid(w)?
         };
@@ -628,3 +646,10 @@ mod proof_overlap_tests {
         }
     }
 }
+
+#[path = "origin_cache_parallel.rs"]
+mod parallel;
+
+#[cfg(test)]
+#[path = "origin_cache_parallel_red_tests.rs"]
+mod parallel_evidence_tests;
