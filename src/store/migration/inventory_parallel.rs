@@ -21,6 +21,7 @@ impl Default for Limits {
 }
 #[cfg(test)]
 struct Observation {
+    selected_worker_limit: usize,
     started: AtomicUsize,
     joined: AtomicUsize,
     active: AtomicUsize,
@@ -39,6 +40,7 @@ struct Observation {
 impl Default for Observation {
     fn default() -> Self {
         Self {
+            selected_worker_limit: 4,
             started: AtomicUsize::new(0),
             joined: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
@@ -63,7 +65,8 @@ impl Observation {
             self.started.load(Ordering::SeqCst),
             self.joined.load(Ordering::SeqCst)
         );
-        assert!(self.peak.load(Ordering::SeqCst) <= 4);
+        assert!(matches!(self.selected_worker_limit, 4 | 8));
+        assert!(self.peak.load(Ordering::SeqCst) <= self.selected_worker_limit);
     }
 }
 
@@ -322,9 +325,16 @@ fn candidate(
     #[cfg(test)] observation: &Observation,
     after_enumeration: impl FnOnce(),
 ) -> Result<Option<FrozenManifest>, DevMapError> {
+    #[cfg(test)]
+    let worker_limit = {
+        assert!(matches!(observation.selected_worker_limit, 4 | 8));
+        observation.selected_worker_limit
+    };
+    #[cfg(not(test))]
+    let worker_limit = 4;
     let queue = WorkQueue::default();
     let attempt = std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(4);
+        let mut handles = Vec::with_capacity(worker_limit);
         // Catch the entire producer, including spawn and invocation-local hooks.
         // A producer panic must wake idle workers before any join can block.
         let produced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -332,7 +342,7 @@ fn candidate(
                 if handles.is_empty() {
                     // Start only after the first descriptor passes every prefix
                     // quota and classification check. No queued open handles.
-                    for _worker_index in 0..4 {
+                    for _worker_index in 0..worker_limit {
                         #[cfg(test)]
                         let spawn_error = (observation.spawn_refuse_at.load(Ordering::SeqCst)
                             == _worker_index)

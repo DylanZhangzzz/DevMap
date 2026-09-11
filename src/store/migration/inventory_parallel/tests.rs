@@ -1908,3 +1908,350 @@ fn assert_historical_late_prefix(limits: Limits) {
         "refused job reached actual dispatch/claim"
     );
 }
+
+// Only test builds can select eight workers. Production remains hard four;
+// both counts use the same hashing algorithm and bounded queue.
+fn eight_fixture() -> Fixture {
+    let fixture = pipeline_fixture();
+    for index in 4..8 {
+        let directory = fixture.origins[0]
+            .git_dir
+            .join(format!("devmap/sessions/pipeline{index}"));
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("events.ndjson"), vec![index as u8; 130_001]).unwrap();
+    }
+    assert_eq!(fixture.serial().files.len(), 16);
+    fixture
+}
+
+struct ReleaseEight<'a>(&'a PipelineHooks);
+impl Drop for ReleaseEight<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.release_workers = true;
+        self.0.changed.notify_all();
+    }
+}
+
+fn run_eight_held(
+    fixture: &Fixture,
+    observation: &Observation,
+    hooks: &PipelineHooks,
+) -> (FaultOutcome, bool, (usize, usize, usize)) {
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_serial_oracle(
+                    &fixture.workspace,
+                    &fixture.origins,
+                    STAMP,
+                    Limits::default(),
+                    observation,
+                    || {},
+                )
+            }))
+        });
+        // Unwind releases before scope joins, including a failed control wait.
+        let release = ReleaseEight(hooks);
+        let state = hooks.state.lock().unwrap();
+        let (mut state, _) = hooks
+            .changed
+            .wait_timeout_while(state, Duration::from_secs(3), |s| {
+                !(s.held_workers == 8 && s.producer_waiting && s.queued == 4 && s.admitted == 13)
+            })
+            .unwrap();
+        let reached = state.held_workers == 8
+            && state.producer_waiting
+            && state.queued == 4
+            && state.admitted == 13;
+        let snapshot = (state.queued, state.admitted, state.checked_hashes);
+        state.arm_worker_fault = reached && hooks.fault.is_some();
+        drop(state);
+        drop(release);
+        (handle.join().unwrap(), reached, snapshot)
+    })
+}
+
+#[test]
+fn eight_workers_hold_real_reads_with_four_queued_and_full_manifest_parity() {
+    let fixture = eight_fixture();
+    let expected = fixture.serial();
+    let mut hooks = PipelineHooks::measuring(AdmissionMode::Count);
+    hooks.hold_workers = true;
+    let hooks = Arc::new(hooks);
+    let observation = Observation {
+        selected_worker_limit: 8,
+        pipeline: Some(hooks.clone()),
+        ..Observation::default()
+    };
+    let (result, reached, snapshot) = run_eight_held(&fixture, &observation, &hooks);
+    assert_pipeline_fault_drained(&observation, &hooks);
+    assert_eq!(result.unwrap().unwrap(), expected);
+    assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 0);
+    let (jobs, _) = hooks.admission_snapshot();
+    assert_eq!(jobs.len(), expected.files.len());
+    for job in &jobs {
+        assert!(job.finished && job.valid);
+        assert_eq!(
+            job.counts,
+            ReadCounts {
+                opened: 1,
+                returned: job.key.expected_bytes,
+                accepted: job.key.expected_bytes,
+                probes: 0,
+                eof: 1
+            }
+        );
+    }
+    assert!(
+        reached,
+        "eight actual held workers never blocked the thirteenth producer descriptor"
+    );
+    assert_eq!(snapshot, (4, 13, 0));
+    assert_eq!(observation.started.load(Ordering::SeqCst), 8);
+    assert_eq!(observation.joined.load(Ordering::SeqCst), 8);
+}
+
+#[test]
+fn eight_workers_full_queue_error_and_panic_drain_before_fallback_or_fatal() {
+    let mut cases = Vec::new();
+    for kind in [FaultKind::WorkerError, FaultKind::WorkerPanic] {
+        let fixture = eight_fixture();
+        let hooks = Arc::new(PipelineHooks::fault(kind, &fixture));
+        let observation = Observation {
+            selected_worker_limit: 8,
+            pipeline: Some(hooks.clone()),
+            ..Observation::default()
+        };
+        let (result, reached, snapshot) = run_eight_held(&fixture, &observation, &hooks);
+        // Run and clean both cases before any intended RED prerequisite failure.
+        cases.push((fixture, hooks, observation, result, reached, snapshot, kind));
+    }
+    for (fixture, hooks, observation, result, reached, snapshot, kind) in cases {
+        assert_pipeline_fault_drained(&observation, &hooks);
+        assert!(
+            reached,
+            "eight-worker full-queue fault prerequisite not reached"
+        );
+        assert_eq!(snapshot, (4, 13, 0));
+        assert_eq!(observation.started.load(Ordering::SeqCst), 8);
+        let state = hooks.state.lock().unwrap();
+        assert!(state.worker_fault_entered);
+        match kind {
+            FaultKind::WorkerError => {
+                assert!(state.actual_worker_error);
+                assert_eq!(state.fallback_drained, vec![true]);
+                assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 1);
+                let expected =
+                    inventory_serial(&fixture.workspace, fixture.origins.clone(), STAMP.into())
+                        .unwrap_err();
+                assert_eq!(
+                    expected.to_string(),
+                    "repository store: hard-linked legacy artifact refused"
+                );
+                assert_eq!(
+                    result.unwrap().unwrap_err().to_string(),
+                    expected.to_string()
+                );
+            }
+            FaultKind::WorkerPanic => {
+                assert!(state.fallback_drained.is_empty());
+                assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 0);
+                assert_eq!(
+                    result.unwrap().unwrap_err().to_string(),
+                    "repository store: parallel inventory worker panicked"
+                );
+            }
+            _ => unreachable!(),
+        }
+        drop(state);
+        if matches!(kind, FaultKind::WorkerError) {
+            fs::remove_file(&hooks.fault.as_ref().unwrap().alias).unwrap();
+        }
+        let fresh = Observation {
+            selected_worker_limit: 8,
+            ..Observation::default()
+        };
+        let result = pipeline_red_candidate(&fixture, &fresh).unwrap().unwrap();
+        fresh.drained();
+        assert_eq!(result, fixture.serial());
+        assert_eq!(fresh.started.load(Ordering::SeqCst), 8);
+        assert_eq!(fresh.fallbacks.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
+fn eight_workers_partial_spawn_refusal_joins_six_and_fresh_call_succeeds() {
+    let fixture = eight_fixture();
+    let expected = fixture.serial();
+    let hooks = Arc::new(PipelineHooks::new(false, false));
+    let observation = Observation {
+        selected_worker_limit: 8,
+        pipeline: Some(hooks.clone()),
+        ..Observation::default()
+    };
+    observation.spawn_refuse_at.store(6, Ordering::SeqCst);
+    let result = with_serial_oracle(
+        &fixture.workspace,
+        &fixture.origins,
+        STAMP,
+        Limits::default(),
+        &observation,
+        || {},
+    );
+    observation.drained();
+    let fresh = Observation {
+        selected_worker_limit: 8,
+        ..Observation::default()
+    };
+    let recovered = pipeline_red_candidate(&fixture, &fresh).unwrap().unwrap();
+    fresh.drained();
+    assert_eq!(result.unwrap(), expected);
+    assert_eq!(recovered, expected);
+    assert!(
+        observation.spawn_refusal_entered.load(Ordering::SeqCst),
+        "spawn index six was never attempted"
+    );
+    assert_eq!(observation.started.load(Ordering::SeqCst), 6);
+    assert_eq!(observation.joined.load(Ordering::SeqCst), 6);
+    assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 1);
+    assert_eq!(hooks.state.lock().unwrap().fallback_drained, vec![true]);
+    assert_eq!(fresh.started.load(Ordering::SeqCst), 8);
+    assert_eq!(fresh.fallbacks.load(Ordering::SeqCst), 0);
+    assert_eq!(fresh.hashed.load(Ordering::SeqCst), expected.files.len());
+    assert!(!fresh.spawn_refusal_entered.load(Ordering::SeqCst));
+}
+
+#[test]
+fn eight_workers_preserve_global_first_exact_and_late_prefix_quotas() {
+    let fixture = admission_fixture(&[b"abcd".to_vec(), b"efgh".to_vec()]);
+    for limits in [
+        Limits {
+            bytes: 3,
+            ..Limits::default()
+        },
+        Limits {
+            files: 0,
+            ..Limits::default()
+        },
+        Limits {
+            directories: 0,
+            ..Limits::default()
+        },
+    ] {
+        let (hooks, mut observation) = measured_observation(AdmissionMode::Count);
+        observation.selected_worker_limit = 8;
+        let result = candidate(
+            &fixture.workspace,
+            &fixture.origins,
+            STAMP,
+            limits,
+            &observation,
+            || panic!("first refusal must precede enumeration callback"),
+        );
+        observation.drained();
+        assert!(result.unwrap().is_none());
+        assert!(hooks.admission_snapshot().0.is_empty());
+        assert_eq!(observation.started.load(Ordering::SeqCst), 0);
+        assert_eq!(observation.hashed.load(Ordering::SeqCst), 0);
+    }
+    let mut cases = Vec::new();
+    for (limits, late) in [
+        (
+            Limits {
+                bytes: 8,
+                files: 2,
+                directories: 4,
+            },
+            false,
+        ),
+        (
+            Limits {
+                bytes: 7,
+                files: 2,
+                directories: 4,
+            },
+            true,
+        ),
+        (
+            Limits {
+                bytes: 8,
+                files: 1,
+                directories: 4,
+            },
+            true,
+        ),
+        (
+            Limits {
+                bytes: 8,
+                files: 2,
+                directories: 2,
+            },
+            true,
+        ),
+    ] {
+        let fixture = admission_fixture(&[b"abcd".to_vec(), b"efgh".to_vec()]);
+        let expected = fixture.serial();
+        let mode = if late {
+            AdmissionMode::Prefix
+        } else {
+            AdmissionMode::Count
+        };
+        let (hooks, mut observation) = measured_observation(mode);
+        observation.selected_worker_limit = 8;
+        let result = with_serial_oracle(
+            &fixture.workspace,
+            &fixture.origins,
+            STAMP,
+            limits,
+            &observation,
+            || {},
+        );
+        cases.push((late, expected, hooks, observation, result));
+    }
+    // Exercise every quota axis before any intended barrier RED assertion.
+    for (late, expected, hooks, observation, result) in cases {
+        observation.drained();
+        assert_eq!(result.unwrap(), expected);
+        let (jobs, reached) = hooks.admission_snapshot();
+        if late {
+            assert!(
+                reached,
+                "late-limit producer advanced without first real checked hash completion"
+            );
+            assert_eq!(jobs.len(), 1, "inadmissible second payload was reserved");
+            assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 1);
+            assert_eq!(hooks.state.lock().unwrap().fallback_drained, vec![true]);
+        } else {
+            assert_eq!(jobs.len(), 2);
+            assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 0);
+        }
+        for (index, job) in jobs.iter().enumerate() {
+            assert_eq!(
+                job.key,
+                JobKey {
+                    discovery_ordinal: index,
+                    origin: index,
+                    relative: "sessions/only/events.ndjson".into(),
+                    expected_bytes: 4
+                }
+            );
+            assert_eq!(job.reserved_total, 4 * (index as u64 + 1));
+            assert_eq!(
+                job.counts,
+                ReadCounts {
+                    opened: 1,
+                    returned: 4,
+                    accepted: 4,
+                    probes: 0,
+                    eof: 1
+                }
+            );
+            assert!(job.finished && job.valid);
+        }
+    }
+}
