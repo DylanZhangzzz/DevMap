@@ -226,6 +226,7 @@ pub(crate) fn profile_frozen_read_stages(
         return Err(fail("profile serial and candidate inventories differ"));
     }
     validate_inventory_equality(&captured, &activation.manifest)?;
+    origin_cache::profile_proof_stages(w, &mut report)?;
     profile_manifest_file_io(&captured, &mut report)?;
     let observed = stage("observe_active_origins_full", &mut report, || {
         observe_active_origins(w, c, false)

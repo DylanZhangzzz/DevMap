@@ -124,6 +124,49 @@ impl Proof {
         Ok(optional(Evidence::capture(w))?.is_some_and(|e| e == self.evidence))
     }
 }
+
+/// Independent read-only diagnostics, not additive production spans.
+#[cfg(test)]
+pub(super) fn profile_proof_stages(
+    w: &SourceWorkspace,
+    mut report: impl FnMut(&'static str, u128, usize),
+) -> Result<(), DevMapError> {
+    let proof = Proof::acquire(w)?.ok_or_else(|| fail("profiling requires origin proof"))?;
+    let count = crate::git_process::test_spawn_count();
+    let start = std::time::Instant::now();
+    let valid = proof.config.recheck()?;
+    report(
+        "origin_proof_configuration_recheck",
+        start.elapsed().as_micros(),
+        crate::git_process::test_spawn_count() - count,
+    );
+    if !valid {
+        return Err(fail("profile origin configuration changed"));
+    }
+    let count = crate::git_process::test_spawn_count();
+    let start = std::time::Instant::now();
+    let evidence = Evidence::capture(w)?;
+    report(
+        "origin_proof_evidence_capture",
+        start.elapsed().as_micros(),
+        crate::git_process::test_spawn_count() - count,
+    );
+    if evidence != proof.evidence {
+        return Err(fail("profile origin evidence changed"));
+    }
+    let count = crate::git_process::test_spawn_count();
+    let start = std::time::Instant::now();
+    let valid = proof.valid(w)?;
+    report(
+        "origin_proof_complete_recheck",
+        start.elapsed().as_micros(),
+        crate::git_process::test_spawn_count() - count,
+    );
+    if !valid {
+        return Err(fail("profile origin proof changed"));
+    }
+    Ok(())
+}
 impl Evidence {
     fn charge_path(&mut self, path: &Path) -> Result<(), DevMapError> {
         let bytes = self
