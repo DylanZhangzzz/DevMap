@@ -725,6 +725,8 @@ fn inventory_serial(
         evaluated_at,
         true,
         inventory_parallel::Limits::default(),
+        #[cfg(test)]
+        None,
     )
 }
 fn inventory_collect(
@@ -733,6 +735,39 @@ fn inventory_collect(
     evaluated_at: String,
     hash: bool,
     limits: inventory_parallel::Limits,
+    #[cfg(test)] pipeline: Option<&inventory_parallel::PipelineHooks>,
+) -> Result<FrozenManifest, DevMapError> {
+    let mut manifest = inventory_collect_emitting(
+        w,
+        origins,
+        evaluated_at,
+        &mut InventoryWalk {
+            hash,
+            limits,
+            #[cfg(test)]
+            pipeline,
+            sink: &mut |_, _| Ok(()),
+        },
+    )?;
+    manifest
+        .files
+        .sort_by(|a, b| (a.origin, &a.relative).cmp(&(b.origin, &b.relative)));
+    Ok(manifest)
+}
+struct InventoryWalk<'a> {
+    hash: bool,
+    limits: inventory_parallel::Limits,
+    #[cfg(test)]
+    pipeline: Option<&'a inventory_parallel::PipelineHooks>,
+    sink: &'a mut dyn FnMut(usize, &FrozenFile) -> Result<(), DevMapError>,
+}
+// The same serial walker owns every classification and global reservation.
+// Descriptors remain in discovery order until the sink's results are merged.
+fn inventory_collect_emitting(
+    w: &SourceWorkspace,
+    origins: Vec<FrozenOrigin>,
+    evaluated_at: String,
+    context: &mut InventoryWalk<'_>,
 ) -> Result<FrozenManifest, DevMapError> {
     let mut manifest = FrozenManifest { format:"devmap-frozen-legacy/1".into(), repository_id:worktrees::repository_id(w), common_dir:safe::checked_canonical_directory(&w.git_common_dir)?, evaluated_at, origins,
         directories:BTreeSet::new(), files:Vec::new(), legacy_only:vec!["Context Git repositories and their objects remain in their original locations; not imported or modified".into()] };
@@ -740,12 +775,9 @@ fn inventory_collect(
     for index in 0..manifest.origins.len() {
         let root = manifest.origins[index].git_dir.join("devmap");
         if safe::checked_metadata(&root)?.is_some() {
-            walk(&root, &root, index, &mut manifest, &mut total, hash, limits)?;
+            walk(&root, &root, index, &mut manifest, &mut total, context)?;
         }
     }
-    manifest
-        .files
-        .sort_by(|a, b| (a.origin, &a.relative).cmp(&(b.origin, &b.relative)));
     Ok(manifest)
 }
 fn walk(
@@ -754,8 +786,7 @@ fn walk(
     origin: usize,
     manifest: &mut FrozenManifest,
     total: &mut u64,
-    hash: bool,
-    limits: inventory_parallel::Limits,
+    context: &mut InventoryWalk<'_>,
 ) -> Result<(), DevMapError> {
     safe::checked_canonical_directory(directory)?;
     for entry in fs::read_dir(directory)? {
@@ -798,11 +829,11 @@ fn walk(
             ) {
                 return Err(fail(format!("unknown legacy directory: {relative}")));
             }
-            if manifest.directories.len() >= limits.directories {
+            if manifest.directories.len() >= context.limits.directories {
                 return Err(fail("legacy directory inventory resource limit"));
             }
             manifest.directories.insert((origin, relative));
-            walk(root, &path, origin, manifest, total, hash, limits)?;
+            walk(root, &path, origin, manifest, total, context)?;
         } else {
             if !metadata.is_file() {
                 return Err(fail("unsupported legacy object"));
@@ -811,16 +842,16 @@ fn walk(
                 &relative,
                 manifest.origins[origin].git_dir == manifest.common_dir,
             )?;
-            if manifest.files.len() >= limits.files
-                || metadata.len() > limits.bytes
+            if manifest.files.len() >= context.limits.files
+                || metadata.len() > context.limits.bytes
                 || total
                     .checked_add(metadata.len())
-                    .is_none_or(|sum| sum > limits.bytes)
+                    .is_none_or(|sum| sum > context.limits.bytes)
             {
                 return Err(fail("legacy inventory resource limit"));
             }
-            let (bytes, sha256) = if hash {
-                inventory_hash(&path, limits.bytes.saturating_sub(*total))?
+            let (bytes, sha256) = if context.hash {
+                inventory_hash(&path, context.limits.bytes.saturating_sub(*total))?
             } else {
                 (metadata.len(), String::new())
             };
@@ -833,6 +864,22 @@ fn walk(
                 record_count: 0,
                 outcome: kind.into(),
             });
+            #[cfg(test)]
+            if let Some(pipeline) = context.pipeline {
+                pipeline.reserved(
+                    manifest.files.len() - 1,
+                    manifest.files.last().unwrap(),
+                    *total,
+                    &path,
+                );
+            }
+            // Reservations are permanent for this attempt. Dispatch follows
+            // every global check and precedes the post-submission observation.
+            (context.sink)(manifest.files.len() - 1, manifest.files.last().unwrap())?;
+            #[cfg(test)]
+            if let Some(pipeline) = context.pipeline {
+                pipeline.admitted(manifest.files.len())?;
+            }
         }
     }
     Ok(())
@@ -867,18 +914,48 @@ fn read(path: &Path) -> Result<Vec<u8>, DevMapError> {
     }
     Ok(bytes)
 }
-fn inventory_hash(path: &Path, remaining: u64) -> Result<(u64, String), DevMapError> {
+// One checked-open implementation for normal and instrumented full hashes.
+fn inventory_checked_file(path: &Path) -> Result<fs::File, DevMapError> {
     safe::checked_canonical_directory(path.parent().ok_or_else(|| fail("file has no parent"))?)?;
     let file = safe::checked_file(path, false, false)?;
     if super::link_count(&file)? != 1 {
         return Err(fail("hard-linked legacy artifact refused"));
     }
-    inventory_hash_reader(file, remaining)
+    Ok(file)
+}
+fn inventory_hash(path: &Path, remaining: u64) -> Result<(u64, String), DevMapError> {
+    inventory_hash_reader(inventory_checked_file(path)?, remaining)
 }
 
-fn inventory_hash_reader(
+trait InventoryReadObserver {
+    fn returned(&mut self, _bytes: usize) {}
+    fn accepted(&mut self, _bytes: usize) {}
+    fn probe(&mut self, _bytes: usize) {}
+    fn eof(&mut self) {}
+}
+struct NoopInventoryReadObserver;
+impl InventoryReadObserver for NoopInventoryReadObserver {}
+
+fn inventory_hash_reader(reader: impl Read, remaining: u64) -> Result<(u64, String), DevMapError> {
+    inventory_hash_reader_observed(reader, remaining, NoopInventoryReadObserver)
+}
+
+#[cfg(test)]
+fn inventory_hash_observed(
+    path: &Path,
+    remaining: u64,
+    observer: impl InventoryReadObserver,
+    opened: impl FnOnce(),
+) -> Result<(u64, String), DevMapError> {
+    let file = inventory_checked_file(path)?;
+    opened(); // Successful checked payload open, not temporary identity handles.
+    inventory_hash_reader_observed(file, remaining, observer)
+}
+
+fn inventory_hash_reader_observed(
     mut reader: impl Read,
     remaining: u64,
+    mut observer: impl InventoryReadObserver,
 ) -> Result<(u64, String), DevMapError> {
     use sha2::{Digest, Sha256};
     let limit = remaining.min(MAX_BYTES);
@@ -896,10 +973,13 @@ fn inventory_hash_reader(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error.into()),
         };
+        observer.returned(count);
         if count == 0 {
+            observer.eof();
             return Ok((total, format!("{:x}", hash.finalize())));
         }
         if count as u64 > limit - total {
+            observer.probe(count);
             return Err(fail(if remaining >= MAX_BYTES {
                 "legacy file resource limit"
             } else {
@@ -907,6 +987,7 @@ fn inventory_hash_reader(
             }));
         }
         total += count as u64;
+        observer.accepted(count);
         hash.update(&buffer[..count]);
     }
 }

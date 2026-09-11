@@ -233,6 +233,7 @@ pub(crate) fn profile_frozen_read_stages(
             activation.manifest.evaluated_at.clone(),
             false,
             inventory_parallel::Limits::default(),
+            None,
         )
     })?;
     let mut expected_metadata = captured.clone();
