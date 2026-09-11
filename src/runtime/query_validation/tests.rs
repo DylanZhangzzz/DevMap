@@ -742,3 +742,405 @@ fn recreated_source_does_not_inherit_retained_identity() {
         "same pathname cannot inherit physical repository identity"
     );
 }
+
+fn boundary_frozen_files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(root: &Path, directory: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(root, &path, files);
+            } else {
+                files.insert(
+                    path.strip_prefix(root).unwrap().to_owned(),
+                    fs::read(path).unwrap(),
+                );
+            }
+        }
+    }
+    let mut files = BTreeMap::new();
+    visit(root, root, &mut files);
+    files
+}
+
+fn boundary_sql_bytes(common: &Path) -> Vec<Option<Vec<u8>>> {
+    ["devmap.db", "devmap.db-wal"]
+        .iter()
+        .map(|name| {
+            let path = common.join("devmap").join(name);
+            match fs::read(path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => panic!("read owned SQL data file: {error}"),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn active_sql_same_key_query_uses_two_real_source_captures() {
+    let Some(root) = isolated("active_sql_same_key_query_uses_two_real_source_captures") else {
+        return;
+    };
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    let (id, query) = fixture(&repo);
+    let workspace = SourceGitInspector::open(&repo)
+        .unwrap()
+        .workspace_allow_unborn()
+        .unwrap();
+    let event = crate::events::EventEnvelope::new(
+        crate::events::EVENT_SCHEMA_VERSION,
+        "boundary-event",
+        crate::events::EventType::CaptureGap,
+        1,
+        "2026-09-08T10:00:00Z",
+        crate::events::HostIdentity::new("test", "1").unwrap(),
+        crate::events::ActorIdentity::new("actor", None).unwrap(),
+        crate::events::SessionContext::new("boundary-session", None, "fixture", None, None, None)
+            .unwrap(),
+        serde_json::json!({"reason":"fixture"}),
+    )
+    .unwrap();
+    crate::journal::JournalStore::open(&workspace, "boundary-session")
+        .unwrap()
+        .append(event)
+        .unwrap();
+    let frozen = root.join("frozen");
+    crate::store::migration::ensure(&workspace, &frozen).unwrap();
+    {
+        let store = crate::store::RepositoryStore::open_existing(&workspace)
+            .unwrap()
+            .unwrap();
+        assert!(crate::store::is_active(store.connection()).unwrap());
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM journal_records", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            records, 1,
+            "fixture must exercise a nonempty active SQL store"
+        );
+    }
+    let legacy = id
+        .git_dir
+        .join("devmap/sessions/boundary-session/events.ndjson");
+    let legacy_before = fs::read(&legacy).unwrap();
+    let mut harness = QueryHarness::new(id, query);
+    let prior = harness.warm();
+    assert!(prior.store_generation.is_some());
+    assert_eq!(harness.state.sources.len(), 1);
+    let sql_before = boundary_sql_bytes(&harness.id.common);
+    assert!(sql_before[0].is_some());
+    let frozen_before = boundary_frozen_files(&frozen);
+    assert!(!frozen_before.is_empty());
+
+    // Exclude cold acquisition and warm establishment; the real complete query
+    // executes inside this counter interval, including both connection seals.
+    QueryConfiguration::test_reset_source_capture_count();
+    let (mut actual, starts) = harness.call();
+    let captures = QueryConfiguration::test_source_capture_count();
+
+    assert_eq!(
+        starts, 0,
+        "stable existing warm fixture must launch no Git children"
+    );
+    assert_eq!(boundary_sql_bytes(&harness.id.common), sql_before);
+    assert_eq!(fs::read(&legacy).unwrap(), legacy_before);
+    assert_eq!(boundary_frozen_files(&frozen), frozen_before);
+    // generated_at is the per-query evaluation clock. Normalize ONLY that
+    // documented volatile field; compare every other serialized snapshot field.
+    let parse = |stamp: &str| {
+        OffsetDateTime::parse(stamp, &time::format_description::well_known::Rfc3339).unwrap()
+    };
+    assert!(parse(&actual.model.generated_at) >= parse(&prior.model.generated_at));
+    actual.model.generated_at = prior.model.generated_at.clone();
+    assert_eq!(
+        serde_json::to_value(&actual).unwrap(),
+        serde_json::to_value(&prior).unwrap()
+    );
+    assert_eq!(
+        captures, 2,
+        "same-key active SQL query must perform two whole SourceResolutionWitness captures, not four nested rechecks"
+    );
+}
+
+// Tiny active-SQL setup shared by closing-boundary and application-failure tests.
+// The existing initial capture-count test is deliberately unchanged.
+fn boundary_active_fixture(root: &Path) -> QueryHarness {
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    let (id, query) = fixture(&repo);
+    let workspace = SourceGitInspector::open(&repo)
+        .unwrap()
+        .workspace_allow_unborn()
+        .unwrap();
+    let event = crate::events::EventEnvelope::new(
+        crate::events::EVENT_SCHEMA_VERSION,
+        "boundary-event",
+        crate::events::EventType::CaptureGap,
+        1,
+        "2026-09-08T10:00:00Z",
+        crate::events::HostIdentity::new("test", "1").unwrap(),
+        crate::events::ActorIdentity::new("actor", None).unwrap(),
+        crate::events::SessionContext::new("boundary-session", None, "fixture", None, None, None)
+            .unwrap(),
+        serde_json::json!({"reason":"fixture"}),
+    )
+    .unwrap();
+    crate::journal::JournalStore::open(&workspace, "boundary-session")
+        .unwrap()
+        .append(event)
+        .unwrap();
+    crate::store::migration::ensure(&workspace, &root.join("frozen")).unwrap();
+    {
+        let store = crate::store::RepositoryStore::open_existing(&workspace)
+            .unwrap()
+            .unwrap();
+        assert!(crate::store::is_active(store.connection()).unwrap());
+    }
+    QueryHarness::new(id, query)
+}
+
+fn boundary_call_result(harness: &mut QueryHarness) -> Result<ApplicationSnapshot, DevMapError> {
+    let bytes = serde_json::to_vec(&crate::runtime::protocol::ApplicationRequest::Query {
+        query: harness.query.clone(),
+    })
+    .unwrap();
+    let result = with_query_origin(&bytes, Some(&harness.origin), || {
+        crate::runtime::executor::execute_with_queries(
+            &mut harness.app,
+            &mut harness.state,
+            &harness.id,
+            &bytes,
+        )
+    })?;
+    match result {
+        crate::runtime::protocol::ApplicationResult::Snapshot { snapshot } => Ok(*snapshot),
+        _ => panic!("query must produce a snapshot or error"),
+    }
+}
+
+fn assert_boundary_model_matches(actual: &ApplicationSnapshot, expected: &ApplicationSnapshot) {
+    let mut model = actual.model.clone();
+    model.generated_at = expected.model.generated_at.clone();
+    assert_eq!(
+        model.workspace_facts.len(),
+        expected.model.workspace_facts.len()
+    );
+    for (facts, reference) in model
+        .workspace_facts
+        .iter_mut()
+        .zip(&expected.model.workspace_facts)
+    {
+        // A separate fresh application has its own collection clock; preserve
+        // timestamp presence and compare every other provenance field exactly.
+        assert_eq!(
+            facts.git_observed_at.is_some(),
+            reference.git_observed_at.is_some()
+        );
+        facts.git_observed_at = reference.git_observed_at.clone();
+    }
+    assert_eq!(model, expected.model);
+    assert_eq!(actual.store_generation, expected.store_generation);
+}
+
+fn closing_boundary_drift(name: &str, ref_drift: bool) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let Some(root) = isolated(name) else {
+        return;
+    };
+    let mut harness = boundary_active_fixture(&root);
+    if ref_drift {
+        git(
+            &harness.id.source,
+            &[
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "new head",
+            ],
+        );
+    }
+    git(
+        &harness.id.source,
+        &[
+            "config",
+            "devmap.developmentTarget",
+            if ref_drift { "alternate" } else { "dev" },
+        ],
+    );
+    let prior = harness.warm();
+    let mutation_path = harness.id.common.join(if ref_drift {
+        "refs/heads/alternate"
+    } else {
+        "config"
+    });
+    assert!(
+        fs::canonicalize(&mutation_path)
+            .unwrap()
+            .starts_with(fs::canonicalize(&root).unwrap())
+    );
+    let before = fs::read(&mutation_path).unwrap();
+    let replacement = if ref_drift {
+        fs::read(harness.id.common.join("refs/heads/main")).unwrap()
+    } else {
+        let mut bytes = before.clone();
+        bytes.extend_from_slice(b"\n[devmap]\n developmentTarget = alternate\n");
+        bytes
+    };
+    assert_ne!(
+        replacement, before,
+        "persistent drift must actually change evidence"
+    );
+    let sql_before = boundary_sql_bytes(&harness.id.common);
+    let frozen_before = boundary_frozen_files(&root.join("frozen"));
+    let legacy = harness
+        .id
+        .git_dir
+        .join("devmap/sessions/boundary-session/events.ndjson");
+    let legacy_before = fs::read(&legacy).unwrap();
+    let entered = Arc::new(AtomicUsize::new(0));
+    let marker = entered.clone();
+    let mutated = mutation_path.clone();
+    let expected_replacement = replacement.clone();
+    harness.state.test_after_cached_projection = Some(Box::new(move || {
+        marker.fetch_add(1, Ordering::SeqCst);
+        fs::write(&mutated, &replacement).unwrap();
+    }));
+    let result = boundary_call_result(&mut harness);
+    harness.state.test_after_cached_projection = None;
+    assert_eq!(
+        entered.load(Ordering::SeqCst),
+        1,
+        "real post-projection hook must run exactly once"
+    );
+    assert_eq!(fs::read(&mutation_path).unwrap(), expected_replacement);
+    harness.origin.validate().unwrap(); // Same Hello seal remains physically valid.
+    assert_eq!(boundary_sql_bytes(&harness.id.common), sql_before);
+    assert_eq!(boundary_frozen_files(&root.join("frozen")), frozen_before);
+    assert_eq!(fs::read(&legacy).unwrap(), legacy_before);
+    assert_eq!(
+        result
+            .expect_err("closing origin drift must not publish a query snapshot")
+            .to_string(),
+        "repository store: origin enumeration proof changed after observation"
+    );
+
+    // After the failed candidate, the same connection must recover with fresh
+    // facts. Old context cannot survive merely because the normal TTL is warm.
+    let expected = harness.direct();
+    if ref_drift {
+        assert_ne!(prior.model.topology, expected.model.topology);
+    } else {
+        assert_ne!(
+            prior.model.development_target,
+            expected.model.development_target
+        );
+    }
+    let (recovered, starts) = harness.call();
+    assert!(
+        starts > 0,
+        "closing failure must invalidate provisional cached context"
+    );
+    assert_eq!(
+        recovered.model.development_target.as_ref().unwrap().name,
+        "alternate"
+    );
+    assert_boundary_model_matches(&recovered, &expected);
+    harness.origin.validate().unwrap();
+    assert_eq!(boundary_sql_bytes(&harness.id.common), sql_before);
+    assert_eq!(boundary_frozen_files(&root.join("frozen")), frozen_before);
+    assert_eq!(fs::read(&legacy).unwrap(), legacy_before);
+    let (hot, starts) = harness.call();
+    assert_eq!(starts, 0);
+    assert_boundary_model_matches(&hot, &recovered);
+}
+
+#[test]
+fn closing_boundary_config_drift_is_rejected_then_fresh_query_recovers() {
+    closing_boundary_drift(
+        "closing_boundary_config_drift_is_rejected_then_fresh_query_recovers",
+        false,
+    );
+}
+
+#[test]
+fn closing_boundary_ref_drift_is_rejected_then_fresh_query_recovers() {
+    closing_boundary_drift(
+        "closing_boundary_ref_drift_is_rejected_then_fresh_query_recovers",
+        true,
+    );
+}
+
+#[test]
+fn same_key_different_authenticated_baselines_use_original_reacquisition() {
+    let Some(root) =
+        isolated("same_key_different_authenticated_baselines_use_original_reacquisition")
+    else {
+        return;
+    };
+    let mut retained = boundary_active_fixture(&root);
+    git(
+        &retained.id.source,
+        &["config", "devmap.developmentTarget", "dev"],
+    );
+    let old = retained.warm();
+    git(
+        &retained.id.source,
+        &["config", "devmap.developmentTarget", "alternate"],
+    );
+    let key = (
+        retained.id.source.clone(),
+        retained.id.git_dir.clone(),
+        retained.id.common.clone(),
+    );
+    let mut donor = QueryHarness::new(
+        crate::runtime::identity(&retained.id.source).unwrap(),
+        retained.query.clone(),
+    );
+    let expected = donor.warm();
+    assert_ne!(
+        old.model.development_target,
+        expected.model.development_target
+    );
+    // Move a genuinely authenticated source proof from independent harness B.
+    // Harness A retains its actual old application/origin proof; no fake epoch.
+    let new_proof = donor
+        .state
+        .sources
+        .remove(&key)
+        .expect("same canonical source key");
+    assert!(retained.state.sources.insert(key, new_proof).is_some());
+    let sql_before = boundary_sql_bytes(&retained.id.common);
+    let frozen_before = boundary_frozen_files(&root.join("frozen"));
+    QueryConfiguration::test_reset_source_capture_count();
+    let (actual, starts) = retained.call();
+    let captures = QueryConfiguration::test_source_capture_count();
+    assert!(
+        captures > 2,
+        "different retained baselines cannot use the two-capture grouped path"
+    );
+    assert!(
+        starts > 0,
+        "old origin proof requires actual original reacquisition"
+    );
+    assert_eq!(
+        actual.model.development_target.as_ref().unwrap().name,
+        "alternate"
+    );
+    assert_boundary_model_matches(&actual, &expected);
+    assert_eq!(boundary_sql_bytes(&retained.id.common), sql_before);
+    assert_eq!(boundary_frozen_files(&root.join("frozen")), frozen_before);
+    let (hot, starts) = retained.call();
+    assert_eq!(starts, 0);
+    assert_boundary_model_matches(&hot, &actual);
+}
+
+mod boundary_failure_tests;

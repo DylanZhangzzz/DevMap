@@ -185,8 +185,110 @@ pub struct RepositoryApplication {
     targets: Vec<String>,
     ancestry: BTreeMap<(String, String), Option<dock::HistoryWarning>>,
     origin_fingerprint: Option<String>,
+    #[cfg(test)]
+    pub(crate) test_after_storage: Option<Box<dyn FnMut() -> Result<(), DevMapError> + Send>>,
+}
+pub(crate) enum QueryBoundaryAttempt {
+    Ineligible,
+    SourceStale,
+    Ready(Box<ApplicationSnapshot>),
+}
+struct QueryAttemptGuard<'a> {
+    application: &'a mut RepositoryApplication,
+    committed: bool,
+}
+impl Drop for QueryAttemptGuard<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.application.discard_query_caches();
+        }
+    }
 }
 impl RepositoryApplication {
+    fn discard_query_caches(&mut self) {
+        self.reconcile();
+        self.git = None;
+        self.git_at = None;
+        self.collected = None;
+        self.origin_fingerprint = None;
+        self.targets.clear();
+    }
+    fn query_anchor_unchanged(&self, workspace: &SourceWorkspace) -> Result<bool, DevMapError> {
+        Ok(self.workspace.root == workspace.root
+            && self.workspace.git_dir == workspace.git_dir
+            && self.workspace.git_common_dir == workspace.git_common_dir
+            && self.common_dir == workspace.git_common_dir
+            && crate::fs_security::checked_directory_identity(&self.common_dir)?
+                == self.common_identity
+            && self.anchor.application_location(&self.common_dir)?.as_ref() == Some(&self.anchor))
+    }
+    pub(crate) fn try_project_query_boundary(
+        &mut self,
+        source: &crate::runtime::query_validation::VerifiedQuerySource,
+        query: &ClientQuery,
+        now: OffsetDateTime,
+        after_projection: impl FnOnce(),
+    ) -> Result<QueryBoundaryAttempt, DevMapError> {
+        // This seal is authorization, not the eligibility comparison below.
+        let workspace = source.workspace()?.clone();
+        if workspace.root != self.workspace.root
+            || workspace.git_dir != self.workspace.git_dir
+            || workspace.git_common_dir != self.workspace.git_common_dir
+        {
+            return Ok(QueryBoundaryAttempt::Ineligible);
+        }
+        let Some(epoch) = self
+            .storage
+            .take_query_epoch(&workspace, source.configuration())
+        else {
+            return Ok(QueryBoundaryAttempt::Ineligible);
+        };
+        let mut attempt = QueryAttemptGuard {
+            application: self,
+            committed: false,
+        };
+        let (source_valid, origin_valid) = epoch.boundary(&workspace, source.configuration())?;
+        if !source_valid {
+            return Ok(QueryBoundaryAttempt::SourceStale);
+        }
+        if !origin_valid || !attempt.application.query_anchor_unchanged(&workspace)? {
+            return Ok(QueryBoundaryAttempt::Ineligible);
+        }
+        // Original read-only body, including all SQL/hash work, Git refreshes,
+        // relationship/history misses, timestamps and source/anchor checks.
+        let result = attempt.application.project_inner_in_epoch(
+            &workspace,
+            query,
+            now,
+            Some(source),
+            Some(&epoch),
+        )?;
+        after_projection();
+        // Closing origin drift retains precedence over a source-only stale
+        // result. No closing capture runs after a failed or panicking body.
+        let (source_valid, origin_valid) = epoch.boundary(&workspace, source.configuration())?;
+        if !origin_valid {
+            return Err(DevMapError::Store(
+                "origin enumeration proof changed after observation".into(),
+            ));
+        }
+        if !attempt.application.query_anchor_unchanged(&workspace)? {
+            return Err(DevMapError::Store(
+                "application anchor changed during query".into(),
+            ));
+        }
+        source.workspace()?;
+        if !source_valid {
+            return Ok(QueryBoundaryAttempt::SourceStale);
+        }
+        attempt
+            .application
+            .storage
+            .restore_query_epoch(&workspace, epoch)?;
+        let result = Box::new(result);
+        attempt.committed = true;
+        Ok(QueryBoundaryAttempt::Ready(result))
+    }
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
         Ok(Self {
             workspace: workspace.clone(),
@@ -205,7 +307,20 @@ impl RepositoryApplication {
             targets: vec![],
             ancestry: BTreeMap::new(),
             origin_fingerprint: None,
+            #[cfg(test)]
+            test_after_storage: None,
         })
+    }
+    #[cfg(test)]
+    pub(crate) fn test_query_caches_discarded(&self) -> bool {
+        self.storage.test_cache_discarded()
+            && self.git.is_none()
+            && self.git_at.is_none()
+            && self.collected.is_none()
+            && self.ancestry.is_empty()
+            && self.targets.is_empty()
+            && self.origin_fingerprint.is_none()
+            && self.dirty
     }
     /// Explicit freshness bound; default two seconds, never above one minute.
     pub fn with_git_max_age(mut self, age: Duration) -> Result<Self, DevMapError> {
@@ -276,6 +391,16 @@ impl RepositoryApplication {
         now: OffsetDateTime,
         verified: Option<&crate::runtime::query_validation::VerifiedQuerySource>,
     ) -> Result<ApplicationSnapshot, DevMapError> {
+        self.project_inner_in_epoch(workspace, query, now, verified, None)
+    }
+    fn project_inner_in_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
+        query: &ClientQuery,
+        now: OffsetDateTime,
+        verified: Option<&crate::runtime::query_validation::VerifiedQuerySource>,
+        epoch: Option<&crate::store::snapshot::QueryReadEpoch>,
+    ) -> Result<ApplicationSnapshot, DevMapError> {
         query.validate()?;
         let actual = match verified {
             Some(source) => source.workspace()?.clone(),
@@ -322,6 +447,11 @@ impl RepositoryApplication {
                 "application common identity changed during relocation",
             ));
         }
+        if epoch.is_some() && replacement.is_some() {
+            return Err(DevMapError::Store(
+                "application anchor changed during query".into(),
+            ));
+        }
         if let Some((workspace, anchor)) = replacement {
             self.workspace = workspace;
             self.anchor = anchor;
@@ -331,7 +461,14 @@ impl RepositoryApplication {
             self.git = None;
             self.collected = None;
         }
-        let (generation, inputs) = self.storage.read(&self.workspace)?;
+        let (generation, inputs) = match epoch {
+            Some(epoch) => self.storage.read_in_query_epoch(&self.workspace, epoch)?,
+            None => self.storage.read(&self.workspace)?,
+        };
+        #[cfg(test)]
+        if let Some(mut hook) = self.test_after_storage.take() {
+            hook()?;
+        }
         let origin_fingerprint = self.storage.origin_fingerprint().map(str::to_owned);
         let plans = inputs
             .routes

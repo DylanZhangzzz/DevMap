@@ -97,6 +97,8 @@ pub(super) struct QueryValidation {
     test_inspections: Vec<usize>,
     #[cfg(test)]
     test_cold_hook: Option<Box<dyn FnMut(ColdStage) + Send>>,
+    #[cfg(test)]
+    test_after_cached_projection: Option<Box<dyn FnMut() + Send>>,
 }
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -123,6 +125,9 @@ impl VerifiedQuerySource {
             return Err(DevMapError::Store("authenticated source changed".into()));
         }
         Ok(&self.workspace)
+    }
+    pub(crate) fn configuration(&self) -> &QueryConfiguration {
+        &self.configuration
     }
     pub(crate) fn configured(&self) -> Option<&str> {
         self.configuration.value()
@@ -164,7 +169,21 @@ impl QueryValidation {
             identity.common.clone(),
         );
         if let Some(proof) = self.sources.get(&key) {
-            if proof.valid()? {
+            let mut source_stale = false;
+            if let Some(application) = app.as_mut() {
+                let attempt = application.try_project_query_boundary(proof, query, now, || {
+                    #[cfg(test)]
+                    if let Some(hook) = self.test_after_cached_projection.as_mut() {
+                        hook();
+                    }
+                })?;
+                match attempt {
+                    crate::application::QueryBoundaryAttempt::Ready(result) => return Ok(*result),
+                    crate::application::QueryBoundaryAttempt::SourceStale => source_stale = true,
+                    crate::application::QueryBoundaryAttempt::Ineligible => {}
+                }
+            }
+            if !source_stale && proof.valid()? {
                 if app.is_none() {
                     *app = Some(RepositoryApplication::open(proof.workspace()?)?);
                 }
@@ -172,6 +191,10 @@ impl QueryValidation {
                     .as_mut()
                     .unwrap()
                     .project_verified_query(proof, query, now)?;
+                #[cfg(test)]
+                if let Some(hook) = self.test_after_cached_projection.as_mut() {
+                    hook();
+                }
                 if proof.valid()? {
                     return Ok(result);
                 }

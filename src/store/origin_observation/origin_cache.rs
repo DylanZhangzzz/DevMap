@@ -33,6 +33,61 @@ fn optional<T>(result: Result<T, DevMapError>) -> Result<Option<T>, DevMapError>
 }
 
 impl ReadOriginCache {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entry.is_none()
+    }
+    pub(crate) fn matches_query_configuration(
+        &self,
+        w: &SourceWorkspace,
+        configuration: &QueryConfiguration,
+    ) -> bool {
+        self.entry.as_ref().is_some_and(|proof| {
+            proof.source == w.root && proof.config.same_baseline(configuration)
+        })
+    }
+    pub(crate) fn query_boundary(
+        &self,
+        w: &SourceWorkspace,
+        configuration: &QueryConfiguration,
+    ) -> Result<(bool, bool), DevMapError> {
+        let proof = self
+            .entry
+            .as_ref()
+            .ok_or_else(|| fail("query epoch origin proof missing"))?;
+        if proof.source != w.root || !proof.config.same_baseline(configuration) {
+            return Err(fail("query epoch origin proof mismatch"));
+        }
+        let source_valid = std::cell::Cell::new(false);
+        let origin_valid = validate_proof_checks(
+            || {
+                let valid = configuration.recheck_pair(&proof.config)?;
+                source_valid.set(valid);
+                Ok(valid)
+            },
+            || {
+                Ok(optional(parallel::candidate(w, &parallel::NoHooks))?
+                    .is_some_and(|e| e == proof.evidence))
+            },
+            Ok(()),
+        )?;
+        Ok((source_valid.get(), origin_valid))
+    }
+    pub(crate) fn observe_in_query_epoch(
+        &self,
+        w: &SourceWorkspace,
+        c: &Connection,
+    ) -> Result<ActiveOriginReport, DevMapError> {
+        let proof = self
+            .entry
+            .as_ref()
+            .ok_or_else(|| fail("query epoch origin proof missing"))?;
+        if proof.source != w.root {
+            return Err(fail("query epoch origin proof mismatch"));
+        }
+        // An invocation-owned epoch encloses the whole projection with full
+        // boundary checks. The complete observer and all legacy hashes remain.
+        observe_active_origins_using(w, c, false, || Ok(proof.origins.clone()))
+    }
     pub(crate) fn clear(&mut self) {
         self.entry = None;
     }

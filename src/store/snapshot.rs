@@ -26,6 +26,7 @@ type PresenceRegistration = (
 
 pub(crate) struct InputReader {
     origins: super::migration::ReadOriginCache,
+    query_owner: std::sync::Arc<()>,
     store: Option<RepositoryStore>,
     identity: Option<crate::fs_security::FileIdentity>,
     cached: Option<(u64, DockStorageInputs)>,
@@ -34,10 +35,35 @@ pub(crate) struct InputReader {
     inputs_observed_at: Option<time::OffsetDateTime>,
     origin_fingerprint: Option<String>,
 }
+// Non-cloneable and non-wire. The cache itself is moved into this invocation,
+// and can be restored only to its original, still-current reader generation.
+pub(crate) struct QueryReadEpoch {
+    origins: super::migration::ReadOriginCache,
+    owner: std::sync::Arc<()>,
+    workspace: SourceWorkspace,
+}
+impl QueryReadEpoch {
+    fn matches(&self, workspace: &SourceWorkspace) -> bool {
+        self.workspace.root == workspace.root
+            && self.workspace.git_dir == workspace.git_dir
+            && self.workspace.git_common_dir == workspace.git_common_dir
+    }
+    pub(crate) fn boundary(
+        &self,
+        workspace: &SourceWorkspace,
+        configuration: &crate::git_relationship::QueryConfiguration,
+    ) -> Result<(bool, bool), DevMapError> {
+        if !self.matches(workspace) {
+            return Err(DevMapError::Store("query epoch source changed".into()));
+        }
+        self.origins.query_boundary(workspace, configuration)
+    }
+}
 impl InputReader {
     pub(crate) fn new() -> Self {
         Self {
             origins: super::migration::ReadOriginCache::default(),
+            query_owner: std::sync::Arc::new(()),
             store: None,
             identity: None,
             cached: None,
@@ -46,6 +72,67 @@ impl InputReader {
             inputs_observed_at: None,
             origin_fingerprint: None,
         }
+    }
+    pub(crate) fn take_query_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
+        configuration: &crate::git_relationship::QueryConfiguration,
+    ) -> Option<QueryReadEpoch> {
+        // A retained SQL input snapshot exists only after an active-store read.
+        // The body still performs all original live backend/pinned SQL checks.
+        if self.store.is_none()
+            || self.cached.is_none()
+            || !self
+                .origins
+                .matches_query_configuration(workspace, configuration)
+        {
+            return None;
+        }
+        Some(QueryReadEpoch {
+            origins: std::mem::take(&mut self.origins),
+            owner: self.query_owner.clone(),
+            workspace: workspace.clone(),
+        })
+    }
+    fn validate_query_epoch(
+        &self,
+        workspace: &SourceWorkspace,
+        epoch: &QueryReadEpoch,
+    ) -> Result<(), DevMapError> {
+        if !std::sync::Arc::ptr_eq(&self.query_owner, &epoch.owner)
+            || !epoch.matches(workspace)
+            || !self.origins.is_empty()
+        {
+            return Err(DevMapError::Store(
+                "query epoch owner/source changed".into(),
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn restore_query_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
+        epoch: QueryReadEpoch,
+    ) -> Result<(), DevMapError> {
+        self.validate_query_epoch(workspace, &epoch)?;
+        self.origins = epoch.origins;
+        Ok(())
+    }
+    pub(crate) fn read_in_query_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
+        epoch: &QueryReadEpoch,
+    ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
+        self.validate_query_epoch(workspace, epoch)?;
+        let result = self.read_checked_in_epoch(workspace, || Ok(()), Some(epoch));
+        if result.is_err() {
+            self.origins.clear();
+            return result;
+        }
+        // A legacy/backend retry can invalidate the reader internally. Even a
+        // successful later read cannot restore the earlier leased generation.
+        self.validate_query_epoch(workspace, epoch)?;
+        result
     }
     pub(crate) fn read(
         &mut self,
@@ -60,10 +147,21 @@ impl InputReader {
     fn read_checked(
         &mut self,
         workspace: &SourceWorkspace,
+        after_legacy: impl FnMut() -> Result<(), DevMapError>,
+    ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
+        self.read_checked_in_epoch(workspace, after_legacy, None)
+    }
+    fn read_checked_in_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
         mut after_legacy: impl FnMut() -> Result<(), DevMapError>,
+        epoch: Option<&QueryReadEpoch>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
         for _ in 0..2 {
-            let result = self.read_after_generation(workspace, || Ok(()))?;
+            if let Some(epoch) = epoch {
+                self.validate_query_epoch(workspace, epoch)?;
+            }
+            let result = self.read_after_generation_in_epoch(workspace, || Ok(()), epoch)?;
             if result.0.is_some() {
                 return Ok(result);
             }
@@ -88,10 +186,19 @@ impl InputReader {
             "backend changed during legacy read; retry required".into(),
         ))
     }
+    #[cfg(test)]
     fn read_after_generation(
         &mut self,
         workspace: &SourceWorkspace,
         after: impl FnOnce() -> Result<(), DevMapError>,
+    ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
+        self.read_after_generation_in_epoch(workspace, after, None)
+    }
+    fn read_after_generation_in_epoch(
+        &mut self,
+        workspace: &SourceWorkspace,
+        after: impl FnOnce() -> Result<(), DevMapError>,
+        epoch: Option<&QueryReadEpoch>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
         if self.store.is_none() {
             self.store = RepositoryStore::open_existing(workspace)?;
@@ -149,7 +256,10 @@ impl InputReader {
             tx.commit()?;
             return Ok((None, legacy(workspace)?));
         }
-        let origins = self.origins.observe(workspace, &tx)?;
+        let origins = match epoch {
+            Some(epoch) => epoch.origins.observe_in_query_epoch(workspace, &tx)?,
+            None => self.origins.observe(workspace, &tx)?,
+        };
         let inputs = match &self.cached {
             Some((cached_generation, inputs)) if *cached_generation == generation => inputs.clone(),
             _ => {
@@ -184,6 +294,8 @@ impl InputReader {
         self.inputs_observed_at
     }
     pub(crate) fn invalidate(&mut self) {
+        // Revokes any outstanding invocation lease without a wrapping counter.
+        self.query_owner = std::sync::Arc::new(());
         self.origins.clear();
         self.cached = None;
         self.store = None;
@@ -192,6 +304,17 @@ impl InputReader {
         self.data_version = None;
         self.inputs_observed_at = None;
         self.origin_fingerprint = None;
+    }
+    #[cfg(test)]
+    pub(crate) fn test_cache_discarded(&self) -> bool {
+        !self.origins.has_entry()
+            && self.store.is_none()
+            && self.identity.is_none()
+            && self.cached.is_none()
+            && self.summaries.is_empty()
+            && self.data_version.is_none()
+            && self.inputs_observed_at.is_none()
+            && self.origin_fingerprint.is_none()
     }
 }
 

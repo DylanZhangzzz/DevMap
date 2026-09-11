@@ -2,6 +2,13 @@
 //! Shares low-level bounded witnesses, not relationship/ref caching behavior.
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    // All source/configuration rechecks currently run on the query caller;
+    // origin-evidence workers do not execute SourceResolutionWitness::capture.
+    static SOURCE_CAPTURE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) struct QueryConfiguration {
     evidence: Evidence,
     value: Option<String>,
@@ -17,6 +24,8 @@ struct SourceResolutionWitness {
 }
 impl SourceResolutionWitness {
     fn capture(common: &Path, admin: &Path) -> Result<Self, DevMapError> {
+        #[cfg(test)]
+        SOURCE_CAPTURE_COUNT.with(|count| count.set(count.get() + 1));
         let mut evidence = blank(Vec::new());
         directory(common, &mut evidence)?;
         directory(admin, &mut evidence)?;
@@ -78,8 +87,11 @@ impl SourceResolutionWitness {
             evidence,
         })
     }
-    fn recheck(&self) -> Result<bool, DevMapError> {
-        Ok(Self::capture(&self.common, &self.admin)?.evidence == self.evidence)
+    fn recheck_against(&self, peer: Option<&Self>) -> Result<bool, DevMapError> {
+        let current = Self::capture(&self.common, &self.admin)?;
+        let own_matches = current.evidence == self.evidence;
+        let peer_matches = peer.is_none_or(|other| current.evidence == other.evidence);
+        Ok(own_matches && peer_matches)
     }
 }
 fn environment() -> Result<Vec<(OsString, OsString)>, DevMapError> {
@@ -122,6 +134,15 @@ fn blank(environment: Vec<(OsString, OsString)>) -> Evidence {
     }
 }
 impl QueryConfiguration {
+    #[cfg(test)]
+    pub(crate) fn test_reset_source_capture_count() {
+        SOURCE_CAPTURE_COUNT.with(|count| count.set(0));
+    }
+    #[cfg(test)]
+    pub(crate) fn test_source_capture_count() -> usize {
+        SOURCE_CAPTURE_COUNT.with(std::cell::Cell::get)
+    }
+
     pub(crate) fn acquire(workspace: &SourceWorkspace) -> Result<Option<Self>, DevMapError> {
         optional(Self::capture(workspace))
     }
@@ -218,6 +239,22 @@ impl QueryConfiguration {
     pub(crate) fn value(&self) -> Option<&str> {
         self.value.as_deref()
     }
+    // Eligibility only. Callers separately bind exact workspace keys/seals.
+    pub(crate) fn same_baseline(&self, other: &Self) -> bool {
+        self.value == other.value
+            && self.evidence == other.evidence
+            && self.source.common == other.source.common
+            && self.source.admin == other.source.admin
+            && self.source.evidence == other.source.evidence
+    }
+    // Each fresh stage is compared to both retained baselines, never to a
+    // previously returned successful boolean. Source bytes die before config IO.
+    pub(crate) fn recheck_pair(&self, other: &Self) -> Result<bool, DevMapError> {
+        if !self.same_baseline(other) {
+            return Ok(false);
+        }
+        Ok(optional(self.recheck_observed_against(Some(other), |_| {}))?.unwrap_or(false))
+    }
     /// No Git commands: changed or inaccessible witnesses force the original path.
     pub(crate) fn recheck(&self) -> Result<bool, DevMapError> {
         Ok(optional(self.recheck_inner())?.unwrap_or(false))
@@ -249,19 +286,35 @@ impl QueryConfiguration {
     // must reject the diagnostic unless the entire proof recheck returns true.
     fn recheck_inner_observed(
         &self,
+        completed: impl FnMut(&'static str),
+    ) -> Result<bool, DevMapError> {
+        self.recheck_observed_against(None, completed)
+    }
+    fn recheck_observed_against(
+        &self,
+        peer: Option<&Self>,
         mut completed: impl FnMut(&'static str),
     ) -> Result<bool, DevMapError> {
-        if !self.source.recheck()? {
+        if !self
+            .source
+            .recheck_against(peer.map(|other| &other.source))?
+        {
             return Ok(false);
         }
         completed("origin_proof_configuration_component_source_resolution");
         let current = environment()?;
-        if current != self.evidence.environment {
+        let own_matches = current == self.evidence.environment;
+        let peer_matches = peer.is_none_or(|other| current == other.evidence.environment);
+        if !own_matches || !peer_matches {
             return Ok(false);
         }
         completed("origin_proof_configuration_component_environment");
         for (path, identity) in &self.evidence.directories {
-            if checked_directory_identity(path)? != *identity {
+            let current = checked_directory_identity(path)?;
+            let own_matches = current == *identity;
+            let peer_matches =
+                peer.is_none_or(|other| other.evidence.directories.get(path) == Some(&current));
+            if !own_matches || !peer_matches {
                 return Ok(false);
             }
         }
@@ -270,11 +323,16 @@ impl QueryConfiguration {
         for path in self.evidence.files.keys() {
             witness(path, &mut after)?;
         }
-        let valid = after.files == self.evidence.files
-            && after
-                .directories
-                .iter()
-                .all(|(p, id)| self.evidence.directories.get(p) == Some(id));
+        let matches = |baseline: &Evidence| {
+            after.files == baseline.files
+                && after
+                    .directories
+                    .iter()
+                    .all(|(p, id)| baseline.directories.get(p) == Some(id))
+        };
+        let own_matches = matches(&self.evidence);
+        let peer_matches = peer.is_none_or(|other| matches(&other.evidence));
+        let valid = own_matches && peer_matches;
         if valid {
             completed("origin_proof_configuration_component_config_witnesses");
         }

@@ -409,3 +409,185 @@ fn reader_switches_main_linked_main_without_sharing_source_proofs() {
         assert_inputs_equal(&inputs, &hot_inputs);
     }
 }
+
+fn epoch_sql_bytes(workspace: &SourceWorkspace) -> Vec<Option<Vec<u8>>> {
+    ["devmap.db", "devmap.db-wal"]
+        .iter()
+        .map(
+            |name| match fs::read(workspace.git_common_dir.join("devmap").join(name)) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => panic!("read owned SQL bytes: {error}"),
+            },
+        )
+        .collect()
+}
+
+fn assert_epoch_round_trip(
+    reader: &mut InputReader,
+    workspace: &SourceWorkspace,
+    configuration: &crate::git_relationship::QueryConfiguration,
+    epoch: QueryReadEpoch,
+    expected: &(Option<u64>, DockStorageInputs),
+) {
+    let git_count = crate::git_process::test_spawn_count();
+    assert_eq!(
+        epoch.boundary(workspace, configuration).unwrap(),
+        (true, true)
+    );
+    let actual = reader.read_in_query_epoch(workspace, &epoch).unwrap();
+    assert_eq!(actual.0, expected.0);
+    assert_inputs_equal(&actual.1, &expected.1);
+    assert_eq!(
+        epoch.boundary(workspace, configuration).unwrap(),
+        (true, true)
+    );
+    reader.restore_query_epoch(workspace, epoch).unwrap();
+    let hot = reader.read(workspace).unwrap();
+    assert_eq!(hot.0, expected.0);
+    assert_inputs_equal(&hot.1, &expected.1);
+    assert_eq!(crate::git_process::test_spawn_count(), git_count);
+}
+
+#[test]
+fn query_epoch_round_trip_preserves_inputs_and_checks_legacy_bytes() {
+    if !isolated("query_epoch_round_trip_preserves_inputs_and_checks_legacy_bytes") {
+        return;
+    }
+    let (_owned, workspace, legacy) = fixture(false);
+    let mut reader = InputReader::new();
+    let expected = reader.read(&workspace).unwrap();
+    assert!(expected.0.is_some());
+    let configuration = crate::git_relationship::QueryConfiguration::acquire(&workspace)
+        .unwrap()
+        .unwrap();
+    let sql = epoch_sql_bytes(&workspace);
+    let original = fs::read(&legacy).unwrap();
+    let epoch = reader.take_query_epoch(&workspace, &configuration).unwrap();
+    assert_epoch_round_trip(&mut reader, &workspace, &configuration, epoch, &expected);
+    assert_eq!(epoch_sql_bytes(&workspace), sql);
+    assert_eq!(fs::read(&legacy).unwrap(), original);
+
+    let epoch = reader.take_query_epoch(&workspace, &configuration).unwrap();
+    assert_eq!(
+        epoch.boundary(&workspace, &configuration).unwrap(),
+        (true, true)
+    );
+    // Actual complete-byte validation must still run inside the leased read.
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&legacy)
+        .unwrap()
+        .write_all(b" ")
+        .unwrap();
+    assert!(reader.read_in_query_epoch(&workspace, &epoch).is_err());
+    fs::write(&legacy, &original).unwrap();
+    reader.invalidate();
+    let recovered = reader.read(&workspace).unwrap();
+    assert_eq!(recovered.0, expected.0);
+    assert_inputs_equal(&recovered.1, &expected.1);
+    assert_eq!(epoch_sql_bytes(&workspace), sql);
+    assert_eq!(fs::read(legacy).unwrap(), original);
+}
+
+#[test]
+fn query_epoch_rejects_foreign_reader_and_revoked_owner() {
+    if !isolated("query_epoch_rejects_foreign_reader_and_revoked_owner") {
+        return;
+    }
+    let (_owned, workspace, legacy) = fixture(false);
+    for revoke_same_reader in [false, true] {
+        let mut original_reader = InputReader::new();
+        let expected = original_reader.read(&workspace).unwrap();
+        let configuration = crate::git_relationship::QueryConfiguration::acquire(&workspace)
+            .unwrap()
+            .unwrap();
+        let old = original_reader
+            .take_query_epoch(&workspace, &configuration)
+            .unwrap();
+        let mut receiver = if revoke_same_reader {
+            original_reader.invalidate();
+            original_reader
+        } else {
+            InputReader::new()
+        };
+        receiver.read(&workspace).unwrap();
+        let valid = receiver
+            .take_query_epoch(&workspace, &configuration)
+            .unwrap();
+        // Both leases are genuine and the receiver is empty: rejection cannot
+        // be explained by an occupied cache instead of reader/Arc ownership.
+        assert!(receiver.origins.is_empty());
+        let sql = epoch_sql_bytes(&workspace);
+        let bytes = fs::read(&legacy).unwrap();
+        let error = receiver
+            .read_in_query_epoch(&workspace, &old)
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "repository store: query epoch owner/source changed"
+        );
+        let error = receiver.restore_query_epoch(&workspace, old).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "repository store: query epoch owner/source changed"
+        );
+        assert_epoch_round_trip(&mut receiver, &workspace, &configuration, valid, &expected);
+        assert_eq!(epoch_sql_bytes(&workspace), sql);
+        assert_eq!(fs::read(&legacy).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn query_epoch_rejects_other_workspace_for_boundary_read_and_restore() {
+    if !isolated("query_epoch_rejects_other_workspace_for_boundary_read_and_restore") {
+        return;
+    }
+    let (owned, workspace, legacy) = fixture(false);
+    let other = crate::git::SourceGitInspector::open(owned.path().join("linked"))
+        .unwrap()
+        .workspace_allow_unborn()
+        .unwrap();
+    assert_ne!(workspace.root, other.root);
+    assert_eq!(workspace.git_common_dir, other.git_common_dir);
+    let mut reader = InputReader::new();
+    let expected = reader.read(&workspace).unwrap();
+    let configuration = crate::git_relationship::QueryConfiguration::acquire(&workspace)
+        .unwrap()
+        .unwrap();
+    let epoch = reader.take_query_epoch(&workspace, &configuration).unwrap();
+    let sql = epoch_sql_bytes(&workspace);
+    let bytes = fs::read(&legacy).unwrap();
+    assert_eq!(
+        epoch
+            .boundary(&other, &configuration)
+            .unwrap_err()
+            .to_string(),
+        "repository store: query epoch source changed"
+    );
+    assert_eq!(
+        reader
+            .read_in_query_epoch(&other, &epoch)
+            .err()
+            .unwrap()
+            .to_string(),
+        "repository store: query epoch owner/source changed"
+    );
+    assert_eq!(
+        reader
+            .restore_query_epoch(&other, epoch)
+            .err()
+            .unwrap()
+            .to_string(),
+        "repository store: query epoch owner/source changed"
+    );
+    // A consumed rejected lease cannot poison subsequent real acquisition.
+    let recovered = reader.read(&workspace).unwrap();
+    assert_eq!(recovered.0, expected.0);
+    assert_inputs_equal(&recovered.1, &expected.1);
+    let valid = reader.take_query_epoch(&workspace, &configuration).unwrap();
+    assert_epoch_round_trip(&mut reader, &workspace, &configuration, valid, &expected);
+    assert_eq!(epoch_sql_bytes(&workspace), sql);
+    assert_eq!(fs::read(legacy).unwrap(), bytes);
+}

@@ -209,3 +209,60 @@ The pipeline's two initial-query observations averaged 6200.829 ms with 69 Git s
 The wider migration matrix subsequently passed all 39 tests: reanchoring 3 (27.31 seconds), migration 20 (64.09 seconds), native-origin lifecycle 5 (40.64 seconds), origin lifecycle 8 (92.36 seconds), and worktree move 3 (30.92 seconds). The unchanged 256-real-workspace integration case passed exactly once in 50.15 seconds, with its original refresh budget and assertions intact. A preceding incorrectly qualified library filter matched zero tests and is excluded from this evidence; the corrected integration-target log explicitly verifies one passed test. Logs are `task6-inventory-pipeline-integration-matrix.log` and `task6-inventory-pipeline-real-256-corrected.log`.
 
 This milestone therefore has 127 distinct passing focused Rust tests (23 inventory + 45 origin/cache + 19 query + 39 integration + 1 real-256 case), plus the separately reported diagnostic comparisons. The 14 pipeline controls are part of the 23 inventory tests, not additional tests. Source, historical-test adaptation and measurement-scope reviews found no remaining milestone blocker. The current CLI has not been rebuilt for this source milestone, and the final whole-branch, live-browser/host and formal performance/resource acceptance remain open.
+
+## Query boundary consolidation: pre-implementation evidence
+
+The pipeline milestone `5fc8878` remains the last production change. The next proposed change combines requester and application-origin validation into entry and post-projection boundaries for an existing active SQL reader with identical canonical source keys and identical retained configuration baselines. Both independent baselines must be compared against fresh evidence. Full origin captures, legacy hashes, pinned SQL checks, connection identity seals, normal Git refresh decisions and the two-second production freshness bound remain required. Distinct keys/baselines and cold or unsupported states retain the original path.
+
+This intentionally widens the closing origin-validation interval. Persistent configuration or ref drift after the former storage-local closing check will now reject the candidate with the origin-proof error, instead of reaching the former requester-only fresh fallback. Stable successful results must remain identical; identical outcomes for every transient or simultaneous-error timing are not claimed. A body error retains its original error and short-circuits closing validation, with all tentative storage and projection caches discarded. Successful candidates require closing validation before publication. No lease may be restored to an invalidated reader.
+
+Actual initial RED, root session 50935 (terminal 101): compilation 12.21 s; one exact test failed in 4.63 s only at the final source-capture assertion, actual 4 versus required 2. Before that assertion, the test passed actual zero-Git, active/nonempty SQL, unchanged database/WAL/legacy/frozen bytes and complete serialized snapshot equality after normalizing only the query evaluation clock. This uses the existing 60-second test harness to isolate cache routing; it is not a production freshness or performance measurement.
+
+The expanded test-only matrix, root session 99478 (terminal 101), compiled in 11.78 s and ran in 115.17 s: **20 passed, 5 intentionally failed, 1 diagnostic ignored**. All 19 pre-existing query tests passed. A new control moving a genuinely authenticated source proof between two same-key harnesses with different retained configuration baselines also passed, requiring the original reacquisition and real Git commands. The five failures were exactly:
+
+- Four actual source captures instead of two.
+- Ordinary error after the real storage read left tentative caches populated.
+- Caller unwind after the real storage read left tentative caches populated.
+- Persistent config drift injected after projection returned a snapshot instead of the proposed closing origin error.
+- Persistent ref drift injected after projection returned a snapshot instead of the proposed closing origin error.
+
+Both cache-failure tests exercised successful next-query recovery and data preservation before their final failing cache-discard assertion. They compare the full recovered snapshot after normalizing documented observation clocks and the monotone Git collection cycle, with an independent direct-query target/lane comparison. These caller-unwind tests do not replace existing worker joining and panic tests.
+
+Evidence: `target/verification/task6-query-boundary-initial-red.log` and `target/verification/task6-query-boundary-safety-red.log`. Expanded debug test executable SHA-256: `918F03598F34FDC4F7A80EA83E9FED907FEEB1395FB3BD63A1BB8D45EDB674E7`. The independent source reviews approved the test-only patches before root applied and executed them. These results establish prerequisites, not a completed optimization or full acceptance. The original 200 ms hot-query, cold/freshness, four-client, resource, browser, host and final-suite gates remain open.
+
+### Boundary implementation verification (uncommitted candidate)
+
+Root applied the independently approved five-module implementation patch `B82839A2BAD9683712D25E56AA85FE43A4A2239C3AEAE00097975EE1716F4AD0` without changing the test assertions. The original read/projection body is shared; the invocation owns the moved origin cache, and an `Arc` identity prevents restoration after reader invalidation or into a different reader. A drop guard clears tentative storage, Git, relationship, ancestry and freshness caches on error or unwind.
+
+Actual first GREEN, session 88316 (terminal 0): compilation 11.58 s; **25 query tests passed, 0 failed, 1 diagnostic ignored in 118.47 s**. All five preceding behavioral REDs passed. The same-key stable test now measures exactly two real source captures while retaining zero Git commands and complete output/data preservation. Debug artifact at this stage: `C77CDF8B250125CA0771B13368105093FCEA982B36A69C87F77F6F99F44E0E33`.
+
+Session 26106 (terminal 0): **45 origin-cache tests passed in 60.51 s**, including caps, worker joining, physical evidence and complete legacy-byte checks; **3 SQL snapshot tests passed in 6.86 s**, with one diagnostic ignored; all-target Clippy with warnings denied passed in 8.78 s.
+
+Root then applied the independently reviewed new-API ownership regression patch `83076980343EE0BA231BE376394BC31AF148B2597F15A781BB2ABA5DE4D70DF7`. Session 37624 (terminal 0): compilation 11.23 s, **3 ownership tests passed in 12.50 s**, final all-target Clippy passed in 7.83 s. Controls use genuine active SQL readers and empty receiver caches to isolate foreign/revoked ownership, reject a different linked workspace, verify legitimate round trips, and exercise actual legacy-byte mutation rejection and recovery. Final debug artifact: `6B815D2AEB44839A79952AAECE5CF6447172E21C70B59391DEEF839C47BE313D`.
+
+This is **76 distinct passing unit/regression tests** for this candidate, not a new whole-branch suite or runtime/UI acceptance. Logs use the `target/verification/task6-query-boundary-` prefix: `first-green.log`, `origin-matrix.log`, `snapshot-matrix.log`, `owner-tests.log`, and `final-clippy.log`. Fixed-scale performance comparison and wider integration remain pending at this point. The baseline optimized pipeline test executable was hash-verified and preserved as `release/deps/devmap-5fc8878.exe` (`2E8842BF6BF871E41B4E0CA7E74A9FF5B6D57C93756DAEEB199BD95507FE367C`) before the new optimized build; this does not rebuild or replace the CLI.
+
+### Fixed-scale ABBA diagnostic after consolidation
+
+Optimized library-test build passed in 28.83 s. Candidate SHA-256 is `D76EA5A81D4288A3B077FB1BF92A45E8C9C503D48A1D8F4E8722A83957144971`; the preserved pipeline baseline is `2E8842BF6BF871E41B4E0CA7E74A9FF5B6D57C93756DAEEB199BD95507FE367C`. Sessions 26127 and 52014 both exited 0. Runs under the unchanged artifact parent were `query-stage-L6bUp2` (baseline), `query-stage-ai5UEB` (candidate), `query-stage-PFTn7y` (candidate), and `query-stage-LY18cW` (baseline).
+
+All four reports show root/helper exit 0, an empty owned Job, no abort/errors, and complete post-run preservation. The statistics script also deep-compares all four complete before snapshots: the same 14 SQL tables and immutable backup inventory. Independent review recomputed all means from raw logs, verified executable hashes and inspected the preservation runner.
+
+| Diagnostic stage | Baseline mean ms | Candidate mean ms | Change |
+| --- | ---: | ---: | ---: |
+| Sealed hot query | 297.4521 | 233.7009 | -21.43% |
+| Separate direct application query | 226.2014 | 228.8419 | +1.17% |
+| Full legacy inventory/hash | 111.6281 | 110.5323 | -0.98% |
+| Separate serial inventory oracle | 283.9011 | 287.8189 | +1.38% |
+| Metadata-only diagnostic | 57.7766 | 57.2077 | -0.98% |
+| Separate configuration recheck | 31.0360 | 29.0359 | -6.44% |
+
+Each repeated stage has ten observations per variant, five per run, and actual zero Git commands. Hot run means in ABBA order were 292.9550, 236.1162, 231.2856 and 301.9492 ms. Initial query means were 6221.4390 versus 6093.1360 ms, based on only two observations per variant, each with 69 Git commands.
+
+The separate direct application diagnostic still calls the old `project_verified_query` entry point. It does not include the new runtime boundary path and must not be interpreted as a nested component of the new hot query. Neither these independent stage timings nor their changes are additive. The small oracle/application regressions above are recorded, not hidden or attributed without evidence.
+
+The approximately 234 ms diagnostic hot mean **still exceeds 200 ms**. This retained fixed-receipt run uses the diagnostic 60-second cache-routing harness, not the original production two-second freshness/four-client p95 protocol. Cold, freshness, four-client, resource, actual new-runtime UI/host and whole-branch acceptance remain unproven. Statistics and assertions are in `target/verification/task6-query-boundary-statistics.cjs` and `.json`; raw run references and source hashes are retained there.
+
+Wider compatibility verification completed in session 3056 (terminal 0). Compilation took 10.68 s; `application_origin_reanchor` passed 3 tests in 27.46 s, `sqlite_migration` passed 20 in 62.66 s, `sqlite_native_origin_lifecycle` passed 5 in 39.31 s, `sqlite_origin_lifecycle` passed 8 in 91.13 s, and `sqlite_worktree_move` passed 3 in 30.67 s. The separately selected original `dock_model` test for all 256 real workspaces passed exactly one test in 44.89 s after a 10.33 s build; its original refresh budget/assertions were unchanged. Logs: `task6-query-boundary-integration-matrix.log` and `task6-query-boundary-real-256.log`.
+
+The boundary milestone therefore has **116 distinct passing tests** across these focused unit/regression/integration selections. This still does not substitute for the final whole-branch suite, rebuilt CLI/live browser/host verification or original formal performance/resource gates. No installed runtime, user database or parent worktree was changed.
