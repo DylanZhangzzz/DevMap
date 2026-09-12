@@ -1,4 +1,6 @@
 //! One bounded, serial application thread. Disconnect never cancels accepted work.
+#[path = "executor/cohort.rs"]
+mod cohort;
 #[cfg(all(test, windows))]
 #[path = "quarantine_tests.rs"]
 mod quarantine_tests;
@@ -57,35 +59,7 @@ impl Executor {
             .name("devmap-application".into())
             .spawn(move || {
                 for job in receiver {
-                    let result = if crate::git_process::healthy() {
-                        super::query_validation::with_query_origin(
-                            &job.bytes,
-                            job.query_origin.as_ref(),
-                            || execute(&job.identity, &job.bytes),
-                        )
-                    } else {
-                        Err(crate::git_process::GitProcessError::CleanupFailed.into())
-                    }
-                    .unwrap_or_else(|e| ApplicationResult::Error { error: e.into() });
-                    // Release the request before encoding the fixed result. The reservation
-                    // moves into the response and survives a disconnected receiver until now.
-                    drop(job.bytes);
-                    let bytes = transport::bounded_json(&result, protocol::MAX_RESULT)
-                        .unwrap_or_else(|e| {
-                            transport::bounded_json(
-                                &ApplicationResult::Error {
-                                    error: DomainError::ResponseLimit {
-                                        message: e.to_string(),
-                                    },
-                                },
-                                protocol::MAX_RESULT,
-                            )
-                            .expect("bounded diagnostic")
-                        });
-                    let _ = job.reply.send(Completed {
-                        bytes,
-                        _reservation: job.reservation,
-                    });
+                    cohort::run(std::iter::once(job), &mut execute);
                 }
             })?;
         Ok(Self {

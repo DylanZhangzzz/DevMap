@@ -13,7 +13,7 @@ fn source_changed() -> DevMapError {
 }
 
 /// Connection-local, non-wire observation established after authenticated Hello.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) enum QueryOrigin {
     Verified {
         workspace: Box<SourceWorkspace>,
@@ -47,7 +47,7 @@ impl QueryOrigin {
         seal.validate()?;
         Ok(seal)
     }
-    fn validate(&self) -> Result<(), DevMapError> {
+    pub(super) fn validate(&self) -> Result<(), DevMapError> {
         let Self::Verified {
             workspace,
             origin,
