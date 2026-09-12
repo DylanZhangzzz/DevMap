@@ -187,6 +187,7 @@ impl QueryConfiguration {
         {
             return Err(decline());
         }
+        let mut development_target = None;
         for row in fields.chunks_exact(3) {
             let origin = row[1].strip_prefix("file:").ok_or_else(decline)?;
             let origin = if origin == ".git/config" {
@@ -211,8 +212,14 @@ impl QueryConfiguration {
             {
                 return Err(decline());
             }
+            // Git emits the effective scope order and normalizes variable names.
+            // For these admitted string values, --get selects the last occurrence.
+            // Empty strings and spaces are significant; control characters and
+            // valueless entries already decline to the original projection path.
+            if key == "devmap.developmenttarget" {
+                development_target = Some(value.to_owned());
+            }
         }
-        let value = super::super::GitRelationshipResolver::development_configuration(workspace)?;
         let source = SourceResolutionWitness::capture(&common, &admin)?;
         let retained_bytes = [&evidence, &source.evidence]
             .into_iter()
@@ -227,7 +234,7 @@ impl QueryConfiguration {
         }
         let proof = Self {
             evidence,
-            value,
+            value: development_target,
             source,
         };
         if !proof.recheck()? {

@@ -889,6 +889,67 @@ mod tests {
         let worktrees = WorktreeScanner::scan(&caller).unwrap();
         assert_eq!(worktrees.len(), 2);
         assert_eq!(worktrees[0].head, worktrees[1].head);
+        if case == "query_target_listing_matches_real_git" {
+            let local_path = caller.git_common_dir.join("config");
+            let original = fs::read(&local_path).unwrap();
+            let global_path = owned.join("home/.gitconfig");
+            for (global, local, eligible) in [
+                ("", "", true),
+                ("", "[devmap]\ndevelopmentTarget =\n", true),
+                ("", "[devmap]\ndevelopmentTarget = main\n", true),
+                (
+                    "",
+                    "[devmap]\ndevelopmentTarget = first\ndevelopmentTarget = last\n",
+                    true,
+                ),
+                ("[devmap]\ndevelopmentTarget = global\n", "", true),
+                (
+                    "[devmap]\ndevelopmentTarget = global\n",
+                    "[DevMap]\nDevelopmentTarget = local\n",
+                    true,
+                ),
+                (
+                    "",
+                    "[devmap]\ndevelopmentTarget = \"  refs/heads/主题  \"\n",
+                    true,
+                ),
+                (
+                    "",
+                    "[devmap]\ndevelopmentTarget = \"quote\\\"slash\\\\\"\n",
+                    true,
+                ),
+                ("", "[devmap]\ndevelopmentTarget\n", false),
+                ("", "[devmap]\ndevelopmentTarget = \"line\\nnext\"\n", false),
+                ("", "[include]\npath = missing\n", false),
+            ] {
+                fs::write(&global_path, global).unwrap();
+                let mut bytes = original.clone();
+                bytes.extend_from_slice(local.as_bytes());
+                fs::write(&local_path, bytes).unwrap();
+                let expected =
+                    super::super::GitRelationshipResolver::development_configuration(&caller)
+                        .unwrap();
+                let starts = crate::git_process::test_spawn_count();
+                let actual = QueryConfiguration::acquire(&caller).unwrap();
+                if eligible {
+                    let proof = actual.expect("plain configuration must be eligible");
+                    assert_eq!(
+                        proof.value(),
+                        expected.as_deref(),
+                        "global={global:?}, local={local:?}"
+                    );
+                    assert_eq!(
+                        crate::git_process::test_spawn_count() - starts,
+                        3,
+                        "reuse witnessed listing instead of a fourth Git invocation"
+                    );
+                    assert!(proof.recheck().unwrap());
+                } else {
+                    assert!(actual.is_none(), "unsupported value must use original path");
+                }
+            }
+            return;
+        }
         match case {
             "include_declines" => {
                 git(
@@ -1001,6 +1062,7 @@ mod tests {
         ($($case:ident),+ $(,)?) => { $(#[test] fn $case() { isolated(stringify!($case)); })+ };
     }
     cases!(
+        query_target_listing_matches_real_git,
         plain_linked_roots_are_eligible,
         cat_pager_is_eligible,
         empty_pager_is_eligible,
