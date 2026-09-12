@@ -377,3 +377,18 @@ Optimized build root 23306 completed with exit 0 in 33.09 s. Actual run `query-s
 The cold component is a substantial startup cost, consistent with the untraced storage-region gap, but these are separate observations and cannot be added to the earlier trace as one timing breakdown. This result does not yet distinguish JSON parsing, canonicalization, hashing and SQL iteration. Any allocation optimization must preserve byte-identical canonical data and every original journal validation. It does not justify trusting unverified saved journal heads.
 
 Evidence: `target/verification/task6-sql-input-profile-{build,clippy}.log`, `task6-sql-input-profile.log`, and the run's `profile.log`, `before.json`, `job.json`, `report.json`. The new helper is covered by this owned diagnostic execution and Clippy; the preceding 646-test result predates its compilation.
+
+### In-place canonical ordering reduces cold SQL verification cost
+
+Inspection of the locked `serde_json 1.0.151` source confirms `Value::sort_all_objects` orders object keys by the same string ordering as the original recursive normalizer. With default sorted maps it does no work; if `preserve_order` is enabled it sorts all nested objects in place. `canonical_json` now uses this method instead of allocating replacement maps/arrays throughout the tree. Typed serialization, recursive floating-point refusal, JSON byte serialization and SHA-256 calculation remain unchanged.
+
+Two additional canonical tests compare 136 representative nested/scalar values against the frozen original normalization algorithm, including Unicode and combining-character keys, escapes, signed/unsigned integer extremes and array order, and check nested floating-point refusal. All five canonical tests passed before and after the change (roots 1643 and 19653, exit 0). The subsequent regression run (root 18090, exit 0) passed **49 distinct tests** across canonical data, event validation, content-addressed storage, legacy journal recovery, SQL journals and the full-verifier comparison/corruption checks. All-target Clippy with warnings denied passed in 8.00 s; formatting and diff checks passed. The earlier 646-test whole suite predates this production optimization.
+
+An optimized candidate build completed in 29.81 s, SHA-256 `51B016C4A1BE15A77DDF1A37C508C53DF425D1C35BE4E37FEC3216C3FEA32E2B`. The preserved A659 baseline and candidate ran sequentially in ABBA order against the unchanged sealed scale receipt, using the same diagnostic mode. Root 69035 exited 0. Runs `query-stage-hCxTnt`, `query-stage-uBgKoA`, `query-stage-Qu6ScE`, `query-stage-BjRJxi` all completed with empty owned Jobs, no errors and full SQL/immutable preservation. Every cold iteration still verified the existing 100,000 records; warm-cache summary parity also passed.
+
+| Variant | Cold samples | Mean ms | Minimum ms | Maximum ms |
+| --- | ---: | ---: | ---: | ---: |
+| Original normalization | 6 | 1575.226 | 1551.811 | 1600.609 |
+| In-place ordering | 6 | 1380.133 | 1362.136 | 1394.257 |
+
+The observed reduction is **12.39% (195.09 ms)** for this component. This small diagnostic population does not establish full cold-open p95 or hot-query acceptance. No complete release CLI latency rerun is included here, and the 3-second/200-ms gates remain open. Raw logs use `target/verification/task6-canonical-` prefixes; `task6-canonical-abba-statistics.json` records the aggregate calculation. Original and candidate executable hashes distinguish this result from the earlier unpaired cold component observations.
