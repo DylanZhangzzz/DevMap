@@ -2,6 +2,24 @@ use devmap::canonical::{canonical_json, content_id, sha256_hex};
 use serde_json::json;
 
 #[test]
+fn digest_encoding_matches_original_for_binary_inputs_and_block_boundaries() {
+    use sha2::{Digest, Sha256};
+    for length in (0..256).chain([511, 512, 513, 4096, 65536]) {
+        let bytes: Vec<_> = (0..length).map(|i| (i * 131 + length) as u8).collect();
+        let original: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(sha256_hex(&bytes), original);
+        assert_eq!(original.len(), 64);
+    }
+    assert_eq!(
+        sha256_hex(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+}
+
+#[test]
 fn canonical_json_sorts_nested_object_keys_and_preserves_arrays() {
     let first = json!({
         "z": "中文",

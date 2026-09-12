@@ -36,7 +36,13 @@ pub fn ensure_no_floating_points(value: &Value) -> Result<(), DevMapError> {
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 15) as usize] as char);
+    }
+    encoded
 }
 
 pub fn content_id(kind: &str, bytes: &[u8]) -> String {
