@@ -1,4 +1,5 @@
 //! Guarded successful relationship facts shared only within one operation.
+mod configuration_paths;
 mod query_configuration;
 pub(crate) use query_configuration::QueryConfiguration;
 
@@ -416,8 +417,7 @@ fn capture(
             return Err(decline());
         }
     }
-    evidence.system = probe(&caller.root, &["var", "GIT_CONFIG_SYSTEM"])?;
-    evidence.global = probe(&caller.root, &["var", "GIT_CONFIG_GLOBAL"])?;
+    (evidence.system, evidence.global) = configuration_paths::capture(&caller.root)?;
     let mut candidates: Vec<_> = candidate_paths(&evidence.system)?
         .into_iter()
         .map(|p| (p, "system"))

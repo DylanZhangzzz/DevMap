@@ -154,8 +154,7 @@ impl QueryConfiguration {
         // Includes and worktreeConfig are deliberately unsupported initially.
         absent(&common.join("config.worktree"), &mut evidence)?;
         absent(&admin.join("config.worktree"), &mut evidence)?;
-        evidence.system = probe(&workspace.root, &["var", "GIT_CONFIG_SYSTEM"])?;
-        evidence.global = probe(&workspace.root, &["var", "GIT_CONFIG_GLOBAL"])?;
+        (evidence.system, evidence.global) = configuration_paths::capture(&workspace.root)?;
         let mut candidates: Vec<_> = candidate_paths(&evidence.system)?
             .into_iter()
             .map(|p| (p, "system"))
