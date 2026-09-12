@@ -561,6 +561,65 @@ fn sql_inputs(
     })
 }
 
+/// Invoked only after the ignored profiler validates its exact owned receipt.
+/// These component timings exclude origin and frozen-file verification; they
+/// cannot stand in for a complete query or authorize a cached journal head.
+#[cfg(test)]
+pub(crate) fn profile_sql_inputs(
+    connection: &rusqlite::Connection,
+    workspace: &SourceWorkspace,
+    expected_sessions: usize,
+    expected_events: u64,
+    mut observe: impl FnMut(&str, usize, u128),
+) -> Result<(), DevMapError> {
+    let tx = connection.unchecked_transaction()?;
+    let generation: i64 = tx.query_row(
+        "SELECT generation FROM store_meta WHERE singleton=1",
+        [],
+        |row| row.get(0),
+    )?;
+    let repository = repository_id(workspace);
+    for iteration in 0..3 {
+        let mut summaries = SummaryCache::new();
+        let start = std::time::Instant::now();
+        let cold = sql_inputs(&tx, &repository, &mut summaries)?;
+        let cold_us = start.elapsed().as_micros();
+        assert_eq!(cold.presence.records.len(), expected_sessions);
+        assert_eq!(cold.journals.len(), expected_sessions);
+        assert!(
+            cold.journals
+                .values()
+                .all(|summary| { summary.integrity == JournalIntegrity::Verified })
+        );
+        assert_eq!(
+            cold.journals
+                .values()
+                .map(|summary| summary.records)
+                .sum::<u64>(),
+            expected_events
+        );
+        assert!(cold.routes.is_ok() && cold.bindings.is_ok());
+        let start = std::time::Instant::now();
+        let warm = sql_inputs(&tx, &repository, &mut summaries)?;
+        let warm_us = start.elapsed().as_micros();
+        assert_eq!(warm.journals, cold.journals);
+        assert_eq!(warm.presence.records.len(), expected_sessions);
+        assert!(warm.routes.is_ok() && warm.bindings.is_ok());
+        // Assertions and output are outside both timed intervals. Each cold
+        // iteration owns a new cache and revalidates every journal record.
+        observe("sql_inputs_cold", iteration, cold_us);
+        observe("sql_inputs_warm", iteration, warm_us);
+    }
+    let after: i64 = tx.query_row(
+        "SELECT generation FROM store_meta WHERE singleton=1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(after, generation);
+    tx.commit()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

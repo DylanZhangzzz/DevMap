@@ -135,6 +135,23 @@ fn owned_schema2_query_stage_profile() {
         .unwrap();
     assert_eq!(version, 2);
     match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
+        Ok(mode) if mode == "sql_inputs" => {
+            crate::store::snapshot::profile_sql_inputs(
+                store.connection(),
+                &workspace,
+                dimensions.1 as usize,
+                dimensions.2 as u64,
+                |stage, iteration, wall_us| {
+                    println!(
+                        "{}",
+                        serde_json::json!({"diagnostic":"sql-input-stages/1",
+                            "stage":stage,"iteration":iteration,"wall_us":wall_us})
+                    );
+                },
+            )
+            .unwrap();
+            return;
+        }
         Ok(mode) if mode == "inventory_workers" => {
             crate::store::migration::profile_inventory_workers(&workspace, store.connection())
                 .unwrap();

@@ -353,3 +353,27 @@ The traced initial sealed query took 7503.859 ms and started 69 Git commands; al
 There were five each of system/global configuration-path probes and full no-includes configuration listings, three development-target reads, three worktree scans, twenty status reads, and three shared-fact ref/remote-head probe pairs. Some probes are intentional observation boundaries; their repetition alone does not authorize removing checks. Between the first worktree command's trace exit (1371.835 ms) and the next command's trace start (3357.035 ms), roughly 1985 ms is not covered by Git trace intervals. Source inspection places storage/origin/SQL work in this region, but nested timing is still needed to assign its cost. The SQL summary path already streams and verifies full journal records; it must not be replaced with unverified saved heads to meet a budget.
 
 Raw evidence: `target/verification/task6-current-trace-{build,profile,clippy}.log`, and `profile.log`, `git-trace2.ndjson`, `trace-analysis.json`, `before.json`, `job.json`, `report.json` under the referenced run. The analysis script is retained as `target/verification/task6-analyze-current-trace.cjs`. This provides the next investigation targets; no further production speedup is claimed.
+
+### All-target regression after cohort integration
+
+Root session 33263 terminated with exit 0 after `cargo test --all-targets --no-fail-fast -- --test-threads=1`, compiled at `f701e4e`. All **58 Cargo test groups** completed successfully: **646 passed, 0 failed, 10 ignored**. The library contributed 217 passes and six ignored helpers/diagnostics; two native fixture tests and two explicit performance corpus generators account for the other four ignored tests. The test build took 17.60 s. Cargo's `--all-targets` run does not include doctests.
+
+The log parser selects the final result within each Cargo group, avoiding double-counting nested helper results, and the root exit was checked independently. No groups were missing a final result. Evidence: `target/verification/task6-f701e4e-full-rust.log` and `task6-f701e4e-full-rust-summary.json`, produced by `task6-summarize-full-rust.cjs f701e4e`.
+
+Subsequent documentation commits do not change the tested production core. A new test-only SQL component profiling draft was edited after Cargo had compiled this run; it is explicitly outside these compiled test results and requires its own build and execution. These regression results do not close the unresolved cold/hot latency, actual host, live browser pair or whole-objective acceptance gates. Debug-only early returns and ignored diagnostics are not performance evidence.
+
+### Cold SQL input attribution on the sealed scale fixture
+
+The test-only `sql_inputs` diagnostic mode uses the existing exact receipt/identity allowlist and owned Windows Job wrapper. Within one pinned read transaction, each of three cold iterations creates a new summary cache and runs the original `sql_inputs`; its paired warm iteration reuses that cache. Timers cover only the original calls. Outside the timing intervals, the diagnostic checks 100 sessions and 100,000 verified journal records, matching cold/warm summaries, valid route/binding results and unchanged pinned generation. This component deliberately excludes origin enumeration and frozen-file hashing; it does not replace the complete-query verification boundary.
+
+Optimized build root 23306 completed with exit 0 in 33.09 s. Actual run `query-stage-jF3Ryt` then exited 0 with executable SHA-256 `A65926C2C912B75E9A087FFEB8B5F381E15C6130E809875328C5F13446F055B0`. The owned Job was empty and not aborted, all six expected samples were validated, errors were empty, and the wrapper's full SQL/immutable preservation comparison passed. All-target Clippy with warnings denied passed in 8.03 s.
+
+| Iteration | Cold SQL inputs ms | Warm SQL inputs ms |
+| --- | ---: | ---: |
+| 0 | 1740.252 | 1.877 |
+| 1 | 1710.730 | 1.759 |
+| 2 | 1667.566 | 2.053 |
+
+The cold component is a substantial startup cost, consistent with the untraced storage-region gap, but these are separate observations and cannot be added to the earlier trace as one timing breakdown. This result does not yet distinguish JSON parsing, canonicalization, hashing and SQL iteration. Any allocation optimization must preserve byte-identical canonical data and every original journal validation. It does not justify trusting unverified saved journal heads.
+
+Evidence: `target/verification/task6-sql-input-profile-{build,clippy}.log`, `task6-sql-input-profile.log`, and the run's `profile.log`, `before.json`, `job.json`, `report.json`. The new helper is covered by this owned diagnostic execution and Clippy; the preceding 646-test result predates its compilation.
