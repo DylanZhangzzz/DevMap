@@ -122,6 +122,15 @@ fn owned_schema2_query_stage_profile() {
         )
         .unwrap();
     assert_eq!(version, 2);
+    match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
+        Ok(mode) if mode == "inventory_workers" => {
+            crate::store::migration::profile_inventory_workers(&workspace, store.connection())
+                .unwrap();
+            return;
+        }
+        Err(std::env::VarError::NotPresent) => {}
+        other => panic!("unsupported explicit profiler mode: {other:?}"),
+    }
     drop(store);
     let query = crate::application::ClientView::new(workspace.clone())
         .query_input()

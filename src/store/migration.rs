@@ -30,6 +30,8 @@ mod origin_observation;
 pub(crate) use origin_observation::ReadOriginCache;
 #[cfg(test)]
 pub(crate) use origin_observation::profile_frozen_read_stages;
+#[cfg(test)]
+pub(crate) use origin_observation::profile_inventory_workers;
 #[path = "startup.rs"]
 mod startup;
 pub(crate) use origin_observation::{

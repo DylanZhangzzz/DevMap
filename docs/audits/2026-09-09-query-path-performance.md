@@ -282,3 +282,18 @@ The minimal implementation permits only four or eight through the existing test 
 Owned GREEN run `inventory-faults-AwpTpx` produced **27 passed, 0 failed in 50.20 s**, root/helper exit 0, owned Job empty and no runner errors. Debug artifact SHA-256: `1878A7E478B295873BD3144CA7E33130359ACD59C5D84BB308CBFC6AA9C87790`. All-target Clippy with warnings denied passed in 8.11 s. Independent source review approved the minimal test-only selection; its stale RED comment was corrected afterward. Logs use `target/verification/task6-eight-worker-` prefixes.
 
 This establishes experiment safety controls, not a measured speedup or authorization to increase production concurrency. The original four-client latency/freshness/resource gates remain open; no eight-worker performance result exists yet.
+
+### Same-binary worker comparison: retain production four
+
+The subsequent diagnostic uses the same core directly with an invocation-local observation, without a global/thread-local selector or a production setting. The existing exact owned-receipt validation selects the unchanged scale fixture. It validates current versus frozen origins and a full serial inventory, then runs one warmup ABBA block followed by five measured ABBA blocks (four, eight, eight, four workers). Formatting and full-manifest comparisons occur outside the timed interval. Existing test-build start/join/hash counters are present equally in both variants; no extra per-read byte instrumentation was introduced. Expected-file counts are not represented as measured physical byte counts.
+
+Actual optimized run `query-stage-Niuv2a`, root session 24827, exited 0. Executable SHA-256: `D95DC2F8FB713A313A0A77D065F99AD1D663FEF2FF3DE9B87569C21FC1D7D993`. All 24 observations completed 500 file hashes, started/joined their selected worker count, reported zero Git commands, zero fallbacks and no errors. The owned Job was empty and not aborted. The wrapper verified complete SQL and immutable-source inventories before/after the run. Build took 30.91 s; subsequent all-target Clippy with warnings denied passed in 9.42 s.
+
+| Workers | Measured samples | Mean ms | Minimum ms | Maximum ms |
+| --- | ---: | ---: | ---: | ---: |
+| 4 | 10 | 112.3245 | 107.149 | 115.975 |
+| 8 | 10 | 111.1946 | 106.743 | 115.459 |
+
+Eight workers improved the observed mean by only **1.01% (1.13 ms)**, with overlapping ranges. This pilot does not establish a reliable production speedup and cannot explain away the roughly 34 ms hot-query gap. Production remains four workers. A complete-query eight-worker rollout is not justified by this result; further work should examine repeated validation and serialized request handling while preserving observation boundaries and resource limits.
+
+Evidence: `target/verification/task6-eight-worker-profile.log`, `task6-eight-worker-statistics.json`, and the referenced run's `profile.log`, `before.json`, `job.json` and `report.json`. The wrapper records its explicit `inventory_workers` mode and checks exact sample order/count and actual process termination. This remains a diagnostic, not the formal four-client p95 or resource gate.

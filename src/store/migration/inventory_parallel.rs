@@ -517,3 +517,61 @@ mod tests;
 
 #[cfg(test)]
 pub(super) use tests::PipelineHooks;
+
+/// Same-core inventory diagnostic. No caller-global selector or production policy.
+#[cfg(test)]
+pub(super) fn profile_worker_counts(
+    workspace: &SourceWorkspace,
+    expected: &FrozenManifest,
+) -> Result<(), DevMapError> {
+    let serial = inventory_serial(
+        workspace,
+        expected.origins.clone(),
+        expected.evaluated_at.clone(),
+    )?;
+    validate_inventory_equality(&serial, expected)?;
+    for (iteration, worker_limit) in [4, 8, 8, 4].into_iter().cycle().take(24).enumerate() {
+        // First ABBA block warms both variants; the following five are retained.
+        let observation = Observation {
+            selected_worker_limit: worker_limit,
+            ..Observation::default()
+        };
+        let git_before = crate::git_process::test_spawn_count();
+        let start = std::time::Instant::now();
+        let result = with_serial_oracle(
+            workspace,
+            &expected.origins,
+            &expected.evaluated_at,
+            Limits::default(),
+            &observation,
+            || {},
+        );
+        let wall_us = start.elapsed().as_micros();
+        let git_starts = crate::git_process::test_spawn_count() - git_before;
+        // Formatting, manifest comparison and assertions are outside the timer.
+        println!(
+            "{}",
+            serde_json::json!({
+                "diagnostic": "inventory-workers/1", "iteration": iteration,
+                "warmup": iteration < 4, "workers": worker_limit, "wall_us": wall_us,
+                "git_starts": git_starts,
+                "started": observation.started.load(Ordering::SeqCst),
+                "joined": observation.joined.load(Ordering::SeqCst),
+                "peak": observation.peak.load(Ordering::SeqCst),
+                "hashed": observation.hashed.load(Ordering::SeqCst),
+                "fallbacks": observation.fallbacks.load(Ordering::SeqCst),
+                "error": result.as_ref().err().map(ToString::to_string)
+            })
+        );
+        observation.drained();
+        assert_eq!(git_starts, 0);
+        assert_eq!(observation.started.load(Ordering::SeqCst), worker_limit);
+        assert_eq!(observation.fallbacks.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            observation.hashed.load(Ordering::SeqCst),
+            serial.files.len()
+        );
+        assert_eq!(result?, serial);
+    }
+    Ok(())
+}

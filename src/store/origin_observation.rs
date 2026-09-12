@@ -173,6 +173,19 @@ fn current_origins(w: &SourceWorkspace) -> Result<Vec<FrozenOrigin>, DevMapError
 /// Independent read-only calls, not additive spans of one production operation.
 /// Only the exact-receipt diagnostic calls this; no unavailable/moved fixture shortcut.
 #[cfg(test)]
+pub(crate) fn profile_inventory_workers(
+    w: &SourceWorkspace,
+    c: &Connection,
+) -> Result<(), DevMapError> {
+    let activation =
+        validated_activation(w, c)?.ok_or_else(|| fail("profiling requires frozen activation"))?;
+    if current_origins(w)? != activation.manifest.origins {
+        return Err(fail("profiling requires exact current/frozen origins"));
+    }
+    inventory_parallel::profile_worker_counts(w, &activation.manifest)
+}
+
+#[cfg(test)]
 pub(crate) fn profile_frozen_read_stages(
     w: &SourceWorkspace,
     c: &Connection,
