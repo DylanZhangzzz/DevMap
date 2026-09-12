@@ -9,12 +9,24 @@ const SCALE_SHA: &str = "d968690717e51b531deaeb1f095b9c615c1474543ba32c6c9bbe789
 
 fn measured<T>(stage: &str, iteration: usize, f: impl FnOnce() -> T) -> T {
     let before = crate::git_process::test_spawn_count();
+    // Wall-clock boundaries let the optional Git Trace2 diagnostic select this
+    // observation. Monotonic elapsed time remains the duration measurement.
+    let started_unix_us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
     let start = Instant::now();
     let result = f();
+    let wall_us = start.elapsed().as_micros();
+    let finished_unix_us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
     println!(
         "{}",
         serde_json::json!({"diagnostic":"query-stage/1", "stage":stage,
-        "iteration":iteration,"wall_us":start.elapsed().as_micros(),
+        "iteration":iteration,"wall_us":wall_us,
+        "started_unix_us":started_unix_us,"finished_unix_us":finished_unix_us,
         "git_starts":crate::git_process::test_spawn_count()-before})
     );
     result
