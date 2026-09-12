@@ -51,15 +51,22 @@ impl Executor {
         + Send
         + 'static,
     ) -> io::Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel::<Job>(1);
+        let (sender, receiver) = mpsc::sync_channel::<Job>(protocol::MAX_EXCHANGES);
         let memory = Arc::new(Semaphore::new(
             protocol::EXCHANGE_RESERVATION * protocol::MAX_EXCHANGES,
         ));
         let worker = thread::Builder::new()
             .name("devmap-application".into())
             .spawn(move || {
-                for job in receiver {
-                    cohort::run(std::iter::once(job), &mut execute);
+                let mut pending = None;
+                loop {
+                    let job = match pending.take().or_else(|| receiver.recv().ok()) {
+                        Some(job) => job,
+                        None => break,
+                    };
+                    let (group, next) = cohort::collect(job, &receiver);
+                    pending = next;
+                    cohort::run(group, &mut execute);
                 }
             })?;
         Ok(Self {
@@ -194,6 +201,14 @@ mod tests {
         })
         .unwrap();
         let admission = executor.admission();
+        // Other connections can hold the remaining reservations while uploading.
+        let uploading = admission
+            .memory
+            .clone()
+            .try_acquire_many_owned(
+                (protocol::EXCHANGE_RESERVATION * (protocol::MAX_EXCHANGES - 2)) as u32,
+            )
+            .unwrap();
         let reservation = admission
             .memory
             .clone()
@@ -242,7 +257,7 @@ mod tests {
                 .clone()
                 .try_acquire_many_owned(protocol::EXCHANGE_RESERVATION as u32)
                 .is_err(),
-            "third exchange admitted while running and queued jobs are outstanding"
+            "extra exchange admitted while all running, queued and uploading reservations are held"
         );
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("owner.lock");
@@ -281,6 +296,7 @@ mod tests {
         release_tx.send(()).unwrap();
         done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         join.join().unwrap();
+        drop(uploading);
         assert_eq!(
             memory.available_permits(),
             protocol::EXCHANGE_RESERVATION * protocol::MAX_EXCHANGES

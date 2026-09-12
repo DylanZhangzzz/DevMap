@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 pub const VERSION: u32 = 1;
 // Every physical message stays bounded; application aggregates additionally require
-// one of the two explicit exchange reservations before upload.
+// one of the four explicit exchange reservations before upload.
 pub const MAX_FRAME: usize = 16 * 1024;
 pub const MAX_CONNECTIONS: usize = 16;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +65,7 @@ pub const MAX_REQUEST: usize = 4 * 1024 * 1024 + 64 * 1024;
 pub const MAX_RESULT: usize = 3 * 1024 * 1024;
 pub const CHUNK_BYTES: usize = 2048;
 pub const EXCHANGE_RESERVATION: usize = 24 * 1024 * 1024;
-pub const MAX_EXCHANGES: usize = 2;
+pub const MAX_EXCHANGES: usize = 4;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Transfer {

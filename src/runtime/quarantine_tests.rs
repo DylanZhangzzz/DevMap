@@ -100,7 +100,7 @@ fn quarantine_fixture() {
     .unwrap();
     let admission = executor.admission();
     let mut replies = Vec::new();
-    for _ in 0..2 {
+    for _ in 0..protocol::MAX_EXCHANGES {
         let reservation = admission
             .memory
             .clone()

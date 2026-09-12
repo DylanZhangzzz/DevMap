@@ -286,6 +286,64 @@ fn real_owner_dispatches_typed_mutation() {
     });
 }
 
+#[test]
+fn four_upload_reservations_bound_admission_and_disconnect_releases_one() {
+    let f = Fixture::new();
+    let w = f.welcome();
+    let before = read_state(&f);
+    let bytes = br#"{"operation":"Query","query":{"tasks":[],"inventory_observed_at":null,"complete":false,"previous_heads":[]}}"#;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let mut held = Vec::new();
+            for _ in 0..4 {
+                let mut stream = connect(&f, &w).await;
+                begin(&mut stream, &w, 1, bytes).await;
+                held.push(stream);
+            }
+            let mut fifth = connect(&f, &w).await;
+            let request = |request_id| {
+                json!({"operation":"Begin", "protocol":VERSION,
+            "repository":w.repository,"client_instance":w.client_instance,
+            "request_id":request_id,"owner_instance":w.owner_instance,
+            "total":bytes.len(),"digest":format!("{:x}",Sha256::digest(bytes))})
+            };
+            send(&mut fifth, &request(1)).await;
+            let busy = receive(&mut fifth).await;
+            assert_eq!(busy["status"], "Busy", "{busy}");
+            assert_eq!(busy["request_id"], 1);
+            assert_eq!(busy["owner_instance"], w.owner_instance);
+            assert_eq!(
+                read_state(&f),
+                before,
+                "uncompleted uploads must have zero effect"
+            );
+            drop(held.pop());
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut request_id = 2;
+            loop {
+                send(&mut fifth, &request(request_id)).await;
+                let response = receive(&mut fifth).await;
+                assert_eq!(response["request_id"], request_id);
+                if response["status"] == "Ready" {
+                    break;
+                }
+                assert_eq!(response["status"], "Busy", "{response}");
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "disconnected upload did not release its reservation"
+                );
+                request_id += 1;
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            drop((fifth, held));
+        });
+    assert_eq!(read_state(&f), before);
+    verify_integrity(&f);
+}
+
 use devmap::runtime::protocol::{ApplicationRequest, ApplicationResult, DomainError};
 
 #[test]

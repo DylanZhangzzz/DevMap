@@ -1,6 +1,43 @@
 //! Fixed-membership query execution. Admission and transport keep ownership.
 use super::*;
 
+pub(super) fn collect(first: Job, receiver: &mpsc::Receiver<Job>) -> (Vec<Job>, Option<Job>) {
+    collect_until(
+        first,
+        receiver,
+        std::time::Instant::now() + std::time::Duration::from_millis(1),
+    )
+}
+
+fn collect_until(
+    first: Job,
+    receiver: &mpsc::Receiver<Job>,
+    deadline: std::time::Instant,
+) -> (Vec<Job>, Option<Job>) {
+    let mut group = vec![first];
+    // Parsing is eligibility only; no physical seal, Git, SQL or file observation
+    // starts before membership closes. Nonqueries incur no batching wait.
+    if !equivalent(&group[0], &group[0]) {
+        return (group, None);
+    }
+    while group.len() < protocol::MAX_EXCHANGES {
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            break;
+        };
+        let next = match receiver.recv_timeout(remaining) {
+            Ok(next) => next,
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        if !equivalent(&group[0], &next) || std::time::Instant::now() >= deadline {
+            // Do not inspect past a barrier or attach a late arrival. Its upload
+            // reservation travels with the pending job until its own completion.
+            return (group, Some(next));
+        }
+        group.push(next);
+    }
+    (group, None)
+}
+
 pub(super) fn run(
     jobs: impl IntoIterator<Item = Job>,
     execute: &mut impl FnMut(&Identity, &[u8]) -> Result<ApplicationResult, DevMapError>,
@@ -149,7 +186,139 @@ fn shared(
 mod tests {
     use super::*;
 
-    fn real_pair() -> (
+    #[test]
+    fn collector_retains_first_barrier_without_reading_past_it() {
+        use super::super::super::query_validation::QueryOrigin;
+        for kind in 0..7 {
+            let (_fixture, mut jobs, replies, memory) = real_jobs(4);
+            let first = jobs.remove(0);
+            match kind {
+                0 => {
+                    jobs[0].bytes = serde_json::to_vec(&ApplicationRequest::AcceptInventory {
+                        prior: crate::application::ClientQuery {
+                            tasks: vec![],
+                            inventory_observed_at: None,
+                            complete: false,
+                            previous_heads: vec![],
+                        },
+                        tasks: vec![],
+                        complete: false,
+                        observed_at: "2026-09-12T00:00:00Z".into(),
+                    })
+                    .unwrap()
+                }
+                1 => {
+                    let mut value: serde_json::Value =
+                        serde_json::from_slice(&jobs[0].bytes).unwrap();
+                    value["query"]["complete"] = true.into();
+                    jobs[0].bytes = serde_json::to_vec(&value).unwrap();
+                }
+                2 => jobs[0].identity.repository.push_str("different"),
+                3 => jobs[0].identity.git_dir.push("different"),
+                4 => jobs[0].query_origin = None,
+                5 => jobs[0].query_origin = Some(QueryOrigin::Refused),
+                _ => jobs[0].bytes = b"malformed request".to_vec(),
+            }
+            let expected = jobs[0].bytes.clone();
+            let (sender, receiver) = mpsc::sync_channel(4);
+            for job in jobs {
+                sender.try_send(job).ok().unwrap();
+            }
+            let (group, pending) = collect_until(
+                first,
+                &receiver,
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            );
+            assert_eq!(group.len(), 1, "barrier kind {kind}");
+            let pending = pending.expect("first barrier retained");
+            assert_eq!(pending.bytes, expected);
+            let tail = [receiver.try_recv().unwrap(), receiver.try_recv().unwrap()];
+            assert!(receiver.try_recv().is_err());
+            assert_eq!(
+                memory.available_permits(),
+                0,
+                "pending jobs retain reservations"
+            );
+            drop((group, pending, tail, replies));
+            assert_eq!(
+                memory.available_permits(),
+                4 * protocol::EXCHANGE_RESERVATION
+            );
+        }
+    }
+
+    #[test]
+    fn expired_cutoff_leaves_identical_successor_for_a_fresh_observation() {
+        let (_fixture, mut jobs, replies, memory) = real_jobs(2);
+        let first = jobs.remove(0);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.try_send(jobs.remove(0)).ok().unwrap();
+        let (group, pending) = collect_until(first, &receiver, std::time::Instant::now());
+        assert_eq!(group.len(), 1);
+        assert!(pending.is_none());
+        let second = receiver.try_recv().unwrap();
+        drop(sender);
+        let mut calls = 0;
+        let mut execute = |_: &Identity, _: &[u8]| {
+            calls += 1;
+            Err(DevMapError::Store(format!("observation {calls}")))
+        };
+        run(group, &mut execute);
+        let (group, pending) = collect(second, &receiver);
+        assert!(pending.is_none());
+        run(group, &mut execute);
+        let completed = replies
+            .into_iter()
+            .map(|r| r.blocking_recv().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(calls, 2);
+        assert_ne!(completed[0].bytes, completed[1].bytes);
+        drop(completed);
+        assert_eq!(
+            memory.available_permits(),
+            2 * protocol::EXCHANGE_RESERVATION
+        );
+    }
+
+    #[test]
+    fn four_prequeued_queries_share_one_execution_and_four_reservations() {
+        let (_fixture, mut jobs, replies, memory) = real_jobs(4);
+        let first = jobs.remove(0);
+        let (sender, receiver) = mpsc::sync_channel(4);
+        for job in jobs {
+            sender.try_send(job).ok().unwrap();
+        }
+        let (group, pending) = collect_until(
+            first,
+            &receiver,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+        );
+        let count = group.len();
+        let mut calls = 0;
+        run(group, &mut |_, _| {
+            calls += 1;
+            Err(DevMapError::Store("cohort error".into()))
+        });
+        // No dropped request may disguise a missing cohort member.
+        assert_eq!(count, 4);
+        assert!(pending.is_none());
+        assert_eq!(calls, 1);
+        let completed = replies
+            .into_iter()
+            .map(|r| r.blocking_recv().unwrap())
+            .collect::<Vec<_>>();
+        assert!(completed.windows(2).all(|r| r[0].bytes == r[1].bytes));
+        assert_eq!(memory.available_permits(), 0);
+        drop(completed);
+        assert_eq!(
+            memory.available_permits(),
+            4 * protocol::EXCHANGE_RESERVATION
+        );
+    }
+
+    fn real_jobs(
+        count: usize,
+    ) -> (
         tempfile::TempDir,
         Vec<Job>,
         Vec<oneshot::Receiver<Completed>>,
@@ -178,9 +347,9 @@ mod tests {
             },
         })
         .unwrap();
-        let memory = Arc::new(Semaphore::new(2 * protocol::EXCHANGE_RESERVATION));
+        let memory = Arc::new(Semaphore::new(count * protocol::EXCHANGE_RESERVATION));
         let mut receivers = Vec::new();
-        let jobs = (0..2)
+        let jobs = (0..count)
             .map(|_| {
                 let (reply, receiver) = oneshot::channel();
                 receivers.push(receiver);
@@ -201,7 +370,7 @@ mod tests {
 
     #[test]
     fn disconnected_member_does_not_cancel_a_shared_real_projection() {
-        let (_fixture, jobs, mut receivers, memory) = real_pair();
+        let (_fixture, jobs, mut receivers, memory) = real_jobs(2);
         drop(receivers.remove(0));
         let mut app = None;
         let mut queries = super::super::super::query_validation::QueryValidation::default();
@@ -225,7 +394,7 @@ mod tests {
 
     #[test]
     fn origin_change_after_real_projection_refuses_every_member() {
-        let (fixture, jobs, receivers, memory) = real_pair();
+        let (fixture, jobs, receivers, memory) = real_jobs(2);
         let root = fixture.path().canonicalize().unwrap();
         let admin = root.join(".git");
         let saved = root.join("owned-saved-git");
