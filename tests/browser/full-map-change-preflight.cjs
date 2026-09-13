@@ -1,15 +1,18 @@
 'use strict';
-// Frozen-old public full-map change probe. Small tooling preflight, not calibration.
+// Frozen-old public full-map change probe; explicit preflight/calibration schedules.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {execFileSync,spawn}=require('node:child_process'),{setTimeout:delay}=require('node:timers/promises');
 const h=require('./shared-summary-performance.cjs'),{fingerprint}=require('./full-map-fingerprint.cjs');
 const {auditChangeModel,population}=require('./full-map-change-model.cjs');
+function schedule(mode='preflight'){assert(['preflight','calibration'].includes(mode));return mode==='calibration'?{warmups:10,measured:100,overall_ms:40*60*1000,job_ms:45*60*1000}:{warmups:2,measured:4,overall_ms:150000,job_ms:180000};}
 function qualifies(model,id,head,dirty,prior){
  const facts=model.workspace_facts?.find(f=>f.worktree_id===id);
  return facts?.head_oid===head&&facts.working_state===(dirty?'dirty':'clean')&&
   typeof model.generated_at==='string'&&facts.git_observed_at===model.generated_at&&Number.isSafeInteger(model.observation_revision)&&model.observation_revision>prior;
 }
 async function main(){
+ const mode=process.env.DEVMAP_CHANGE_MODE||'preflight',policy=schedule(mode),total=policy.warmups+policy.measured,overall=performance.now()+policy.overall_ms;
+ if(mode==='calibration'){assert(process.env.DEVMAP_CHANGE_SCALE_RECEIPT,'Calibration requires registered scale input');assert.equal(process.env.DEVMAP_CHANGE_FAIL_AT,undefined,'No injected failure in calibration');}
  const allowed=path.resolve(__dirname,'../../target/verification'),run=h.checked(process.env.DEVMAP_CHANGE_RUN,'directory').path;
  assert(h.within(run,allowed));assert.equal(fs.readdirSync(run).length,0,'Fresh empty owned output required');
  const exe=h.checked(process.env.DEVMAP_BASELINE_EXE,'file').path;assert(h.within(exe,allowed));
@@ -35,7 +38,8 @@ async function main(){
  verifyGit();assert.equal(git('ls-files','--error-unmatch','--',path.relative(source,probe).split(path.sep).join('/')),path.relative(source,probe).split(path.sep).join('/'));
  const report={scope:'four-client old-only full-map change tooling preflight; not A/A or candidate/absolute acceptance',run,source,baseline_sha256:sha,protocol:{clients:4,warmups:2,measured:4,cadence_ms:100,trial_ms:30000,start:'after probe write and fsync',end:'parsed public full-map response validates changed worktree, unchanged HEAD and newer observation'},trials:[],errors:[],completed:false};
  if(scale){report.scope='20-worktree 100-session 100000-event old-only full-map change preflight; not A/A or performance acceptance';report.scale_receipt=process.env.DEVMAP_CHANGE_SCALE_RECEIPT;report.scale_inventory_sha256=legacy.sha256;}
- report.trials=Array.from({length:6},(_,index)=>({index,phase:index<2?'warmup':'measured',dirty:index%2===0,status:'not-executed',clients:Array.from({length:4},(_,client)=>({client,status:'not-executed',polls:[]}))}));
+ report.mode=mode;Object.assign(report.protocol,policy);if(mode==='calibration')report.scope='one old-only scale change calibration arm; not candidate acceptance';
+ report.trials=Array.from({length:total},(_,index)=>({index,phase:index<policy.warmups?'warmup':'measured',dirty:index%2===0,status:'not-executed',clients:Array.from({length:4},(_,client)=>({client,status:'not-executed',polls:[]}))}));
  const failAt=process.env.DEVMAP_CHANGE_FAIL_AT===undefined?null:Number(process.env.DEVMAP_CHANGE_FAIL_AT);assert(failAt===null||(Number.isInteger(failAt)&&failAt>=0&&failAt<6));report.injected_failure_at=failAt;
  const ctx={children:[],verifyRun(){assert.deepEqual(h.checked(run,'directory'),runIdentity);},verifyFixture(){assert.deepEqual(h.checked(source,'directory'),sourceIdentity);},append(name,bytes){fs.appendFileSync(path.join(run,name),bytes);}};
  const clients=[];let expected=original,baselineHash,id,baselineRevision,baselineModels=[];
@@ -64,9 +68,10 @@ async function main(){
    baselineRevision??=model.revision;assert(Number.isSafeInteger(baselineRevision));baselineHash??=normalized(model,baselineRevision);assert.equal(normalized(model,baselineRevision),baselineHash);
   }
   report.baseline_model_sha256=baselineHash;
-  for(let trial=0;trial<6;trial++){
+  for(let trial=0;trial<total;trial++){
    const row=report.trials[trial];row.status='running';row.clients=clients.map((c,i)=>({client:i,prior:c.previousCycle,polls:[],status:'pending'}));
    try{
+    assert(performance.now()<overall,'Overall change measurement deadline');
     if(failAt===trial)throw new Error('Deliberate preflight trial failure');
     const start=rewrite(row.dirty),deadline=start+30000;row.change_completed_ms=start;
     for(let round=0;row.clients.some(c=>c.status==='pending');round++){
@@ -91,9 +96,10 @@ async function main(){
      const next=start+(Math.floor((performance.now()-start)/100)+1)*100;await delay(Math.max(0,Math.min(next,deadline)-performance.now()));
     }
     row.status='complete';
+    if((trial+1)%10===0)console.log(JSON.stringify({progress:{completed:trial+1,total,mode}}));
    }catch(e){row.status='failed';row.error=String(e.stack||e);for(const c of row.clients)if(c.status==='pending')c.status='not-converged';throw e;}finally{save();}
   }
-  for(let i=0;i<4;i++){const data=await read(clients[i],`final-${i}`);retain(data);assert.equal(normalized(data.model,baselineRevision+6),baselineHash,'Full clean model preserved after changes');}
+  for(let i=0;i<4;i++){const data=await read(clients[i],`final-${i}`);retain(data);assert.equal(normalized(data.model,baselineRevision+total),baselineHash,'Full clean model preserved after changes');}
  }catch(e){report.errors.push(String(e.stack||e));}
  finally{
   try{rewrite(false);verifyGit();assert.deepEqual(h.inventory(legacyRoots),legacy);assert(!fs.existsSync(path.join(source,'.git/devmap/devmap.db')));report.data_preserved=true;}catch(e){report.errors.push(`Preservation: ${e.stack||e}`);}
@@ -107,9 +113,9 @@ async function owned(){
  const run=fs.mkdtempSync(path.resolve(__dirname,'../../target/verification/full-map-change-'));
  const python=h.checked(process.env.DEVMAP_PYTHON_EXE,'file').path,jobPath=run+'.job.json';
  const child=spawn(python,[path.join(__dirname,'windows-owned-generator-job.py'),'--report',jobPath,'--exe',process.execPath,'--',__filename],{env:{...process.env,DEVMAP_CHANGE_RUN:run},windowsHide:true,stdio:['pipe','inherit','inherit']});
- let expired=false;const code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{expired=true;child.stdin.end('abort');},180000);child.stdin.on('error',()=>{});child.once('error',e=>{clearTimeout(timer);reject(e);});child.once('close',c=>{clearTimeout(timer);resolve(c);});});
+ let expired=false;const code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{expired=true;child.stdin.end('abort');},schedule(process.env.DEVMAP_CHANGE_MODE||'preflight').job_ms);child.stdin.on('error',()=>{});child.once('error',e=>{clearTimeout(timer);reject(e);});child.once('close',c=>{clearTimeout(timer);resolve(c);});});
  const job=JSON.parse(fs.readFileSync(jobPath));assert(!expired);assert.equal(code,0);assert.equal(job.root_exit_code,0);assert.equal(job.empty_confirmed,true);assert.equal(job.aborted,false);assert(!job.descendants_after_root_exit&&!job.error&&!job.cleanup_error);
  console.log(JSON.stringify({run,job:jobPath,strict_job_passed:true}));
 }
 if(require.main===module)(process.argv[2]==='--owned'?owned():main()).catch(e=>{console.error(e);process.exitCode=1;});
-module.exports={qualifies};
+module.exports={qualifies,schedule};
