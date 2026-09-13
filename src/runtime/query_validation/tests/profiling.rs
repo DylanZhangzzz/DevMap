@@ -135,6 +135,39 @@ fn owned_schema2_query_stage_profile() {
         .unwrap();
     assert_eq!(version, 2);
     match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
+        Ok(mode) if mode == "cold_projection_phases" => {
+            drop(store);
+            let query = crate::application::ClientView::new(workspace.clone())
+                .query_input()
+                .unwrap();
+            for iteration in 0..3 {
+                let mut harness = QueryHarness::new(id.clone(), query.clone());
+                let (first, _) = measured("cold_query_total", iteration, || harness.call());
+                assert_eq!(
+                    first.model.current_worktree_id,
+                    receipt["current_worktree_id"].as_str().unwrap()
+                );
+                harness.max_age(Duration::from_secs(60));
+                QueryConfiguration::test_reset_source_capture_count();
+                let (mut replay, starts) = harness.call();
+                assert_eq!(starts, 0);
+                assert_eq!(QueryConfiguration::test_source_capture_count(), 2);
+                replay.model.generated_at = first.model.generated_at.clone();
+                assert_eq!(
+                    serde_json::to_value(&replay).unwrap(),
+                    serde_json::to_value(&first).unwrap()
+                );
+                println!(
+                    "{}",
+                    serde_json::json!({"diagnostic":"cold-projection-roundtrip/1", "iteration":iteration})
+                );
+            }
+            assert_eq!(
+                format!("{:x}", Sha256::digest(fs::read(receipt_path).unwrap())),
+                receipt_sha
+            );
+            return;
+        }
         Ok(mode)
             if matches!(
                 mode.as_str(),

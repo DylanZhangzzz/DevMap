@@ -13,6 +13,13 @@ impl Clock {
         Self::selected("boundary_phases", "query-boundary-phase/1", true)
     }
     pub(super) fn projection(enabled: bool) -> Self {
+        if std::env::var("DEVMAP_QUERY_PROFILE_MODE").as_deref() == Ok("cold_projection_phases") {
+            return Self::selected(
+                "cold_projection_phases",
+                "cold-projection-phase/1",
+                !enabled,
+            );
+        }
         Self::selected("projection_phases", "query-projection-phase/1", enabled)
     }
     pub(crate) fn storage(enabled: bool) -> Self {
