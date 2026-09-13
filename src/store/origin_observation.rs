@@ -392,7 +392,76 @@ fn profile_manifest_file_io(
         "profile_manifest_files={} profile_manifest_bytes={total}",
         manifest.files.len()
     );
+    #[cfg(windows)]
+    if std::env::var("DEVMAP_QUERY_PROFILE_NOREPARSE").as_deref() == Ok("1") {
+        profile_noreparse_files(manifest, report)?;
+    }
     Ok(())
+}
+
+/// Same full-file corpus and hashing loop, alternating original/prototype ABBA.
+/// Called only after the independent serial manifest validation above succeeds.
+#[cfg(all(test, windows))]
+fn profile_noreparse_files(
+    manifest: &FrozenManifest,
+    report: &mut impl FnMut(&'static str, u128, usize),
+) -> Result<(), DevMapError> {
+    for native in [false, true, true, false] {
+        let start = std::time::Instant::now();
+        let mut total = 0u64;
+        for expected in &manifest.files {
+            let path = manifest.origins[expected.origin]
+                .git_dir
+                .join("devmap")
+                .join(&expected.relative);
+            let (bytes, hash) = if native {
+                let file = probe_inventory_file(&path)?;
+                inventory_hash_reader(file, MAX_BYTES - total)?
+            } else {
+                inventory_hash(&path, MAX_BYTES - total)?
+            };
+            if bytes != expected.bytes || hash != expected.sha256 {
+                return Err(fail("noreparse profile full file bytes/hash mismatch"));
+            }
+            total += bytes;
+        }
+        report(
+            if native {
+                "manifest_files_noreparse_open_full_hash"
+            } else {
+                "manifest_files_original_open_full_hash"
+            },
+            start.elapsed().as_micros(),
+            0,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+fn probe_inventory_file(path: &Path) -> Result<fs::File, DevMapError> {
+    let file = safe::noreparse_probe::checked_file(path)?;
+    if super::super::link_count(&file)? != 1 {
+        return Err(fail("hard-linked legacy artifact refused"));
+    }
+    Ok(file)
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn noreparse_inventory_probe_rejects_both_names_of_a_hard_link() {
+    let owned = tempfile::tempdir().unwrap();
+    let path = owned.path().join("payload");
+    let alias = owned.path().join("alias");
+    fs::write(&path, b"same file").unwrap();
+    assert!(probe_inventory_file(&path).is_ok());
+    fs::hard_link(&path, &alias).unwrap();
+    for name in [path, alias] {
+        assert_eq!(
+            probe_inventory_file(&name).unwrap_err().to_string(),
+            fail("hard-linked legacy artifact refused").to_string()
+        );
+    }
 }
 
 fn pointer_text(path: &Path) -> Result<String, DevMapError> {

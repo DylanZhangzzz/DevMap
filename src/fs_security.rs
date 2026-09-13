@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 
 use crate::error::DevMapError;
 
+#[cfg(all(test, windows))]
+pub(crate) mod noreparse_probe;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
     pub kind: &'static str,
