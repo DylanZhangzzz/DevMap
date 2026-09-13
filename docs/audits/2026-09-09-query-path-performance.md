@@ -860,3 +860,15 @@ After both roots terminated, ABBA root 48644 compared baseline C0D743F3 and cand
 Collection diagnostics now use one topology_and_relationships stage, five total stages instead of seven. Candidate run PHvoLx passed three stable full-collection comparisons, preservation and Job checks, with totals 1702.411/1726.270/1694.611 ms. Nested relationship Git counters include simultaneous topology starts because the counter is process-wide: do not attribute them exclusively to relationship commands or add them to parent counts. Parent and child timings overlap. Root 48644 exited 0 after this run.
 
 Actual CLI E1C7C435 still contains preceding production 98205f5. Full candidate Rust/browser/host/resource and formal latency/freshness gates remain open. Evidence: target/verification/task6-collection-overlap-{tests,supervision,clippy,build,application}.log, task6-collection-overlap-abba-{0,1,2,3}.log, task6-collection-overlap-abba-statistics.json and task6-collection-overlap-phases.log.
+
+### Actual CLI smoke after shared collection overlap (fb3d5e5)
+
+Release build root 51954 exited 0 after 72 seconds. Actual candidate SHA-256 F404A756F6DBD8A41A1523F0FCD65BC94D20419D4C6F327EF525A8B446C5F83D is copied to target/verification/task6-candidate-fb3d5e5/devmap.exe. Smoke root 68239 exited 0, run shared-summary-JQwzd2, unchanged scale fixture and owned C-drive run parent.
+
+Cold observations were 4182.234/4129.635 ms. Owner readiness was 298.629/229.014 ms, client initialization 269.161/264.866 ms and first request 3585.586/3609.316 ms; the remaining interval is outside those component timers. Four clients, three measured hot requests each, gave p95 250.067/246.695/249.042/245.412 ms. Maximum result remained 8781 bytes. Both gates failed. These low-count observations are not a controlled CLI comparison and cannot establish the size of an end-to-end gain.
+
+Read-cohort preservation and final SQL/immutable assertions passed. Errors and cleanup errors were empty; all nine owned children have terminal harness-stop records. Single small-change and restoration observations were 3759.546/3768.037 ms, with the fixture restored; this is not formal freshness acceptance. Overall performance acceptance remains false. Full candidate Rust/browser/host/resource verification remains pending.
+
+Next bounded investigation: after merge-base validation, relationship_for_observed currently reads tag metadata, commit metadata and rev-list counts serially. Their inputs are available together. Consider overlapping these existing reads for the immutable shared representative, preserving typed output checks, ordinary error order, tag witnesses and fatal supervision. Do not infer zero counts merely from equal object IDs: omitting a Git command would require separate error-equivalence evidence. Source inspection also found client startup includes SourceGitInspector plus runtime identity acquisition; their measured contribution is not isolated here.
+
+Evidence: target/verification/task6-fb3d5e5-cli-build.log, task6-fb3d5e5-cdrive-smoke-config.json, task6-fb3d5e5-cdrive-smoke.log and shared-summary-JQwzd2/report.json. No owned roots remain live.
