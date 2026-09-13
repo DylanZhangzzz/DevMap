@@ -315,6 +315,8 @@ fn validate_config(
             || value.chars().any(char::is_control)
             || !admitted_key(key, value)
         {
+            #[cfg(test)]
+            eprintln!("unreviewed config key: {key}");
             return Err(decline());
         }
     }

@@ -19,9 +19,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Report runner system configuration keys
-        run: |
-          git config --system --name-only --list | while read -r key; do echo "::notice::system Git key: $key"; done
       - name: Install Rust
         run: rustup toolchain install 1.96.1 --profile minimal --component rustfmt --component clippy
       - name: Rust formatting
