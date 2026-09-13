@@ -26,6 +26,8 @@
 
 后续 [dfQYX8 新 worktree 检查](2026-09-13-added-worktree-storage.md)已证明本例激活后的新会话写入只进入共用 SQL，主工作区原旧文件不增长，新 worktree 管理目录下无 DevMap 文件。它补充活跃存储合并的实际证据，不是全盘文件减少或宿主配置继承通过声明。
 
+补充 Pvxl6B 原生配置对照：旧 A1CF 与新 25BF 均只在主工作区配置后，旁侧新增 worktree verify 仍缺少 10 个绑定，plan 指向新 worktree 自身配置。这是相同的配置边界；宿主层覆盖尚未证明，不能写成零接入动作。两者安装均产生一个 adapter-install.lock；上述 13→19 存储样例未安装 adapter，因此该锁不应追加入旧样例计数，但完整安装账本必须纳入。
+
 证据：target/verification/stage1-native-create.log、stage1-native-export.log、stage1-native-exe-sha.txt、stage1-storage-file-inventory.json；样例目录 target/verification/legacy-process-cXQcFM。样例目前保持迁移后状态，尚未执行旧写入破坏测试，不要将其他已故意制造分歧的样例重新导入。
 
 ## 必须补齐的用户与运行时对比

@@ -36,6 +36,8 @@
 
 新增 [worktree 存储接入](2026-09-13-added-worktree-storage.md) dfQYX8：25BF 在迁移后新增 worktree，无单独建库即写入同一物理 DB，事件正确归属；旧文件/备份保持、新 worktree 下无 DevMap 文件、verify 通过。只关闭该原生存储场景，宿主 hook 继承与自动触发仍未证明。
 
+后续同页 Pvxl6B 项目 adapter 对照通过：A1CF 与 25BF 在主工作区安装后，旁侧新增 worktree 均 configured=false、缺少 10 个绑定，配置计划指向其自身文件。确认此边界不是新版本回归；不证明宿主自动发现，不关闭日常接入门槛。两边均留下一个 adapter-install.lock，已补入账本说明。
+
 ## 公共端点工具预检（不用于延迟验收）
 
 2026-09-13，冻结旧程序 A1CFBB1C 在两工作区样例的保留旧存储上通过 process-performance.cjs 的 devmap_read_map 往返：2 冷样本、1 预热、3 热样本，脚本正常退出，MCP 子进程关闭断言通过。冷样本 1805.894/1863.271 ms，热 p95 572.412 ms，完整响应最大 11490 B。之后再次核验旧 13 个文件 SHA 全部未变。
