@@ -52,7 +52,7 @@ class Element {
   scrollTo(options) { this.scrollLeft = options.left ?? this.scrollLeft; this.scrollTop = options.top ?? this.scrollTop; }
   focus() {}
 }
-function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl, taskFragment = '' } = {}) {
+function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl, taskFragment = '', clipboard } = {}) {
   const ids = new Map(); const events = {};
   const clock = { value: nowMs }; const timers = new Map(); let nextTimer = 1;
   class ClockDate extends Date { static now() { return clock.value; } }
@@ -72,7 +72,7 @@ function harness({ textScale = 1, mode = 'mcp', nowMs = now, fetchImpl, taskFrag
   script = script.replace('if (transport === "mcp") initializeMcp(); else { fetchSnapshot(); connectEvents(); } scheduleAge();', '');
   const last = script.lastIndexOf('})();');
   script = script.slice(0, last) + 'globalThis.renderer = { acceptSnapshot, renderSnapshot, inspectWorkspace: id => openFullWorkspace(id || lastSnapshot.current_worktree_id), refreshDynamicState: typeof refreshDynamicState === "function" ? refreshDynamicState : () => { throw new Error("refreshDynamicState missing"); }, explorationState: () => ({ selectedWorkspaceId: typeof selectedWorkspaceId === "undefined" ? undefined : selectedWorkspaceId, selectedTaskId: typeof selectedTaskId === "undefined" ? undefined : selectedTaskId, expandedWorkspaces: [...expandedWorkspaces], expandedConversationHistory: [...expandedConversationHistory], viewportPosition: typeof viewportPosition === "undefined" ? undefined : { ...viewportPosition } }) };' + script.slice(last);
-  const context = vm.createContext({ document, window, navigator: {}, console, Date: ClockDate, fetch: fetchImpl,
+  const context = vm.createContext({ document, window, navigator: {clipboard}, console, Date: ClockDate, fetch: fetchImpl,
     setTimeout: cb => { const id = nextTimer++; timers.set(id, cb); return id; }, clearTimeout: id => timers.delete(id),
     requestAnimationFrame: cb => cb(), ResizeObserver: class { observe() {} disconnect() {} } });
   vm.runInContext(script, context);
@@ -259,7 +259,7 @@ test('inline refresh preserves scroll but switching resets it and missing task f
   map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id).listeners.click();
   map.querySelector('.workspace-summary').scrollTop=190;
   map.querySelector('.workspace-summary').querySelector('.task-node').focus();
-  const changed=structuredClone(value); changed.observation_revision++; changed.lanes[0].chats[0].lifecycle='archived';
+  const changed=structuredClone(value); changed.observation_revision++; changed.lanes[0].chats.shift();
   assert.equal(ui.acceptSnapshot(changed),true);
   assert.equal(map.querySelector('.workspace-summary').scrollTop,190);
   assert.equal(ui.document.activeElement.className,'workspace-summary');
@@ -287,17 +287,19 @@ test('inline workspace summary toggles, preserves history and hands off to full 
   assert.equal(map.querySelectorAll('.workspace-summary').length,1);
   assert.equal(ui.ids.get('selection-details').hidden,true);
   assert.equal(stop().getAttribute('aria-expanded'),'true');
-  assert.equal(map.querySelector('.workspace-summary').querySelectorAll('.task-node').length,2);
+  assert.equal(map.querySelector('.workspace-summary').querySelectorAll('.task-node').length,5);
+  assert.equal(map.querySelector('.summary-details'),null);
+  assert.equal(map.querySelectorAll('.copy-field').length,3);
   assert.equal(JSON.stringify(map.metroLayout.nodes),initial);
   assert.equal(JSON.stringify(map.metroLayout.edges),edges);
   const viewport=ui.explorationState().viewportPosition;
   const summary=map.querySelector('.workspace-summary'); summary.scrollTop=37;
-  summary.querySelector('.summary-details').focus(); ui.refreshDynamicState();
+  summary.querySelector('.copy-field').focus(); ui.refreshDynamicState();
   assert.equal(map.querySelector('.workspace-summary').scrollTop,37);
-  assert.equal(ui.document.activeElement.className,'summary-details');
+  assert.equal(ui.document.activeElement.className,'copy-field');
   ui.acceptSnapshot({...value,observation_revision:10});
   assert.deepEqual(ui.explorationState().viewportPosition,viewport);
-  map.querySelector('.summary-details').listeners.click();
+  ui.inspectWorkspace();
   assert.equal(ui.ids.get('selection-details').hidden,false);
   assert.equal(map.querySelectorAll('.workspace-summary').length,0);
   stop().listeners.click(); stop().listeners.click();
@@ -371,8 +373,8 @@ test('planned destination remains separate and selected with an explicit retaine
 test('shared workspace cards preserve exact details controls on refresh', () => {
   const ui=harness(),value=snapshot();ui.acceptSnapshot(value);
   const map=ui.ids.get('relationship-map'),card=map.querySelectorAll('.route-platform')[1];
-  card.listeners.click();map.querySelector('.summary-details').focus();ui.refreshDynamicState();
-  assert.equal(ui.document.activeElement.dataset.objectId,'summary-details:'+card.dataset.worktreeId);
+  card.listeners.click();map.querySelector('.copy-field').focus();ui.refreshDynamicState();
+  assert.equal(ui.document.activeElement.dataset.objectId,'copy-branch:'+card.dataset.worktreeId);
   ui.ids.get('overview-toggle').listeners.click();ui.refreshDynamicState();
   assert.equal(ui.ids.get('overview-workspaces').hidden,false);
 });
@@ -413,7 +415,7 @@ test('route map starts with compact platforms and opens passenger details outsid
   const platform=map.querySelector('[data-worktree-id]'); assert.ok(platform);
   const before=JSON.stringify(map.metroLayout);
   platform.listeners.click();
-  map.querySelector('.summary-details').listeners.click();
+  ui.inspectWorkspace();
   const details=ui.ids.get('selection-details');
   assert.equal(details.hidden,false); assert.ok(details.querySelector('.task-node'));
   const expand=details.querySelector('.task-disclosure'); expand.listeners.click();
@@ -430,7 +432,7 @@ test('opening a platform locates it after the inspector reduces the map viewport
   const surface=ui.ids.get('relationship-map');
   const platform=surface.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id);
   platform.listeners.click();
-  surface.querySelector('.summary-details').listeners.click();
+  ui.inspectWorkspace();
   const a=surface.metroLayout.attachments.find(a=>a.worktree_id===value.current_worktree_id);
   assert.equal(details.hidden,false);
   assert.ok(16+a.y>=viewport.scrollTop&&16+a.y+150<=viewport.scrollTop+viewport.clientHeight,'workspace identity and first chat stay visible above the inspector');
@@ -751,13 +753,16 @@ test('overview retains actual topology and unscaled planned arrival controls', (
   assert.equal(ui.explorationState().selectedWorkspaceId, value.current_worktree_id);
 });
 
-test('overview station activation transfers keyboard focus to the detailed station', () => {
+test('overview station activation focuses inspector controls and close returns to the station', () => {
   const ui = harness(), value = snapshot(); ui.acceptSnapshot(value); ui.ids.get('zoom-fit').listeners.click();
   const station = ui.ids.get('relationship-map').querySelector('.route-station'); station.focus(); station.listeners.click();
   assert.equal(ui.ids.get('relationship-map').dataset.scale, '1');
-  assert.equal(ui.document.activeElement.dataset.objectId, 'commit:' + station.dataset.commitOid);
+  assert.equal(ui.document.activeElement.className, 'dismiss-details');
   ui.acceptSnapshot({...value,observation_revision:10});
-  assert.equal(ui.document.activeElement.dataset.objectId, 'commit:' + station.dataset.commitOid);
+  assert.equal(ui.document.activeElement.className, 'dismiss-details');
+  ui.ids.get('selection-details').querySelector('.dismiss-details').listeners.click();
+  assert.equal(ui.document.activeElement.dataset.objectId,'commit:'+station.dataset.commitOid);
+  assert.equal(ui.document.activeElement.getAttribute('aria-current'),null);
 });
 
 test('overview workspace activation zooms to that exact checkout without opening a task', () => {
@@ -1683,4 +1688,23 @@ test('initial view and Agent locator reveal reported chat card without an inspec
  ui.ids.get('locate-agent').listeners.click();
  assert.equal(ui.ids.get('selection-details').hidden,true,'locating must leave chat card unobscured');
  assert.equal(ui.explorationState().selectedWorkspaceId,lane.worktree_id);
+});
+
+test('inline copy controls preserve exact values and report clipboard failure', async () => {
+ const copied=[],ui=harness({clipboard:{writeText:async value=>copied.push(value)}}),value=snapshot();ui.acceptSnapshot(value);
+ const lane=value.lanes.find(l=>l.worktree_id===value.current_worktree_id);
+ ui.ids.get('relationship-map').querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===lane.worktree_id).listeners.click();
+ const panel=ui.ids.get('relationship-map').querySelector('.workspace-summary');
+ for(const button of panel.querySelectorAll('.copy-field')){await button.listeners.click();assert.equal(button.textContent,'Copied');}
+ assert.deepEqual(copied,[lane.branch,value.workspace_facts.find(f=>f.worktree_id===lane.worktree_id).head_oid||lane.head,lane.workspace_path]);assert.equal(panel.querySelector('.summary-details'),null);
+ const denied=harness({clipboard:{writeText:async()=>{throw new Error('denied')}}});denied.acceptSnapshot(value);denied.ids.get('relationship-map').querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===lane.worktree_id).listeners.click();
+ const button=denied.ids.get('relationship-map').querySelector('.copy-field');await button.listeners.click();assert.equal(button.textContent,'Retry');assert.ok(button.parentNode.textContent.includes(lane.branch));
+});
+
+test('copy feedback survives refresh and duplicate clicks share the pending write',async()=>{
+ let resolve,writes=0;const ui=harness({clipboard:{writeText:()=>{writes++;return new Promise(r=>resolve=r)}}}),value=snapshot();ui.acceptSnapshot(value);
+ const map=ui.ids.get('relationship-map');map.querySelectorAll('.route-platform').find(n=>n.dataset.worktreeId===value.current_worktree_id).listeners.click();
+ const first=map.querySelector('.copy-field'),pending=first.listeners.click();first.listeners.click();assert.equal(writes,1);assert(first.disabled);
+ ui.refreshDynamicState();assert(map.querySelector('.copy-field').disabled);resolve();await pending;ui.refreshDynamicState();assert.equal(map.querySelector('.copy-field').textContent,'Copied');
+ ui.runTimer([...ui.timers.keys()].at(-1));assert.equal(map.querySelector('.copy-field').textContent,'Copy');
 });

@@ -936,3 +936,15 @@ test('route plans are bounded intent and cannot impersonate repository facts', (
   value.route_plans = [plan, plan];
   assert.equal(validateSnapshot(value).valid, false);
 });
+
+test('measured expanded cards reserve their full content height without overlaps', () => {
+ const {layoutRouteMap}=require(CORE_PATH),fixture=require('./fixtures/metro/topology.json');
+ const id=fixture.attachments[0].worktree_id;
+ for(const vertical of [true,false])for(const height of [640,1800]){
+  const result=layoutRouteMap(fixture.graph,fixture.attachments,{width:420,vertical,workspaceCards:true,cardHeights:Object.fromEntries(fixture.attachments.map(a=>[a.worktree_id,360])),expandedWorktreeId:id,expandedHeight:height});
+  assert.equal(result.attachments.find(a=>a.worktree_id===id).height,360+height);
+  for(let i=0;i<result.attachments.length;i++)for(let j=i+1;j<result.attachments.length;j++){
+   const a=result.attachments[i],b=result.attachments[j];assert(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y);
+  }
+ }
+});

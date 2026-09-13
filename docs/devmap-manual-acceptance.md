@@ -5,9 +5,9 @@
 ## 构件与代码
 
 - 分支：`codex/devmap-sqlite-compatible`。
-- 生产源码版本：`5dd8288`；之后的提交未修改生产源码。
-- Windows 程序：`target/verification/task6-candidate-5dd8288/devmap.exe`，大小 9901056 字节。
-- SHA-256：`25BF6631EF7387E524744A1B2B8CCE01B76D54C58CDB897353ACC5D042DFADEC`。
+- 后端基线：`5dd8288`；当前候选叠加本次工作区详情布局、复制按钮和分支遗漏 UI 修复。详见[分支核对记录](audits/2026-09-13-visible-workspace-branch-review.md)。
+- Windows 程序：`target/verification/commit-steady/devmap.exe`，大小 9907712 字节。
+- SHA-256：`685B74848617E1E8D85A2B0FFA0E51ACFB095ED273CD7C5484FDFEE5066BECD8`。
 - `--version` 为 `devmap 0.1.1`，与旧版相同；区分候选请用路径和哈希。
 
 已实现仓库共用 SQLite、按需共享核心、旧存储受控迁移/验证/备份、幂等与恢复保护、兼容全量地图和分页摘要。网页保持原有界面，另修复刷新/重连时选中状态保持。Codex SessionEnd 安装定义显式使用 3 秒超时。
@@ -17,7 +17,7 @@
 在 PowerShell 中执行，最后的仓库路径换成希望查看的本地 Git 仓库：
 
 ```powershell
-& 'C:\Users\user\Documents\ChatGPT\AI auto-git context\.worktrees\devmap-sqlite-compatible\target\verification\task6-candidate-5dd8288\devmap.exe' view --live --source 'C:\path\to\repository'
+& 'C:\Users\user\Documents\ChatGPT\AI auto-git context\.worktrees\devmap-sqlite-compatible\target\verification\commit-steady\devmap.exe' view --live --source 'C:\path\to\repository'
 ```
 
 保持该终端运行，将输出的完整本地 URL 打开到 Codex 内嵌浏览器。结束本次查看时在终端按 Ctrl+C。此命令不替换已安装插件。原有指南页可继续保留。
@@ -51,4 +51,12 @@ SQLite 不是运行时只有一个文件；旧原件、备份、WAL/SHM、安全
 
 当前状态：代码可供人工试用；用户尚未给出验收结论。未自动合并、推送、安装、发布或切换真实用户库。
 
-交付核验记录：`target/verification/manual-handoff-TqU0GL/report.json`。该记录确认生产源码与构件来源对应、程序哈希/版本、四个 CLI 入口帮助和本说明的本地链接；没有将其当作功能或性能验收。
+原 25BF 构件的交付核验记录：`target/verification/manual-handoff-TqU0GL/report.json`。当前界面构件的浏览器检查：`target/verification/manual-details-final/browser-check.json`。该记录确认生产源码与构件来源对应、程序哈希/版本、四个 CLI 入口帮助和本说明的本地链接；没有将其当作功能或性能验收。
+
+滚动修复：聊天卡和展开详情按内容自然增高，由地图统一承接滚轮；显示更多聊天仍为显式操作。105 项渲染检查、97 项几何检查通过。420/900 px 真实浏览器中，在聊天与详情上分别滚动 180 px 均移动外层地图 180 px，内部没有溢出或滚动截留。证据：target/verification/scroll-preview/browser-check.json。
+
+控件优化：106 项渲染/交互检查通过；当前构件在 420/900 px 浏览器中验证三种字段复制、刷新中的反馈保留、键盘展开、缩放/方向/定位/平移、分支 HEAD 详情、详情尺寸与折叠、搜索关闭、44 px commit 点击区域与焦点返回。无页面脚本错误；HTML 200662 字节，保留 196 KiB 上限。详见 [控件检查](audits/2026-09-13-controls-review.md) 和 target/verification/button-final/browser-check.json。
+
+Commit 详情优化：选中标记缩小到节点本身，44 px 点击区域保留；详情按节点位置与地图边界定位并显示连接线，窄屏限制高度以保留节点，标题/哈希/操作支持换行。106 项渲染检查通过；973/420 px 实际浏览器没有脚本错误或横向溢出，详情位于地图内。证据：target/verification/commit-final/check.json 与两张 commit 截图。当前 HTML 203337 字节；新增定位/连接逻辑后资源预算从 196 KiB 调整为 200 KiB，没有删除源码注释来规避预算。该构件待用户人工验收。
+
+点击 commit 稳定性修复：移除对已点击节点再次 locate 的滚动，同步计算面板位置后转移焦点；窄屏根据节点上下空余空间限制面板高度。106 项渲染检查通过；973/420 px 分别记录 199/205 帧，点击及后续刷新期间页面和地图滚动坐标不变，连接线可见、无横向溢出或页面脚本错误。证据：target/verification/commit-steady/check.json。当前预览待人工确认实际侧栏手感。

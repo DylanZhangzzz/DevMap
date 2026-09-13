@@ -27,230 +27,231 @@ THE SOFTWARE.
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DevMap · Rail View — Repository topology</title>
-  <style>
-    :root {
-      color-scheme:light;
-      --bg:#f7f8fa;--bg-canvas:#ffffff;--surface:#ffffff;--surface-raised:#edf0f4;
-      --line:#8792a2;--line-soft:#dfe4eb;--text:#202938;--muted:#596579;
-      --main-rail:#202124;--branch-red:#e32017;--branch-blue:#003688;--branch-green:#00782a;
-      --branch-yellow:#ffd300;--branch-cyan:#0098d4;--branch-magenta:#9b0056;
-      --accent:#245bb2;--accent-soft:#edf3fd;--success:#176b38;--warning:#8a4b00;
-      --danger:#b42318;--unknown:#4f5b6c;--focus:#005bbb;--keyline:#4f5b6c;
-   }
-    * {box-sizing:border-box;}
-    html, body {margin:0;min-width:0;min-height:100%;background:var(--bg);color:var(--text);}
-    html {container-type:inline-size;container-name:dock;}
-    body {font:.875rem/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;-webkit-font-smoothing:antialiased;}
-    button, input {font:inherit;color:inherit;}
-    button {min-height:44px;padding:8px 10px;border:1px solid transparent;background:transparent;text-align:left;cursor:pointer;touch-action:manipulation;}
-    button:hover {background:var(--surface-raised);}
-    button:active {background:var(--accent-soft);}
-    button:disabled {cursor:wait;color:var(--muted);}
-    button:focus-visible, a:focus-visible, input:focus-visible, .worktree-cluster:focus-visible {outline:3px solid var(--focus);outline-offset:2px;}
-    [aria-current="true"] {outline:2px solid var(--focus);outline-offset:2px;}
-    [hidden] {display:none !important;}
-    ::selection {background:var(--accent-soft);color:var(--text);}
-    .skip-link {position:fixed;z-index:20;top:8px;left:8px;padding:8px 12px;transform:translateY(-160%);background:var(--text);color:var(--surface);}
-    .skip-link:focus {transform:translateY(0);}
-    .shell {width:min(1440px, 100%);height:100dvh;margin:0 auto;padding:8px 16px 4px;display:flex;flex-direction:column;}
-    #dock-main, .map-frame {flex:1;min-height:0;display:flex;flex-direction:column;}
-    .masthead {padding-bottom:0;display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;margin:0;}
-    .masthead-actions {display:flex;align-items:center;gap:8px;min-width:0;}
-    .refresh-status {margin:0;font-size:.75rem;color:var(--muted);}
-    .observation-strip {flex:none;display:flex;flex-wrap:wrap;gap:2px 12px;padding:4px 0 6px;border-bottom:1px solid var(--line-soft);}
-    .observation-strip p {margin:0;font-size:.75rem;overflow-wrap:anywhere;}
-    #agent-location {flex-basis:100%;color:var(--muted);}
-    #task-inventory[data-stale="true"] {color:var(--warning);font-weight:600;}
-    .connection, .task-inventory, .subhead, .meta {margin:0;color:var(--muted);font-size:.75rem;}
-    .connection {color:var(--success);} .connection.offline {color:var(--warning);}
-    .refresh, .control {border:1px solid var(--line-soft);border-radius:7px;background:var(--surface);box-shadow:0 1px 2px #20293806;}
-    .map-frame {min-width:0;}
-    h1 {margin:0;font-size:1rem;line-height:1.25;font-weight:700;letter-spacing:-.02em;}
-    .attention-list {display:flex;flex-wrap:wrap;gap:4px 8px;max-height:22vh;overflow:auto;}
-    .attention-summary summary, .edge-wayfinding summary, .observation-details summary {cursor:pointer;min-height:32px;padding:4px 0;}
-    .attention-summary {flex:none;margin:4px 0 0;font-size:.75rem;color:var(--muted);}
-    .observation-details {font-size:.75rem;color:var(--muted);}
-    .observation-panel {position:absolute;z-index:10;right:0;top:100%;width:min(440px,100%);max-height:50dvh;overflow:auto;padding:8px 12px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface);box-shadow:0 6px 18px #20293814;}
-    .masthead {position:relative;}
-    .observation-panel p {overflow-wrap:anywhere;}
-    .attention-link {display:inline-flex;align-items:center;gap:8px;color:var(--warning);}
-    .status-icon {flex:none;width:16px;height:16px;vertical-align:-.2em;}
-    .coverage, .warnings, .interaction-feedback {margin:8px 0;color:var(--muted);font-size:.75rem;overflow-wrap:anywhere;}
-    .coverage {color:var(--warning);}
-    .map-navigation {display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:6px 0;flex:none;font-size:.8125rem;}
-    .map-navigation > * {flex:none;}
-    .map-navigation .control {padding:4px 8px;}
-    .map-tools {display:contents;}
-    .map-tools > summary {min-height:44px;padding:10px 8px;cursor:pointer;}
+  <style>:root{color-scheme:light;--bg:#f7f8fa;--bg-canvas:#ffffff;--surface:#ffffff;--surface-raised:#edf0f4;--line:#8792a2;--line-soft:#dfe4eb;--text:#202938;--muted:#596579;--main-rail:#202124;--branch-red:#e32017;--branch-blue:#003688;--branch-green:#00782a;--branch-yellow:#ffd300;--branch-cyan:#0098d4;--branch-magenta:#9b0056;--accent:#245bb2;--accent-soft:#edf3fd;--success:#176b38;--warning:#8a4b00;--danger:#b42318;--unknown:#4f5b6c;--focus:#005bbb;--keyline:#4f5b6c;}
+    *{box-sizing:border-box;}
+    html,body{margin:0;min-width:0;min-height:100%;background:var(--bg);color:var(--text);}
+    html{container-type:inline-size;container-name:dock;}
+    body{font:.875rem/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;}
+    button,input{font:inherit;color:inherit;}
+    button{min-height:44px;padding:8px 10px;border:1px solid transparent;background:transparent;text-align:left;cursor:pointer;touch-action:manipulation;}
+    button:hover{background:var(--surface-raised);}
+    button:active{background:var(--accent-soft);}
+    button:disabled{cursor:not-allowed;color:var(--muted);}
+    button[aria-busy="true"]{cursor:progress;}
+    button:hover:disabled{background:transparent;}
+    summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+    .copy-field:hover,.branch-choice:hover{border-color:var(--accent);}
+    .route-station{border-radius:50%;}
+    .platform-details:hover,.platform-more:hover{text-decoration:underline;text-underline-offset:3px;}
+    button:focus-visible,a:focus-visible,input:focus-visible,.worktree-cluster:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+    [aria-current="true"]{outline:2px solid var(--focus);outline-offset:2px;}
+    [hidden]{display:none !important;}
+    ::selection{background:var(--accent-soft);color:var(--text);}
+    .skip-link{position:fixed;z-index:20;top:8px;left:8px;padding:8px 12px;transform:translateY(-160%);background:var(--text);color:var(--surface);}
+    .skip-link:focus{transform:translateY(0);}
+    .shell{width:min(1440px,100%);height:100dvh;margin:0 auto;padding:8px 16px 4px;display:flex;flex-direction:column;}
+    #dock-main,.map-frame{flex:1;min-height:0;display:flex;flex-direction:column;}
+    .masthead{padding-bottom:0;display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;margin:0;}
+    .masthead-actions{display:flex;align-items:center;gap:8px;min-width:0;}
+    .refresh-status{margin:0;font-size:.75rem;color:var(--muted);}
+    .observation-strip{flex:none;display:flex;flex-wrap:wrap;gap:2px 12px;padding:4px 0 6px;border-bottom:1px solid var(--line-soft);}
+    .observation-strip p{margin:0;font-size:.75rem;overflow-wrap:anywhere;}
+    #agent-location{flex-basis:100%;color:var(--muted);}
+    #task-inventory[data-stale="true"]{color:var(--warning);font-weight:600;}
+    .connection,.task-inventory,.subhead,.meta{margin:0;color:var(--muted);font-size:.75rem;}
+    .connection{color:var(--success);}
+    .connection.offline{color:var(--warning);}
+    .refresh,.control{border:1px solid var(--line-soft);border-radius:7px;background:var(--surface);box-shadow:0 1px 2px #20293806;}
+    .map-frame{min-width:0;}
+    h1{margin:0;font-size:1rem;line-height:1.25;font-weight:700;letter-spacing:-.02em;}
+    .attention-list{display:flex;flex-wrap:wrap;gap:4px 8px;max-height:22vh;overflow:auto;}
+    .attention-summary summary,.edge-wayfinding summary,.observation-details summary{cursor:pointer;min-height:32px;padding:4px 0;}
+    .attention-summary{flex:none;margin:4px 0 0;font-size:.75rem;color:var(--muted);}
+    .observation-details{font-size:.75rem;color:var(--muted);}
+    .observation-panel{position:absolute;z-index:10;right:0;top:100%;width:min(440px,100%);max-height:50dvh;overflow:auto;padding:8px 12px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface);box-shadow:0 6px 18px #20293814;}
+    .masthead{position:relative;}
+    .observation-panel p{overflow-wrap:anywhere;}
+    .attention-link{display:inline-flex;align-items:center;gap:8px;color:var(--warning);}
+    .status-icon{flex:none;width:16px;height:16px;vertical-align:-.2em;}
+    .coverage,.warnings,.interaction-feedback{margin:8px 0;color:var(--muted);font-size:.75rem;overflow-wrap:anywhere;}
+    .coverage{color:var(--warning);}
+    .map-navigation{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:6px 0;flex:none;font-size:.8125rem;}
+    .map-navigation > *{flex:none;}
+    .map-navigation .control{padding:4px 8px;}
+    .map-tools{display:contents;}
+    .map-tools > summary{min-height:44px;padding:10px 8px;cursor:pointer;}
     .map-tools-panel{flex-basis:100%;min-width:0;padding:8px;border-block:1px solid var(--line-soft);background:var(--surface);}
     .map-tools:not([open])>.map-tools-panel{display:none;}
-    .map-tools-panel > * {margin:4px 0;}
-    .pan-controls {display:inline-flex;align-items:center;gap:4px;}
-    .zoom-controls {display:inline-flex;gap:0;padding:0 2px;border:1px solid var(--line-soft);border-radius:7px;background:var(--surface);}
-    .zoom-controls .control {border:0;box-shadow:none;background:transparent;}
-    .zoom-controls .control:hover {background:var(--surface-raised);}
-    .zoom-controls button {min-width:44px;text-align:center;font-variant-numeric:tabular-nums;}
+    .map-tools-panel > *{margin:4px 0;}
+    .pan-controls{display:inline-flex;align-items:center;gap:4px;}
+    .zoom-controls{display:inline-flex;gap:0;padding:0 2px;border:1px solid var(--line-soft);border-radius:7px;background:var(--surface);}
+    .zoom-controls .control{border:0;box-shadow:none;background:transparent;}
+    .zoom-controls .control:hover{background:var(--surface-raised);}
+    .zoom-controls button{min-width:44px;text-align:center;font-variant-numeric:tabular-nums;}
     #map-direction{min-height:44px;font:inherit;color:inherit;cursor:pointer;}
     #map-direction:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
-    .pan-label {color:var(--muted);font-size:.75rem;}
-    .branch-index {position:relative;max-width:100%;}
-    .branch-index summary {min-height:44px;padding:10px;cursor:pointer;}
-    .branch-list {display:flex;flex-wrap:wrap;max-height:220px;overflow:auto;gap:4px;padding:4px;}
-    .branch-index[open] {flex-basis:100%;}
-    .branch-choice {display:inline-flex;align-items:center;gap:8px;max-width:320px;}
-    .branch-choice span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .branch-swatch {width:28px;height:10px;flex:none;overflow:visible;}
-    .topology-viewport {position:relative;width:100%;flex:1;min-height:100px;overflow:auto;overscroll-behavior-inline:contain;background:var(--bg-canvas);border:1px solid var(--line-soft);border-radius:10px;cursor:grab;}
-    .edge-wayfinding {flex:none;font-size:.75rem;border-bottom:1px solid var(--line-soft);}
-    .edge-list {max-height:20vh;overflow:auto;}
-    .edge-route {display:flex;flex-wrap:wrap;align-items:center;border-top:1px solid var(--line-soft);}
-    .edge-destination {font-size:.75rem;overflow-wrap:anywhere;flex:1 1 160px;}
-    .selection-details {height:34dvh;min-height:min(160px,24dvh);overflow:auto;flex:0 1 34dvh;}
-    .map-help {flex:none;max-height:22vh;overflow:auto;margin:0;}
-    .map-help summary {min-height:32px;padding-block:4px;cursor:pointer;}
-    .topology-viewport:focus-visible {outline:3px solid var(--focus);outline-offset:-3px;}
-    .topology-viewport.is-panning {cursor:grabbing;user-select:none;}
-    .topology-surface {position:relative;width:100%;min-height:320px;}
-    .topology-world {position:relative;overflow:hidden;min-height:100px;}
-    .topology-world .topology-surface {position:absolute;left:16px;top:16px;transform-origin:0 0;}
-    .topology-world .limited-world {position:relative;left:0;top:0;}
-    .overview-markers {position:absolute;inset:0;pointer-events:none;}
-    .passenger-icon {display:inline-flex;width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:var(--muted);flex:none;}
-    .task-heading .passenger-icon {margin-top:2px;margin-right:0;}
-    .subagent-group {margin:0 0 8px 14px;padding:0 0 0 10px;border-left:1px solid var(--line);font-size:12px;}
-    .subagent-group summary {padding:6px 0;color:var(--muted);cursor:pointer;}
-    .subagent-group ul {list-style:none;padding:0;margin:0;}
-    .subagent-row {padding:5px 0;overflow-wrap:anywhere;}
-    .subagent-row strong, .subagent-state {display:block;}
-    .subagent-state {color:var(--muted);font-size:12px;}
-    .map-legend {display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0 8px;color:var(--muted);font-size:.75rem;}
-    .map-legend span {display:inline-flex;align-items:center;gap:6px;}
-    .legend-rail {width:24px;border-top:2px solid var(--branch-blue);}
-    .legend-stem {width:24px;border-top:2px dashed var(--muted);}
-    .legend-commit {width:10px;height:10px;border:2px solid var(--main-rail);border-radius:50%;}
-    .workspace-choice {display:block;width:100%;border-top:1px solid var(--line-soft);}
-    .worktree-name, .worktree-stop .branch-meta {white-space:normal;overflow-wrap:anywhere;}
-    .overview-workspaces {flex:none;max-height:28vh;overflow:auto;border-bottom:1px solid var(--line-soft);}
-    .workspace-search {display:flex;align-items:center;gap:8px;flex:none;padding:8px 0;}
-    .workspace-search label {font-size:.75rem;color:var(--muted);}
-    .workspace-search input {min-width:0;flex:1;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
-    .workspace-search button {flex:none;}
-    .workspace-filter-empty {padding:8px;color:var(--muted);margin:0;}
-    .overview-help {margin:6px 0;font-size:.75rem;color:var(--muted);}
-    .overview-workspace {display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
-    .overview-heading {display:flex;align-items:center;gap:8px;}
-    .overview-heading strong {overflow-wrap:anywhere;}
-    .overview-workspace .workspace-risk {display:block;padding:0;}
-    .measurement-world {position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;}
-    .metro-connections {position:absolute;top:0;left:0;pointer-events:none;overflow:visible;}
-    .rail-edge {fill:none;stroke-width:5;stroke-linejoin:round;stroke-linecap:round;}
-    .rail-keyline {fill:none;stroke:var(--keyline);stroke-width:8;stroke-linejoin:round;stroke-linecap:round;}
-    .route-plan {margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--line);font-size:12px;}
-    .route-plan-title {padding:3px 0;text-align:left;font-weight:650;overflow-wrap:anywhere;}
-    .future-route {list-style:none;padding:0 0 0 10px;margin:10px 0 6px 5px;}
-    .future-stop {position:relative;padding:0 0 14px 15px;border-left:2px dashed var(--muted);overflow-wrap:anywhere;line-height:1.45;}
-    .future-stop:last-child {border-left-color:transparent;padding-bottom:0;}
-    .future-stop::before {content:"";position:absolute;left:-6px;top:3px;width:10px;height:10px;border:2px solid var(--muted);border-radius:50%;background:var(--surface, white);}
-    .future-stop.observed::before {background:var(--muted);}
-    .plan-state {color:var(--muted);margin:5px 0;overflow-wrap:anywhere;}
-    .route-plan-list {display:grid;gap:8px;margin-top:10px;}
-    .association {fill:none;stroke:var(--muted);stroke-width:1;}
-    .worktree-cluster {position:absolute;z-index:1;padding:4px 0;border-block:1px solid var(--line-soft);cursor:auto;}
-    .worktree-name {display:block;font-size:.9375rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .branch-meta {display:block;color:var(--muted);font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .current-pill {display:inline-block;margin-left:8px;color:var(--accent);font-size:.75rem;font-weight:650;}
-    .workspace-facts {padding:2px 8px 8px;color:var(--muted);font-size:.75rem;display:flex;flex-wrap:wrap;gap:0 8px;}
-    .fact-line {margin:2px 0;overflow-wrap:anywhere;}
-    .fact-line.attention {color:var(--warning);} .fact-line.unknown {color:var(--unknown);}
-    .fact-line .status-icon {margin-right:6px;}
-    .agent-roster {display:grid;}
-    .task-node {display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
-    a.task-node {min-height:44px;color:inherit;text-decoration:none;cursor:pointer;}
-    a.task-node:hover {background:var(--surface-raised);}
-    a.task-node:active {background:var(--accent-soft);}
-    .task-title, .conversation-title {display:block;font-size:.875rem;font-weight:600;overflow-wrap:anywhere;}
-    .task-heading {display:flex;align-items:start;gap:8px;}
-    .task-heading .task-title {flex:1;min-width:0;}
-    .task-onward {flex:none;font-size:.75rem;color:var(--accent);text-decoration:none;text-underline-offset:3px;}
-    [data-navigable="false"] .task-onward {color:var(--muted);text-decoration:none;}
-    .conversation-facts {display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:.75rem;color:var(--muted);}
-    .conversation-state {color:var(--muted);} .active .conversation-state {color:var(--accent);}
-    .conversation-context, .conversation-audit {display:none;font-size:.75rem;color:var(--muted);overflow-wrap:anywhere;}
-    html[data-density="full"] .conversation-context, html[data-density="full"] .conversation-audit {display:block;}
-    .historical-conversations, .task-disclosure {width:100%;color:var(--accent);font-size:.875rem;}
-    .unlinked {margin:4px 8px;color:var(--muted);font-size:.75rem;}
-    .empty {margin:0;padding:16px;color:var(--muted);}
-    .limited-world .worktree-cluster {position:relative;margin:16px;}
-    .selection-details {border-top:1px solid var(--line-soft);background:var(--surface);}
-    .selection-details h2 {display:inline;margin:0;font-size:1rem;overflow-wrap:anywhere;}
-    .dismiss-details {float:right;}
-    .detail-grid {display:grid;grid-template-columns:minmax(100px, .4fr) minmax(0, 1.6fr);gap:6px 12px;margin:14px 0 0;}
-    .detail-grid dt {color:var(--muted);} .detail-grid dd {margin:0;overflow-wrap:anywhere;}
-    .detail-grid code {font:.75rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;}
-    .copy-hash {margin-top:12px;border:1px solid var(--line);border-radius:6px;}
-    .map-help {color:var(--muted);font-size:.75rem;}
-    @container dock (max-width:619px) {
-      .shell {padding:6px 10px 4px;}
-      .masthead {flex-wrap:wrap;gap:2px 8px;}
-      .masthead-actions {margin-left:auto;}
-      h1 {font-size:1rem;}
-      .map-navigation {gap:4px;margin-block:4px;}
-      .observation-strip {padding-block:4px;}
-      .masthead {align-items:center;}
-      .masthead-actions {gap:4px;justify-content:flex-end;}
-      .connection {text-align:left;}
-      .detail-grid {grid-template-columns:minmax(0, 1fr);}
-      .detail-grid dd {margin-bottom:6px;}
-   }
-    @media (prefers-reduced-motion:reduce) {.topology-viewport {scroll-behavior:auto;}}
-    .workspace-risk {font-size:.75rem;padding:0 8px;color:var(--warning);}
-    .worktree-cluster {border-top:4px solid var(--accent);background:var(--bg-canvas);}
-    .platform-heading {display:flex;justify-content:space-between;gap:8px;margin:0;padding:4px 8px;font-size:.75rem;color:var(--muted);}
-    .passenger-count {font-weight:700;color:var(--text);}
-    .platform-origin {display:block;width:100%;padding:4px 8px;font-size:.75rem;color:var(--accent);}
-    .workspace-details {padding:4px 8px;color:var(--muted);font-size:.75rem;}
-    .workspace-details summary {cursor:pointer;min-height:32px;}
-    .workspace-risk:empty {display:none;}
-    .platform-occupancy:empty {display:none;}
-    .future-connection {fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:7 6;}
-    .future-connection[data-journey-selected="true"] {stroke:var(--accent);stroke-width:3;}
-    .journey-destination {border:1px dashed var(--accent);border-radius:6px;}
-    .arrival-zone[data-journey-selected="true"] {background:var(--accent-soft);border-color:var(--accent);}
-    .arrival-zone {position:absolute;border-left:2px dashed var(--muted);padding:0 12px;color:var(--muted);font-size:.75rem;}
-    .arrival-zone strong {display:block;font-size:.875rem;color:var(--text);}
-    .arrival-zone::before {content:"";position:absolute;width:12px;height:12px;left:-7px;top:-6px;border:2px solid var(--muted);border-radius:50%;background:var(--bg-canvas);}
-    .journey-context {flex:none;border:0;border-radius:0;background:transparent;margin:0 0 4px;padding:0;max-height:28vh;overflow:auto;}
+    .pan-label{color:var(--muted);font-size:.75rem;}
+    .branch-index{position:relative;max-width:100%;}
+    .branch-index summary{min-height:44px;padding:10px;cursor:pointer;}
+    .branch-list{display:flex;flex-wrap:wrap;max-height:220px;overflow:auto;gap:4px;padding:4px;}
+    .branch-index[open]{flex-basis:100%;}
+    .branch-choice{display:inline-flex;align-items:center;gap:8px;max-width:320px;}
+    .branch-choice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .branch-swatch{width:28px;height:10px;flex:none;overflow:visible;}
+    .topology-viewport{position:relative;width:100%;flex:1;min-height:100px;overflow:auto;overscroll-behavior-inline:contain;background:var(--bg-canvas);border:1px solid var(--line-soft);border-radius:10px;cursor:grab;}
+    .edge-wayfinding{flex:none;font-size:.75rem;border-bottom:1px solid var(--line-soft);}
+    .edge-list{max-height:20vh;overflow:auto;}
+    .edge-route{display:flex;flex-wrap:wrap;align-items:center;border-top:1px solid var(--line-soft);}
+    .edge-destination{font-size:.75rem;overflow-wrap:anywhere;flex:1 1 160px;}
+    .selection-details{height:34dvh;min-height:min(160px,24dvh);overflow:auto;flex:0 1 34dvh;}
+    .map-help{flex:none;max-height:22vh;overflow:auto;margin:0;}
+    .map-help summary{min-height:32px;padding-block:4px;cursor:pointer;}
+    .topology-viewport:focus-visible{outline:3px solid var(--focus);outline-offset:-3px;}
+    .topology-viewport.is-panning{cursor:grabbing;user-select:none;}
+    .topology-surface{position:relative;width:100%;min-height:320px;}
+    .topology-world{position:relative;overflow:hidden;min-height:100px;}
+    .topology-world .topology-surface{position:absolute;left:16px;top:16px;transform-origin:0 0;}
+    .topology-world .limited-world{position:relative;left:0;top:0;}
+    .overview-markers{position:absolute;inset:0;pointer-events:none;}
+    .passenger-icon{display:inline-flex;width:16px;height:16px;vertical-align:-3px;margin-right:6px;color:var(--muted);flex:none;}
+    .task-heading .passenger-icon{margin-top:2px;margin-right:0;}
+    .subagent-group{margin:0 0 8px 14px;padding:0 0 0 10px;border-left:1px solid var(--line);font-size:12px;}
+    .subagent-group summary{padding:6px 0;color:var(--muted);cursor:pointer;}
+    .subagent-group ul{list-style:none;padding:0;margin:0;}
+    .subagent-row{padding:5px 0;overflow-wrap:anywhere;}
+    .subagent-row strong,.subagent-state{display:block;}
+    .subagent-state{color:var(--muted);font-size:12px;}
+    .map-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0 8px;color:var(--muted);font-size:.75rem;}
+    .map-legend span{display:inline-flex;align-items:center;gap:6px;}
+    .legend-rail{width:24px;border-top:2px solid var(--branch-blue);}
+    .legend-stem{width:24px;border-top:2px dashed var(--muted);}
+    .legend-commit{width:10px;height:10px;border:2px solid var(--main-rail);border-radius:50%;}
+    .workspace-choice{display:block;width:100%;border-top:1px solid var(--line-soft);}
+    .worktree-name,.worktree-stop .branch-meta{white-space:normal;overflow-wrap:anywhere;}
+    .overview-workspaces{flex:none;max-height:28vh;overflow:auto;border-bottom:1px solid var(--line-soft);}
+    .workspace-search{display:flex;align-items:center;gap:8px;flex:none;padding:8px 0;}
+    .workspace-search label{font-size:.75rem;color:var(--muted);}
+    .workspace-search input{min-width:0;flex:1;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+    .workspace-search button{flex:none;}
+    .workspace-filter-empty{padding:8px;color:var(--muted);margin:0;}
+    .overview-help{margin:6px 0;font-size:.75rem;color:var(--muted);}
+    .overview-workspace{display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
+    .overview-heading{display:flex;align-items:center;gap:8px;}
+    .overview-heading strong{overflow-wrap:anywhere;}
+    .overview-workspace .workspace-risk{display:block;padding:0;}
+    .measurement-world{position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;}
+    .metro-connections{position:absolute;top:0;left:0;pointer-events:none;overflow:visible;}
+    .rail-edge{fill:none;stroke-width:5;stroke-linejoin:round;stroke-linecap:round;}
+    .rail-keyline{fill:none;stroke:var(--keyline);stroke-width:8;stroke-linejoin:round;stroke-linecap:round;}
+    .route-plan{margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--line);font-size:12px;}
+    .route-plan-title{padding:3px 0;text-align:left;font-weight:650;overflow-wrap:anywhere;}
+    .future-route{list-style:none;padding:0 0 0 10px;margin:10px 0 6px 5px;}
+    .future-stop{position:relative;padding:0 0 14px 15px;border-left:2px dashed var(--muted);overflow-wrap:anywhere;line-height:1.45;}
+    .future-stop:last-child{border-left-color:transparent;padding-bottom:0;}
+    .future-stop::before{content:"";position:absolute;left:-6px;top:3px;width:10px;height:10px;border:2px solid var(--muted);border-radius:50%;background:var(--surface,white);}
+    .future-stop.observed::before{background:var(--muted);}
+    .plan-state{color:var(--muted);margin:5px 0;overflow-wrap:anywhere;}
+    .route-plan-list{display:grid;gap:8px;margin-top:10px;}
+    .association{fill:none;stroke:var(--muted);stroke-width:1;}
+    .worktree-cluster{position:absolute;z-index:1;padding:4px 0;border-block:1px solid var(--line-soft);cursor:auto;}
+    .worktree-name{display:block;font-size:.9375rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .branch-meta{display:block;color:var(--muted);font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .current-pill{display:inline-block;margin-left:8px;color:var(--accent);font-size:.75rem;font-weight:650;}
+    .workspace-facts{padding:2px 8px 8px;color:var(--muted);font-size:.75rem;display:flex;flex-wrap:wrap;gap:0 8px;}
+    .fact-line{margin:2px 0;overflow-wrap:anywhere;}
+    .fact-line.attention{color:var(--warning);}
+    .fact-line.unknown{color:var(--unknown);}
+    .fact-line .status-icon{margin-right:6px;}
+    .agent-roster{display:grid;}
+    .task-node{display:block;width:100%;border-top:1px solid var(--line-soft);padding:8px;}
+    a.task-node{min-height:44px;color:inherit;text-decoration:none;cursor:pointer;}
+    a.task-node:hover{background:var(--surface-raised);}
+    a.task-node:active{background:var(--accent-soft);}
+    .task-title,.conversation-title{display:block;font-size:.875rem;font-weight:600;overflow-wrap:anywhere;}
+    .task-heading{display:flex;align-items:start;gap:8px;}
+    .task-heading .task-title{flex:1;min-width:0;}
+    .task-onward{flex:none;font-size:.75rem;color:var(--accent);text-decoration:none;text-underline-offset:3px;}
+    [data-navigable="false"] .task-onward{color:var(--muted);text-decoration:none;}
+    .conversation-facts{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:.75rem;color:var(--muted);}
+    .conversation-state{color:var(--muted);}
+    .active .conversation-state{color:var(--accent);}
+    .conversation-context,.conversation-audit{display:none;font-size:.75rem;color:var(--muted);overflow-wrap:anywhere;}
+    html[data-density="full"] .conversation-context,html[data-density="full"] .conversation-audit{display:block;}
+    .historical-conversations,.task-disclosure{width:100%;color:var(--accent);font-size:.875rem;}
+    .unlinked{margin:4px 8px;color:var(--muted);font-size:.75rem;}
+    .empty{margin:0;padding:16px;color:var(--muted);}
+    .limited-world .worktree-cluster{position:relative;margin:16px;}
+    .selection-details{border-top:1px solid var(--line-soft);background:var(--surface);}
+    .selection-details h2{display:inline;margin:0;font-size:1rem;overflow-wrap:anywhere;}
+    .dismiss-details{float:right;}
+    .detail-grid{display:grid;grid-template-columns:minmax(100px,.4fr) minmax(0,1.6fr);gap:6px 12px;margin:14px 0 0;}
+    .detail-grid dt{color:var(--muted);}
+    .detail-grid dd{margin:0;overflow-wrap:anywhere;}
+    .detail-grid code{font:.75rem/1.5 ui-monospace,"Cascadia Code",Consolas,monospace;}
+    .copy-hash{margin-top:12px;border:1px solid var(--line);border-radius:6px;}
+    .map-help{color:var(--muted);font-size:.75rem;}
+    @container dock (max-width:619px){.shell{padding:6px 10px 4px;}
+    .masthead{flex-wrap:wrap;gap:2px 8px;}
+    .masthead-actions{margin-left:auto;}
+    h1{font-size:1rem;}
+    .map-navigation{gap:4px;margin-block:4px;}
+    .observation-strip{padding-block:4px;}
+    .masthead{align-items:center;}
+    .masthead-actions{gap:4px;justify-content:flex-end;}
+    .connection{text-align:left;}
+    .detail-grid{grid-template-columns:minmax(0,1fr);}
+    .detail-grid dd{margin-bottom:6px;}
+    }
+    @media (prefers-reduced-motion:reduce){.topology-viewport{scroll-behavior:auto;}
+    }
+    .workspace-risk{font-size:.75rem;padding:0 8px;color:var(--warning);}
+    .worktree-cluster{border-top:4px solid var(--accent);background:var(--bg-canvas);}
+    .platform-heading{display:flex;justify-content:space-between;gap:8px;margin:0;padding:4px 8px;font-size:.75rem;color:var(--muted);}
+    .passenger-count{font-weight:700;color:var(--text);}
+    .platform-origin{display:block;width:100%;padding:4px 8px;font-size:.75rem;color:var(--accent);}
+    .workspace-details{padding:4px 8px;color:var(--muted);font-size:.75rem;}
+    .workspace-details summary{cursor:pointer;min-height:32px;}
+    .workspace-risk:empty{display:none;}
+    .platform-occupancy:empty{display:none;}
+    .future-connection{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:7 6;}
+    .future-connection[data-journey-selected="true"]{stroke:var(--accent);stroke-width:3;}
+    .journey-destination{border:1px dashed var(--accent);border-radius:6px;}
+    .arrival-zone[data-journey-selected="true"]{background:var(--accent-soft);border-color:var(--accent);}
+    .arrival-zone{position:absolute;border-left:2px dashed var(--muted);padding:0 12px;color:var(--muted);font-size:.75rem;}
+    .arrival-zone strong{display:block;font-size:.875rem;color:var(--text);}
+    .arrival-zone::before{content:"";position:absolute;width:12px;height:12px;left:-7px;top:-6px;border:2px solid var(--muted);border-radius:50%;background:var(--bg-canvas);}
+    .journey-context{flex:none;border:0;border-radius:0;background:transparent;margin:0 0 4px;padding:0;max-height:28vh;overflow:auto;}
     .journey-heading{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:.75rem;}
-    .journey-heading strong {overflow-wrap:anywhere;}
-    .journey-heading > [data-journey-action="focus"] {margin-left:auto;}
-    .passenger-compact {display:none;}
-    .journey-stops {display:flex;flex-wrap:wrap;align-items:center;gap:4px;}
-    .journey-stop {min-height:28px;font-size:.75rem;color:var(--accent);padding:2px 6px;}
-    .journey-unknown {font-size:.75rem;color:var(--muted);padding:2px 6px;}
-    .arrival-source {cursor:pointer;}
-    .arrival-workspace {display:block;width:100%;}
-    .worktree-cluster[data-journey-muted="true"] {border-color:var(--line-soft);}
-    .worktree-cluster[data-journey-muted="true"] > :not(.worktree-identity):not(.platform-heading:first-child) {display:none;}
-    .worktree-cluster[data-journey-focused="true"] > :not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk) {display:none;}
-    @container dock (max-width:760px) {
-      .map-navigation{position:relative;}.map-tools{position:static;}
-      .journey-heading > .journey-passengers {display:none;}
-      .attention-summary[data-empty="true"] {display:none;}
-      .zoom-controls {flex-wrap:wrap;}
-      .journey-context {max-height:22vh;padding:0;}
-      .journey-heading {display:flex;flex-wrap:nowrap;gap:2px 8px;}
-      .journey-heading>strong{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-      .journey-heading > .journey-passengers {grid-column:1;}
-      .journey-heading>[data-journey-action="focus"]{flex:none;margin:0;}
-      .journey-passengers .passenger-full {display:none;}
-      .journey-passengers .passenger-compact {display:inline;}
-      .journey-stops {flex-wrap:nowrap;gap:0 4px;overflow-x:auto;padding:0;}
-      .journey-stops > * {flex:none;white-space:nowrap;}
-      .journey-stop .endpoint-hash {display:none;}
-      .journey-stop, .journey-unknown {padding-inline:6px;}
-      .worktree-cluster > .workspace-risk {margin-block:6px;}
-      .map-legend {margin-bottom:4px;gap:4px 12px;}
-   }
+    .journey-heading strong{overflow-wrap:anywhere;}
+    .journey-heading > [data-journey-action="focus"]{margin-left:auto;}
+    .passenger-compact{display:none;}
+    .journey-stops{display:flex;flex-wrap:wrap;align-items:center;gap:4px;}
+    .journey-stop{min-height:28px;font-size:.75rem;color:var(--accent);padding:2px 6px;}
+    .journey-unknown{font-size:.75rem;color:var(--muted);padding:2px 6px;}
+    .arrival-source{cursor:pointer;}
+    .arrival-workspace{display:block;width:100%;}
+    .worktree-cluster[data-journey-muted="true"]{border-color:var(--line-soft);}
+    .worktree-cluster[data-journey-muted="true"] >:not(.worktree-identity):not(.platform-heading:first-child){display:none;}
+    .worktree-cluster[data-journey-focused="true"] >:not(.worktree-identity):not(.passenger-count):not(.platform-heading:first-child):not(.workspace-risk){display:none;}
+    @container dock (max-width:760px){.map-navigation{position:relative;}
+    .map-tools{position:static;}
+    .journey-heading > .journey-passengers{display:none;}
+    .attention-summary[data-empty="true"]{display:none;}
+    .zoom-controls{flex-wrap:wrap;}
+    .journey-context{max-height:22vh;padding:0;}
+    .journey-heading{display:flex;flex-wrap:nowrap;gap:2px 8px;}
+    .journey-heading>strong{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+    .journey-heading > .journey-passengers{grid-column:1;}
+    .journey-heading>[data-journey-action="focus"]{flex:none;margin:0;}
+    .journey-passengers .passenger-full{display:none;}
+    .journey-passengers .passenger-compact{display:inline;}
+    .journey-stops{flex-wrap:nowrap;gap:0 4px;overflow-x:auto;padding:0;}
+    .journey-stops > *{flex:none;white-space:nowrap;}
+    .journey-stop .endpoint-hash{display:none;}
+    .journey-stop,.journey-unknown{padding-inline:6px;}
+    .worktree-cluster > .workspace-risk{margin-block:6px;}
+    .map-legend{margin-bottom:4px;gap:4px 12px;}
+    }
     .route-map .rail-edge{stroke-width:4;}
     .route-platform{position:absolute;text-align:left;padding:5px 8px;min-height:52px;border:0;border-radius:7px;background:var(--bg-canvas);box-shadow:inset 0 0 0 1px var(--line-soft);}
     .route-platform strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.9375rem;line-height:1.3;font-weight:650;}
@@ -261,8 +262,8 @@ THE SOFTWARE.
     .route-platform[data-retained="true"]{border-left:1px solid var(--line-soft);}
     .route-platform[data-retained="true"] strong{font-weight:500;color:var(--muted);}
     .route-platform.current{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent);}
-    .route-platform[aria-expanded="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 var(--accent);}
-    .workspace-summary{position:absolute;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--bg-canvas);border-left:3px solid var(--accent);border-bottom:1px solid var(--line-soft);border-radius:0 8px 8px 0;padding:8px;scrollbar-gutter:stable;}
+    .route-platform[aria-expanded="true"]{background:var(--accent-soft);border-radius:10px 10px 0 0;box-shadow:inset 1px 0 var(--accent),inset -1px 0 var(--accent),inset 0 1px var(--accent);}
+    .workspace-summary{position:absolute;box-sizing:border-box;overflow:visible;background:var(--accent-soft);border:1px solid var(--accent);border-top:0;border-radius:0 0 10px 10px;padding:0 16px 16px;}
     .workspace-summary p{margin:0 0 8px;overflow-wrap:anywhere;font-size:.8125rem;color:var(--muted);}
     .workspace-summary button,.workspace-summary a{min-height:44px;max-width:100%;}
     .workspace-summary .task-node{position:relative;display:block;width:100%;margin:4px 0;padding:6px;text-align:left;}
@@ -271,14 +272,23 @@ THE SOFTWARE.
     .workspace-summary .task-title{display:block;white-space:normal;overflow-wrap:anywhere;}
     .workspace-summary .conversation-context,.workspace-summary .conversation-audit,.workspace-summary .agent-identity{display:none;}
     .workspace-summary .conversation-facts{font-size:.75rem;}
-    .summary-details{display:block;width:100%;margin-top:8px;text-align:left;}
+    .workspace-summary .detail-grid{margin:0 0 16px;padding-top:12px;border-top:1px solid var(--line-soft);grid-template-columns:minmax(0,1fr);align-items:start;font-size:.8125rem;row-gap:4px;}
+    .route-platform[aria-expanded="true"][aria-current="true"]{outline:none;}
+    .route-platform[aria-expanded="true"]:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+    .workspace-summary .detail-grid dd{margin-bottom:12px;}
+    .workspace-summary .detail-value{display:flex;align-items:flex-start;gap:8px;min-width:0;}
+    .workspace-summary .detail-value span{flex:1;min-width:0;overflow-wrap:anywhere;user-select:text;}
+    .copy-field{flex:0 0 44px;padding:0;min-width:44px;border:1px solid var(--line-soft);border-radius:6px;background:transparent;font-size:.75rem;}
+    .workspace-summary .workspace-facts{font-size:.8125rem;}
     .summary-destination{display:block;width:100%;text-align:left;border-style:dashed;margin:6px 0;overflow-wrap:anywhere;}
     .platform-current{position:absolute;bottom:100%;left:8px;color:var(--accent);font-size:12px;font-weight:600;line-height:1.5;}
     .route-platform[data-journey-muted="true"]{color:var(--muted);}
     .route-platform[data-journey-muted="true"] strong{font-weight:500;}
-    .route-station{position:absolute;width:24px;height:24px;min-height:24px;padding:0;border:0;background:transparent;transform:translate(-50%,-50%);}
-    .route-station::before{content:"";display:block;width:4px;height:4px;margin:auto;border-radius:50%;background:var(--rail-color);}
+    .route-station{position:absolute;width:44px;height:44px;min-height:44px;padding:0;border:0;background:transparent;transform:translate(-50%,-50%);}
+    .route-station::before{content:"";display:block;width:8px;height:8px;margin:auto;border-radius:50%;background:var(--rail-color);}
+    .route-station[aria-current="true"]{outline:none;background:transparent;}
     .route-station.key::before{width:12px;height:12px;background:var(--surface);border:3px solid var(--rail-color);}
+    .route-station[aria-current="true"]::before{background:var(--focus);border:3px solid var(--surface);width:16px;height:16px;box-shadow:0 0 0 2px var(--focus);}
     .route-station.transfer::before{outline:2px solid var(--rail-color);outline-offset:2px;}
     .history-range{position:absolute;display:grid;gap:6px;padding:8px;text-align:left;border:1px solid var(--line-soft);background:var(--surface);border-radius:7px;font-size:.8125rem;line-height:1.125rem;}
     .history-range>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -306,28 +316,28 @@ THE SOFTWARE.
     .selection-details>.copy-hash{float:right;margin:0 4px;}
     .workspace-inspector>.passenger-count{margin:4px 0;font-weight:400;justify-content:flex-start;}
     .journey-heading>[data-journey-action="focus"]{min-height:32px;}
-    @media (pointer:fine) {
-      .refresh,.map-navigation .control,#map-direction {min-height:30px;padding-block:4px;}
-      .map-tools > summary {min-height:30px;padding-block:5px;}
-      .zoom-controls button {min-width:30px;}
+    @media (pointer:fine){.refresh,.map-navigation .control,#map-direction{min-height:30px;padding-block:4px;}
+    .map-tools > summary{min-height:30px;padding-block:5px;}
+    .zoom-controls button{min-width:30px;}
     }
     .route-platform{padding:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;border-radius:10px;}
     .route-platform .platform-directory{display:block;font-size:.875rem;font-weight:650;color:var(--text);margin-bottom:8px;}
     .route-platform .platform-branch{font-size:.75rem;font-weight:400;color:var(--muted);}
-    .platform-chats{overflow:auto;flex:1;min-height:0;}
+    .platform-chats{overflow:visible;flex:none;}
     .platform-chat{position:relative!important;display:block;width:100%;min-height:88px;padding:12px 24px 12px 0;text-align:left;border:0;border-radius:6px;background:transparent;box-shadow:none;text-decoration:none;}
     .platform-chat+.platform-chat{border-top:1px solid var(--line-soft);}
-    .platform-chat .task-heading{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+    .platform-chat .task-heading{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:6px;}
+    .platform-chat .current-chat{grid-column:2;justify-self:start;}
     .platform-chat[data-navigable="false"] .task-onward{display:inline;font-size:.6875rem;}
     .platform-chat[data-navigable="false"] .task-title{color:var(--muted);}
     .platform-chat .task-title{white-space:normal;overflow-wrap:anywhere;font-size:1.125rem;line-height:1.4;font-weight:700;color:var(--accent);}
     .platform-chat .task-onward,.platform-chat .conversation-context,.platform-chat .conversation-audit,.platform-chat .agent-identity{display:none;}
     .platform-chat .conversation-facts{display:block;font-size:.8125rem;margin:6px 0 0 28px;color:var(--muted);}
-    .platform-chat .conversation-facts> :not(.conversation-state){display:none;}
+    .platform-chat .conversation-facts>:not(.conversation-state){display:none;}
     .platform-chat:hover .task-title{text-decoration:underline;}
     .platform-chat:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
     .current-chat{font-size:.75rem;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:6px;}
-    .platform-details,.platform-more{display:flex;align-items:center;gap:8px;min-height:36px;padding:6px 0;text-align:left;border:0;background:transparent;color:var(--accent);font-size:.8125rem;}
+    .platform-details,.platform-more{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 0;text-align:left;border:0;background:transparent;color:var(--accent);font-size:.8125rem;}
     .platform-details{border-top:1px solid var(--line-soft);margin-top:4px;color:var(--muted);}
     .platform-empty{font-size:.8125rem;color:var(--muted);margin:12px 0;line-height:1.7;}
     .route-platform .platform-meta{display:none;}
@@ -343,7 +353,17 @@ THE SOFTWARE.
     .map-frame{position:relative;}
     .selection-details{position:absolute;z-index:12;inset:auto 12px auto auto;top:100px;width:min(460px,calc(100% - 24px));height:auto;max-height:min(440px,65dvh);min-height:0;flex:none;border:1px solid var(--line-soft);border-radius:10px;box-shadow:0 8px 28px #20293824;}
     .selection-details[data-size="large"]{height:auto;max-height:75dvh;flex:none;}
-  </style>
+    .selection-details .detail-grid{padding:12px 16px;margin:0;grid-template-columns:90px minmax(0,1fr);}
+    .selection-details dd,.selection-details code{min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:break-word;}
+    .selection-details .inspector-header{padding:12px 16px;align-items:flex-start;}
+    .selection-details .inspector-header h2{flex-basis:100%;line-height:1.45;}
+    .selection-details .edge-navigation{margin:4px 0 4px 12px;max-width:calc(100% - 24px);white-space:normal;overflow-wrap:anywhere;}
+    .selection-details>.copy-hash{float:none;margin:4px 12px;}
+    .map-frame:has(.selection-details[hidden]) .selection-link{display:none;}
+    .selection-link{position:absolute;z-index:11;height:1px;background:var(--focus);transform-origin:0 0;pointer-events:none;}
+    @media(max-width:520px){.selection-details .detail-grid{grid-template-columns:minmax(0,1fr);}
+    }
+    </style>
 </head>
 <body>
   <a class="skip-link" href="#dock-main">Skip to repository topology</a>
@@ -405,6 +425,7 @@ THE SOFTWARE.
           <div class="topology-world" id="topology-world"><div class="relationship-map topology-canvas topology-surface" id="relationship-map"><p class="empty">Waiting for repository topology and linked tasks…</p></div><div class="overview-markers" id="overview-markers" hidden></div></div>
         </div>
         <details class="edge-wayfinding" id="edge-wayfinding" hidden><summary id="edge-summary">Connections beyond view</summary><nav class="edge-list" id="edge-list" aria-label="Trace offscreen parent and child connections"></nav></details>
+        <div id="selection-link" class="selection-link" aria-hidden="true" hidden></div>
         <section class="selection-details" id="selection-details" aria-labelledby="selection-title" hidden></section>
         <p class="interaction-feedback" id="snapshot-feedback" role="status" aria-live="polite" hidden></p>
         <p class="interaction-feedback" id="interaction-feedback" role="status" aria-live="polite" hidden></p>
@@ -426,7 +447,6 @@ THE SOFTWARE.
     (() => {
       "use strict";
       const Core = globalThis.DevMapMetroCore;
-      // Bound the rendered card, not its task inventory, below the layout dimension cap.
       const MAX_WORKSPACE_HEIGHT = 1024;
       const NAVIGATION_RESPONSE_TIMEOUT_MS = 15000;
       const REFRESH_PROMPT = "Refresh DevMap task inventory for the current local repository and update the open Dock. Verify the calling Agent's actual command working directory and Git worktree root, then include its workingDirectory report. Do not infer other tasks' working directories.";
@@ -828,7 +848,6 @@ THE SOFTWARE.
         const branch = element("span", "branch-meta", "Branch · " + (lane.branch || "detached HEAD"));
         if (lane.worktree_id === value.current_worktree_id) branch.append(element("span", "current-pill", "Map source"));
         workspace.append(name, branch);
-        // The stable ID disambiguates repeated directory basenames; full path is accessible.
         branch.append(element("span", "workspace-short-id", " · " + lane.worktree_id.slice(-8)));
         const factsNode = element("div", "workspace-facts"); populateFacts(factsNode, lane, facts, value);
         cluster.append(element("div", "platform-heading", "Worktree platform · HEAD " + lane.head.slice(0,8)), workspace);
@@ -848,7 +867,6 @@ THE SOFTWARE.
         origin.textContent = ancestor ? "Common ancestor · " + ancestor.slice(0,8) : "Origin unknown";
         cluster.append(origin);
         const riskNode = element("p", "workspace-risk"); populateRisk(riskNode, lane, facts, value); cluster.append(riskNode);
-        // Active identities precede verbose observations; every factual reason remains in the card.
         const details = element("details", "workspace-details");
         const summary = element("summary", "", "Workspace details"); summary.dataset.objectId = "facts:" + lane.worktree_id;
         const creation=facts?.origin?.recorded_creation;
@@ -1043,7 +1061,7 @@ THE SOFTWARE.
           const stop=element("section","route-platform"+(current?" current":""));stop.tabIndex=-1;
           stop.setAttribute("aria-label","View workspace "+lane.workspace_path+" · "+branchName(lane)+" · "+lane.worktree_id);stop.setAttribute("data-no-pan","");
           stop.dataset.worktreeId=lane.worktree_id;stop.dataset.objectId="workspace:"+lane.worktree_id;stop.dataset.headOid=a.head_oid;stop.dataset.workspaceCount="1";
-          stop.title=lane.workspace_path;position(stop,a);stop.style.width=a.width+"px";stop.style.height=platformHeight(lane)*scale+"px";
+          stop.title=lane.workspace_path;position(stop,a);stop.style.width=a.width+"px";stop.style.height=(layout.cardHeights?.[lane.worktree_id]||platformHeight(lane))*scale+"px";
           stop.setAttribute("aria-expanded",String(expanded));
           const toggle=()=>toggleWorkspaceSummary(lane.worktree_id,false);
           stop.addEventListener("click",event=>{if(!event||event.target===stop)toggle();});
@@ -1076,11 +1094,21 @@ THE SOFTWARE.
           stop.dataset.retained=String(!current&&count.state==="unattended"&&!plans.length&&facts?.working_state==="clean"&&facts?.integration==="included"&&facts?.head_ref_coverage==="protected"&&workspaceAttention(lane,facts,value).level!=="attention");
           stop.dataset.journeyMuted=String(journeyFocused&&lane.worktree_id!==journeyWorkspaceId);
           if(plans.length)stop.append(element("span","platform-target","→ "+(plans[0].target_ref?.replace(/^refs\/heads\//,"")||"unspecified")+" · planned"));
-          const details=button("platform-details","Workspace details for "+lane.workspace_path,toggle);details.dataset.objectId="platform-details:"+lane.worktree_id;details.textContent=expanded?"Hide workspace details":"Workspace details";details.append(cardIcon("disclosure"));details.setAttribute("aria-expanded",String(expanded));stop.append(details);
+          const details=button("platform-details","Workspace details for "+lane.workspace_path,toggle);details.dataset.objectId="platform-details:"+lane.worktree_id;details.textContent=expanded?"Hide workspace details":"Workspace details";details.append(cardIcon("disclosure"));details.setAttribute("aria-expanded",String(expanded));details.setAttribute("aria-controls","workspace-summary");stop.append(details);
           nodes.push(stop);
-          if(expanded)nodes.push(workspaceSummary([{lane,facts}],value,{...a,y:a.y+(platformHeight(lane)-76)*scale},scale));
+          if(expanded)nodes.push(workspaceSummary([{lane,facts}],value,{...a,y:a.y+((layout.cardHeights?.[lane.worktree_id]||platformHeight(lane))-76)*scale,detailHeight:layout.expandedHeight},scale));
         }
         return nodes;
+      }
+      function measurePlatforms(records,value,layout) {
+        if(typeof getComputedStyle!=="function")return null;
+        const host=element("div","measurement-world"),heights={};let expanded=0;
+        host.setAttribute("aria-hidden","true");host.inert=true;
+        host.append(...renderPlatforms(records,value,layout));document.body.append(host);
+        try {
+          for(const node of host.children){node.style.height="auto";const height=Math.ceil(node.offsetHeight)/(layout.textScale||1);if(node.classList.contains("route-platform"))heights[node.dataset.worktreeId]=height;else expanded=height;}
+          return {cardHeights:heights,expandedHeight:expanded};
+        }finally{host.remove();}
       }
       function routeStation(node,layout,value) {
         const key=node.transfer||node.kind==="boundary"||layout.attachments.some(a=>a.head_oid===node.id)||layout.refs.some(r=>r.oid===node.id&&/^refs\/heads\/(main|master)$/.test(r.ref_name))||layout.historyRanges?.some(r=>r.from_oid===node.id||r.to_oid===node.id);
@@ -1112,7 +1140,7 @@ THE SOFTWARE.
         if(lastSnapshot.schema_version!=="devmap/dock/4"){openFullWorkspace(id);return;}
         if(toggle&&inlineWorkspaceId===id){collapseWorkspaceSummary();return;}
         const chooser=overviewListOpen;
-        setWorkspaceChooser(false);byId("selection-details").hidden=true;
+        setWorkspaceChooser(false);byId("selection-details").hidden=true;byId("selection-link").hidden=true;
         inlineWorkspaceId=id;inlineGroup=group;selectedWorkspaceId=id;selectedTaskId=null;selectedObjectId="workspace:"+id;
         journeyWorkspaceId=id;renderSnapshot(lastSnapshot,true);
         if(chooser)locateWorkspace(id);
@@ -1121,20 +1149,30 @@ THE SOFTWARE.
       function workspaceSummary(rows,value,rect,scale) {
         const panel=element("section","workspace-summary");panel.id="workspace-summary";panel.tabIndex=-1;panel.dataset.objectId="summary:"+inlineWorkspaceId;
         panel.setAttribute("aria-label",inlineGroup?"Choose workspace at this commit":"Workspace summary");panel.setAttribute("data-no-pan","");
-        position(panel,{x:rect.x,y:rect.y+76*scale});panel.style.width=rect.width+"px";panel.style.height=320*scale+"px";
+        position(panel,{x:rect.x,y:rect.y+76*scale});panel.style.width=rect.width+"px";panel.style.height=(rect.detailHeight??320)*scale+"px";
         panel.addEventListener("keydown",event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();collapseWorkspaceSummary();}});
         const row=rows.find(r=>r.lane.worktree_id===inlineWorkspaceId)||rows[0],lane=row.lane;
-        panel.append(element("p","",lane.workspace_path));
         const facts=element("dl","detail-grid");
-        for(const [key,text] of [["Branch",lane.branch||"Detached HEAD"],["HEAD",lane.head],["Working tree",row.facts?.working_state||"Unknown"],["Integration",platformState(rows,lane.worktree_id).full]])facts.append(element("dt","",key),element("dd","",text));
+        for(const [key,text,copyable] of [["Branch",lane.branch||"Detached HEAD",!!lane.branch],["HEAD",row.facts?.head_oid||lane.head,true],["Worktree",lane.workspace_path,true],["Working tree",row.facts?.working_state||"Unknown",false],["Integration",platformState(rows,lane.worktree_id).full,false]]) {
+          const cell=element("dd","detail-value");cell.append(element("span","",text));
+          if(copyable&&text) {
+            const copy=copyButton("copy-field","Copy "+key,text,"Copy");
+            copy.dataset.objectId="copy-"+key.toLowerCase()+":"+lane.worktree_id;copy.title="Copy "+key;cell.append(copy);
+          }
+          facts.append(element("dt","",key),cell);
+        }
         panel.append(facts);
-        const full=button("summary-details","View full workspace details",()=>openFullWorkspace(lane.worktree_id));full.dataset.objectId="summary-details:"+lane.worktree_id;full.textContent="View full details →";panel.append(full);
+        const complete=createWorkspace(lane,row.facts,value,rect.width);
+        const risk=complete.querySelector(".workspace-risk");if(risk)panel.append(risk);
+        const fullFacts=complete.querySelector(".workspace-details");
+        for(const child of [...fullFacts.children])if(child.tagName.toLowerCase()!=="summary")panel.append(child);
+        for(const boundary of value.topology?.boundaries||[])if(boundary.oid===lane.head)panel.append(element("p","",BOUNDARIES[boundary.reason]));
         const plans=(value.route_plans||[]).filter(p=>!p.abandoned&&p.worktree_id===lane.worktree_id);
         for(const plan of plans){const action=button("summary-destination","Inspect planned destination",()=>showRoutePlan(plan));action.dataset.objectId="summary-plan:"+plan.route_id;action.textContent="Planned → "+(plan.target_ref?.replace(/^refs\/heads\//,"")||"Destination not specified");panel.append(action);}
         const coverage=destinationCoverage(value);if(coverage||!plans.length)panel.append(element("p","",coverage||"No recorded destination"));
         const tasks=uniqueTasks(lane).filter(chat=>chat.lifecycle==="present");
         panel.append(element("p","",tasks.length?(tasksConfirmed(value)?"Tasks":"Last observed tasks")+" · "+tasks.length:tasksConfirmed(value)?"No current tasks":"Task count unconfirmed"));
-        for(const chat of tasks.slice(0,2)){const task=createTask(chat,lane.worktree_id,value);task.dataset.objectId="summary-task:"+taskId(chat);panel.append(task);}
+        for(const chat of uniqueTasks(lane)){const task=createTask(chat,lane.worktree_id,value);task.dataset.objectId="summary-task:"+taskId(chat);panel.append(task);}
         return panel;
       }
       function setMapScale(next) {
@@ -1211,6 +1249,7 @@ THE SOFTWARE.
       }
       function renderSnapshot(value, preserveSelectionAnchor=false) {
         const surface = byId("relationship-map"), viewport = byId("topology-viewport");
+        const previousOrientation=surface.metroLayout?.orientation;
         const savedChatScrolls=chatScrolls(surface);
         const previousSummary=surface.querySelector(".workspace-summary"),summaryScroll=previousSummary?.dataset.objectId==="summary:"+inlineWorkspaceId?previousSummary.scrollTop:0;
         const focusedId=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId, focusedTag=document.activeElement?.tagName;
@@ -1230,6 +1269,8 @@ THE SOFTWARE.
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
           if(geometryCache?.key!==key) layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[]),textScale};
+          const measured=measurePlatforms(records,value,layout);
+          if(measured){Object.assign(options,measured);layout=Core.layoutRouteMap(value.topology,dimensions,options);layout={...layout,...Core.layoutJourneys(layout,value.route_plans||[]),textScale,...measured};}
           expandedHistory.clear();for(const range of layout.historyRanges)if(range.expanded)expandedHistory.add(range.id);
           const fragment=document.createDocumentFragment();fragment.append(connectionLayer(layout));
           for(const node of layout.nodes)fragment.append(routeStation(node,layout,value));
@@ -1288,7 +1329,7 @@ THE SOFTWARE.
         warning.textContent = value.warnings.map(w => (warningLabels[w.code] || w.code) + (w.subject_id ? " · " + w.subject_id : "")).join(" · ");
         const branches = byId("branch-list"); branches.replaceChildren();
         for (const ref of layout?.refs || []) {
-          const control = button("branch-choice", "Locate reference " + ref.display_name, () => locateObject(ref.id));
+          const control = button("branch-choice", "Inspect reference " + ref.display_name, () => {locateObject(ref.id);showCommit(ref.oid);});
           control.title = ref.ref_name; control.append(swatch(refIdentity(ref)), element("span", "", ref.display_name)); branches.append(control);
         }
         byId("branch-count").textContent = String(layout?.refs.length || 0);
@@ -1302,6 +1343,7 @@ THE SOFTWARE.
             locateWorkspace(selectedWorkspaceId, value);
           } else fitMap();
         }
+        else if (preserveSelectionAnchor && newRect && previousOrientation !== layout?.orientation) setViewportPosition({left:Math.max(0,16+newRect.x*mapScale-Math.max(16,(viewport.clientWidth-(newRect.width||44)*mapScale)/2)),top:Math.max(0,16+newRect.y*mapScale-32),behavior:"instant"});
         else if (offset && newRect && (preserveSelectionAnchor||selectedObjectId?.startsWith("history-range:")||selectedObjectId?.startsWith("commit:")||(inlineWorkspaceId&&selectedObjectId?.startsWith("workspace:"))) && (oldRect.x!==newRect.x||oldRect.y!==newRect.y)) setViewportPosition({ left: Math.max(0, 16 + newRect.x * mapScale - offset.x), top: Math.max(0, 16 + newRect.y * mapScale - offset.y), behavior: "instant" });
         else setViewportPosition({ ...savedViewport, behavior: "instant" });
         restoreChatScrolls(surface,savedChatScrolls);
@@ -1376,7 +1418,6 @@ THE SOFTWARE.
         if (mapScale < .6) { panel.hidden = true; return; }
         const bounds = { left: (viewport.scrollLeft - 16) / mapScale, right: (viewport.scrollLeft + viewport.clientWidth - 16) / mapScale, top: (viewport.scrollTop - 16) / mapScale, bottom: (viewport.scrollTop + viewport.clientHeight - 16) / mapScale };
         const inside = p => p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom;
-        // Clip actual segments, including diagonal turns with offscreen ends.
         const intersects = (a, b) => {
           let enter=0,leave=1;
           for(const [start,end,low,high] of [[a.x,b.x,bounds.left,bounds.right],[a.y,b.y,bounds.top,bounds.bottom]]) {
@@ -1429,7 +1470,6 @@ THE SOFTWARE.
         return chat.lifecycle !== "deleted" && transport === "browser" && chat.host === "local" && ["codex_task_cwd","agent_reported_working_directory"].includes(chat.association_source) && safeCodexThreadId(chat.codex_thread_id)
           ? "codex://threads/" + chat.codex_thread_id : null;
       }
-      // Bootstrap Icons (MIT); license retained in this distributed resource.
       function cardIcon(name) {
         const paths={chat:"M14 1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4.414A2 2 0 0 0 3 11.586l-2 2V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12.793a.5.5 0 0 0 .854.353l2.853-2.853A1 1 0 0 1 4.414 12H14a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z",arrow:"M14 2.5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0 0 1h4.793L2.146 13.146a.5.5 0 0 0 .708.708L13 3.707V8.5a.5.5 0 0 0 1 0z",disclosure:"M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708"};
         const icon=svg("svg",{viewBox:"0 0 16 16",fill:"currentColor","aria-hidden":"true",class:name==="chat"?"chat-icon":name==="arrow"?"chat-arrow":"disclosure-icon"});icon.append(svg("path",{d:paths[name]}));return icon;
@@ -1537,6 +1577,20 @@ THE SOFTWARE.
         const node = document.createElement("div"); node.className = "unlinked";
         node.textContent = "No linked task observed"; return node;
       }
+      const copyStates=new Map();
+      function copyButton(kind,label,value,text) {
+        const key=label+":"+value;
+        const paint=node=>{const state=copyStates.get(key);node.textContent=state?.text||text;node.disabled=state?.busy||false;node.setAttribute("aria-busy",String(node.disabled));};
+        const sync=()=>{for(const node of document.querySelectorAll("[data-copy-key]"))if(node.dataset.copyKey===key)paint(node);paint(control);};
+        const control=button(kind,label,async()=>{
+          if(copyStates.get(key)?.busy)return;
+          const state={text:"…",busy:true};copyStates.set(key,state);sync();
+          try{if(!navigator.clipboard?.writeText)throw Error();await navigator.clipboard.writeText(value);state.text="Copied";announce(label.replace(/^Copy /,"")+" copied");}
+          catch(_){state.text="Retry";announce("Copy unavailable; select the value instead");}
+          state.busy=false;sync();setTimeout(()=>{if(copyStates.get(key)===state){copyStates.delete(key);sync();}},2400);
+        });
+        control.dataset.copyKey=key;control.dataset.objectId=key;control.title=label;paint(control);return control;
+      }
       function button(className, label, handler) {
         const node = document.createElement("button"); node.type = "button"; node.className = className; node.setAttribute("aria-label", label); node.addEventListener("click", event => handler(event)); return node;
       }
@@ -1558,6 +1612,25 @@ THE SOFTWARE.
         return node;
       }
       function worktreeDisplayName(path) { const parts = path.replaceAll("\\", "/").split("/").filter(Boolean); return parts.slice(-2).join("/") || path; }
+      function anchorSelection(){
+        const panel=byId("selection-details"),link=byId("selection-link"),view=byId("topology-viewport");
+        link.hidden=true;
+        if(panel.hidden||!panel.parentElement||!selectedObjectId?.startsWith("commit:"))return;
+        const node=[...view.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===selectedObjectId);
+        if(!node)return;
+        const v=view.getBoundingClientRect(),n=node.getBoundingClientRect(),f=panel.parentElement.getBoundingClientRect();
+        const x=n.left+n.width/2,y=n.top+n.height/2,w=Math.min(440,v.width-24);
+        if(x<v.left||x>v.right||y<v.top||y>v.bottom)return;
+        panel.style.width=w+"px";panel.style.maxHeight=Math.max(80,Math.min(v.height*(v.width<520?(panel.dataset.size==="large"?.78:.58):1)-24,v.width<520?Math.max(y-v.top,v.bottom-y)-44:Infinity))+"px";
+        const h=panel.getBoundingClientRect().height;
+        let left=x+32;if(left+w>v.right-12)left=x-32-w;
+        left=Math.max(v.left+12,Math.min(left,v.right-w-12));
+        let top=Math.max(v.top+12,Math.min(y-24,v.bottom-h-12));
+        if(x>left&&x<left+w)top=y<v.top+v.height/2?Math.min(y+32,v.bottom-h-12):Math.max(v.top+12,y-h-32);
+        panel.style.left=left-f.left+"px";panel.style.top=top-f.top+"px";panel.style.right="auto";
+        const tx=Math.max(left,Math.min(x,left+w)),ty=Math.max(top,Math.min(y,top+h));
+        link.style.left=x-f.left+"px";link.style.top=y-f.top+"px";link.style.width=Math.hypot(tx-x,ty-y)+"px";link.style.transform="rotate("+Math.atan2(ty-y,tx-x)+"rad)";link.hidden=Math.hypot(tx-x,ty-y)<8;
+      }
       function showCommit(oid) {
         if (!lastSnapshot?.topology) return;
         selectedObjectId = "commit:" + oid; selectedWorkspaceId = null; selectedTaskId = null;
@@ -1582,6 +1655,8 @@ THE SOFTWARE.
           control.dataset.endpointOid = id; control.dataset.navigationAction = endpoint.action; control.textContent = label;
           byId("selection-details").append(control);
         }
+        anchorSelection();
+        if(!refreshingDetails)byId("selection-details").querySelector(".dismiss-details")?.focus({preventScroll:true});
       }
       function selectLane(lane, notify = true) {
         setJourneyWorkspace(lane.worktree_id);
@@ -1669,13 +1744,15 @@ THE SOFTWARE.
         if (collapsed && moveFocus) section.querySelector(".collapse-details")?.focus({preventScroll:true});
       }
       function dismissInspector() {
-        byId("selection-details").hidden=true;
+        byId("selection-details").hidden=true;byId("selection-link").hidden=true;
         const target=[...byId("relationship-map").querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===selectedObjectId);
+        target?.removeAttribute("aria-current");
         (target||byId("topology-viewport")).focus({preventScroll:true});
         selectedObjectId=null;selectedWorkspaceId=null;selectedTaskId=null;
       }
       function showDetails(titleText, rows, copyValue, copyTaskId) {
         const section = byId("selection-details"); const title = document.createElement("h2"); title.id = "selection-title"; title.textContent = titleText;
+        byId("selection-link").hidden=true;section.style.left="";section.style.top="";section.style.right="";section.style.width="";section.style.maxHeight="";
         delete section.dataset.workspaceGroup;
         delete section.dataset.arrivalTarget;
         const list = document.createElement("dl"); list.className = "detail-grid";
@@ -1688,20 +1765,8 @@ THE SOFTWARE.
         const header = element("header", "inspector-header"), actions = element("div", "inspector-actions");
         actions.append(collapse,resize,dismiss); header.append(title,actions);
         section.replaceChildren(header, list); updateInspectorControls();
-        if (copyValue && safeHash(copyValue)) {
-          const copy = button("copy-hash", "Copy full hash", async () => {
-            try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyValue); copy.textContent = "Copied"; announce("Full hash copied"); }
-            catch (_) { copy.textContent = "Copy unavailable"; announce("Copy unavailable; select the full hash instead"); }
-          });
-          copy.textContent = "Copy hash"; section.append(copy);
-        }
-        if (copyTaskId && safeCodexThreadId(copyTaskId)) {
-          const copy = button("copy-task-id", "Copy Codex task ID", async () => {
-            try { if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable"); await navigator.clipboard.writeText(copyTaskId); copy.textContent = "Copied"; announce("Task ID copied"); }
-            catch (_) { copy.textContent = "Copy unavailable"; announce("Copy unavailable; select the task ID in details instead"); }
-          });
-          copy.textContent = "Copy task ID"; section.append(copy);
-        }
+        if(copyValue&&safeHash(copyValue))section.append(copyButton("copy-hash","Copy full hash",copyValue,"Copy hash"));
+        if(copyTaskId&&safeCodexThreadId(copyTaskId))section.append(copyButton("copy-task-id","Copy Codex task ID",copyTaskId,"Copy task ID"));
       }
       function showUnavailableSelection(messages) {
         showDetails("Selection unavailable", messages.map(message => ["Status", message]));
@@ -1793,6 +1858,7 @@ THE SOFTWARE.
         renderAttention(records, lastSnapshot);
         renderOverview(records, lastSnapshot);
         const surface=byId("relationship-map");
+        if(surface.metroLayout?.cardHeights){renderSnapshot(lastSnapshot,true);refreshSelectedDetails();return;}
         if(surface.metroLayout) {
           const focus=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId;
           const currentId=surface.querySelector('[aria-current="true"]')?.dataset.objectId;
@@ -1905,6 +1971,7 @@ THE SOFTWARE.
       byId("locate-current").addEventListener("click", () => { if (lastSnapshot) { byId("selection-details").hidden = true; byId("attention-summary").open = false; locateWorkspace(lastSnapshot.current_worktree_id); } });
       byId("locate-agent").addEventListener("click", () => { const lane = currentAgentLane(lastSnapshot); if (lane) { byId("selection-details").hidden=true; selectedWorkspaceId=lane.worktree_id;selectedTaskId=null;selectedObjectId="workspace:"+lane.worktree_id;locateWorkspace(lane.worktree_id); } });
       window.addEventListener("hashchange", () => updateAgentLocation(lastSnapshot));
+      byId("topology-viewport").addEventListener("scroll",()=>requestAnimationFrame(anchorSelection));
       window.addEventListener("resize", () => { if (lastSnapshot) renderSnapshot(lastSnapshot,true); });
       document.fonts?.ready.then(() => { if (lastSnapshot) renderSnapshot(lastSnapshot,true); });
       installPanControls(byId("topology-viewport"));
