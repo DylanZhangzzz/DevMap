@@ -64,6 +64,8 @@ class OwnedJobTests(unittest.TestCase):
         rows = report['resources']['samples']
         self.assertIn(report['root_pid'], [p['pid'] for p in rows[0]['processes']])
         self.assertTrue(any(len(r['processes']) >= 2 for r in rows))
+        root_rows = [p for r in rows for p in r['processes'] if p['pid'] == report['root_pid']]
+        self.assertTrue(any('worker.py' in (p.get('command_line') or '') for p in root_rows))
         for row in rows:
             self.assertEqual(row['membership_count'], len(row['processes']) + len(row['unobserved']))
             self.assertEqual(row['sum_rss_bytes'], sum(p['rss_bytes'] for p in row['processes']))

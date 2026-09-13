@@ -26,6 +26,9 @@ class Sampler:
         self.start = time.monotonic()
         self.k = c.WinDLL('kernel32', use_last_error=True)
         self.p = c.WinDLL('psapi', use_last_error=True)
+        self.nt = c.WinDLL('ntdll')
+        self.nt.NtQueryInformationProcess.argtypes = [w.HANDLE, w.ULONG, c.c_void_p, w.ULONG, c.POINTER(w.ULONG)]
+        self.nt.NtQueryInformationProcess.restype = c.c_long
         signatures = {
             'QueryInformationJobObject': ([w.HANDLE, c.c_int, c.c_void_p, w.DWORD, c.c_void_p], w.BOOL),
             'OpenProcess': ([w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
@@ -66,11 +69,11 @@ class Sampler:
                             raise RuntimeError('Process no longer belongs to owned Job')
                         image = c.create_unicode_buffer(32768); size = w.DWORD(len(image))
                         self.require(self.k.QueryFullProcessImageNameW(handle, 0, image, c.byref(size)))
-                        self.handles[pid] = (handle, image.value)
+                        self.handles[pid] = (handle, image.value, self.command_line(handle))
                     except BaseException:
                         self.k.CloseHandle(handle)
                         raise
-                handle, image = self.handles[pid]
+                handle, image, command = self.handles[pid]
                 if self.k.WaitForSingleObject(handle, 0) != 258:
                     raise RuntimeError('Process exited between membership and sample')
                 created, exited, kernel, user = (w.FILETIME() for _ in range(4))
@@ -80,7 +83,7 @@ class Sampler:
                 ticks = lambda f: (f.dwHighDateTime << 32) | f.dwLowDateTime
                 row['processes'].append({'pid': pid, 'image': image, 'created_filetime': str(ticks(created)),
                                          'cpu_seconds': (ticks(kernel) + ticks(user)) / 10000000,
-                                         'rss_bytes': memory.rss, 'private_bytes': memory.private_bytes})
+                                         'rss_bytes': memory.rss, 'private_bytes': memory.private_bytes, **command})
             except (OSError, RuntimeError) as error:
                 row['unobserved'].append({'pid': pid, 'reason': str(error)})
         row['sum_rss_bytes'] = sum(p['rss_bytes'] for p in row['processes'])
@@ -88,8 +91,24 @@ class Sampler:
         row['complete_snapshot'] = not row['unobserved'] and row['membership_counts_agree']
         self.samples.append(row)
 
+    def command_line(self, handle):
+        # Diagnostic only: native class 60 is not a portable application API.
+        # https://github.com/winsiderss/phnt/blob/master/ntpsapi.h
+        # Unsupported queries stay unknown; never infer a role from failure.
+        class Unicode(c.Structure):
+            _fields_ = [('length', w.USHORT), ('maximum', w.USHORT), ('buffer', c.c_void_p)]
+        buffer = c.create_string_buffer(131072); returned = w.ULONG()
+        status = self.nt.NtQueryInformationProcess(handle, 60, buffer, len(buffer), c.byref(returned))
+        if status < 0:
+            return {'command_line': None, 'command_line_error': f'NTSTATUS {status & 0xffffffff:08x}'}
+        value = Unicode.from_buffer(buffer); begin = c.addressof(buffer)
+        pointer = value.buffer or 0
+        if value.length % 2 or not begin <= pointer <= pointer + value.length <= begin + len(buffer):
+            return {'command_line': None, 'command_line_error': 'Invalid returned Unicode bounds'}
+        return {'command_line': c.string_at(pointer, value.length).decode('utf-16-le')}
+
     def close(self):
-        for handle, _ in self.handles.values():
+        for handle, _, _ in self.handles.values():
             self.k.CloseHandle(handle)
         self.handles.clear()
         return {'scope': 'sampled owned Job including test worker; excludes external wrapper',
