@@ -12,6 +12,13 @@ Linked Git worktrees share one authoritative database at
 `git rev-parse --path-format=absolute --git-common-dir`; a linked worktree's
 `.git` file is not the database directory.
 
+After activation, a newly added linked worktree uses the same common-directory
+store when the candidate is invoked from that worktree. It does not need its
+own database migration. The [native CLI check](audits/2026-09-13-added-worktree-storage.md)
+verified new events in the shared store with no DevMap files in the new
+worktree's Git administration directory. Host hook discovery/configuration in
+that new worktree is a separate integration requirement.
+
 The store contains accepted events, route revisions and original route starts,
 presence, task associations and their observation watermarks. Existing Context
 Git repositories and objects remain in their original locations. They are not

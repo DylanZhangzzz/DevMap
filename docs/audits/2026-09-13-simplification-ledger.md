@@ -24,6 +24,8 @@
 
 尚未以此样例证明“正常运行总文件减少”。第一阶段还必须实测新接入的无旧数据仓库，以及激活后新写入只进入 SQL、旧文件不继续增长；保留备份与 legacy-only 对象不是日常双写。
 
+后续 [dfQYX8 新 worktree 检查](2026-09-13-added-worktree-storage.md)已证明本例激活后的新会话写入只进入共用 SQL，主工作区原旧文件不增长，新 worktree 管理目录下无 DevMap 文件。它补充活跃存储合并的实际证据，不是全盘文件减少或宿主配置继承通过声明。
+
 证据：target/verification/stage1-native-create.log、stage1-native-export.log、stage1-native-exe-sha.txt、stage1-storage-file-inventory.json；样例目录 target/verification/legacy-process-cXQcFM。样例目前保持迁移后状态，尚未执行旧写入破坏测试，不要将其他已故意制造分歧的样例重新导入。
 
 ## 必须补齐的用户与运行时对比
