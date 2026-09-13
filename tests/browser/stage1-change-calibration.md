@@ -102,3 +102,82 @@ individual samples or a retry hidden inside jvYk1v. Its own pre-run/continuous
 telemetry must be retained; the post window does not guarantee future quiet.
 Do not repeat indefinitely or raise the cap if the new batch still has excessive
 noise. Other cold/warm and browser calibration gates remain open.
+
+## Second run: 2Q4Xwp — calibration still fails
+
+Controller 13288 exited 0; roots 36948 and 37760 exited 0 with empty strict
+Jobs and no aborts. Both arms completed 100 measured changes and 10 warmups,
+with 800 measured client outcomes, full model validation, unchanged registered
+inputs/probe/HEADs/legacy data and no DB. All eight proxies exited 0 on EOF.
+Sampling success is not a calibration pass. The unchanged frozen analyzer again
+rejected all five noise intervals against ±250 ms:
+
+| Metric | A1 p95, ms | A2 p95, ms | A2−A1 p95 95% interval, ms |
+|---|---:|---:|---:|
+| Client 0 | 5592.9 | 5057.2 | −1593.0 to −265.0 |
+| Client 1 | 5572.7 | 5035.2 | −1601.9 to −348.7 |
+| Client 2 | 5573.9 | 5066.5 | −1576.8 to −248.3 |
+| Client 3 | 5535.2 | 5094.4 | −1568.9 to −263.3 |
+| Per-change maximum | 5593.8 | 5108.1 | −1562.9 to −264.4 |
+
+Evidence: `target/verification/stage1-change-aa-2Q4Xwp`, including immutable
+`report.json`, `analysis.json` and derived `block-diagnostics.json`. The pre-run
+window averaged 4.14% machine busy, but A1 averaged 52.99% with 434.5–2311.5 MiB
+free, and A2 averaged 56.04% with 919.4–2012.9 MiB free. These are whole-machine
+measurements including benchmark load, not a demonstrated external-load or
+paging cause. No third blind full repeat is justified by these results. No
+candidate population or final benchmark contract has been frozen.
+
+## Bounded diagnostics after the second failure
+
+`change-overhead-v3WXVz` replays 100 retained responses offline. Parsing, complete
+model audit, serialization and individual synchronous file write/close together
+had p95 7.52 ms and maximum 9.62 ms. This does not reproduce concurrent native
+load or asynchronous I/O effects; it does not establish logging as the cause of
+the much larger between-arm shift.
+
+`change-resource-QSxoL3` runs the unchanged old-only scale preflight (2 warmups,
+4 measured changes, four clients) with half-second owned-Job resource samples.
+Controller 70807 and Job root 39292 exited 0; the Job emptied naturally, all
+models and data preservation passed. Of 145 samples, 26 were incomplete. One
+complete snapshot had 147 processes and 912.23 MiB summed RSS: 74 Git `cmd`
+launchers, 63 native Git processes, five console hosts, four DevMap proxies and
+one Node worker. Four-proxy peak summed RSS was only 57.05 MiB. RSS sums count
+shared pages repeatedly, short-lived processes may be missed, and these are not
+whole-lifetime peaks. The process count must not be described as shared owners.
+
+Both installed Git paths report 2.45.1.windows.1; retained command lines show
+matching `tag --points-at` invocations through `cmd/git.exe` and
+`mingw64/bin/git.exe`. Upstream [git-wrapper.c](https://github.com/git-for-windows/MINGW-packages/blob/main/mingw-w64-git/git-wrapper.c)
+also performs environment setup, so bypassing the launcher cannot be assumed
+universally equivalent. That source is current upstream, not a verified source
+match to this installed build. A bounded child-only PATH diagnostic can test this
+fixture's routing and model preservation; it cannot silently alter the formal
+benchmark environment, prove noise resolved, or justify a hardcoded product path.
+
+The child-only routing diagnostic completed as `direct-git-resource-SiXuhS`:
+controller 56113 and root 8308 exited 0, with no abort or remaining descendants.
+The unchanged old worker used the same registered corpus and schedule. Its full
+normalized baseline model and legacy inventory hashes exactly match QSxoL3;
+all changed models, probe restoration and four proxy EOF exits passed. Routing
+metadata records both Git executable hashes/versions, the child PATH prefix and
+`where git` resolution. No parent/global PATH or product source was changed.
+
+Across 126 snapshots (15 incomplete), no `cmd/git.exe` image was observed. The
+complete-snapshot process peak was 24; maximum complete summed RSS was 246.34 MiB
+and private bytes 295.60 MiB (these maxima need not coincide). This provides a
+concrete routing/resource lead compared with QSxoL3, subject to the same sampling
+limitations. Four measured changes took 3728–4137 ms across clients, versus
+4342–4664 ms in QSxoL3. These two short sequential runs are not randomized or
+paired acceptance populations; neither noise resolution nor a causal latency
+benefit has been established. See `SiXuhS/comparison.json` and its adjacent
+`.routing.json` / `.job.json` for retained evidence. A first launch failed a
+slash-normalization assertion before spawning the workload (tool ba3f99); it
+was corrected before this separate allocation and is not a discarded sample.
+
+Next decision: preserve the ordinary installed Git routing for user-default
+acceptance. Any explicitly controlled alternative environment requires its own
+preregistered old/old calibration and identical old/new conditions, with the
+support boundary stated. Do not patch the frozen old executable, selectively
+replace observations, treat this diagnostic as a product improvement, or add
+mandatory user PATH setup to satisfy the simplification gate.
