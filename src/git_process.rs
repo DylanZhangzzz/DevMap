@@ -114,9 +114,9 @@ pub(crate) fn with_operation<T>(operation: impl FnOnce() -> T) -> T {
     with_budget(&current_budget(), operation)
 }
 static HEALTHY: AtomicBool = AtomicBool::new(true);
-#[cfg(test)]
+#[cfg(all(test, windows))]
 static FORCE_CLEANUP_FAILURE: AtomicBool = AtomicBool::new(false);
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) fn test_force_cleanup_failure(force: bool) {
     FORCE_CLEANUP_FAILURE.store(force, Ordering::SeqCst);
 }
@@ -276,7 +276,7 @@ async fn clean(child: &mut tokio::process::Child, tree: &mut Option<Tree>, budge
     // executor/owner lock until cleanup can actually be confirmed. Never detach.
     loop {
         let attempt = tokio::time::timeout(budget, async {
-            #[cfg(test)]
+            #[cfg(all(test, windows))]
             if FORCE_CLEANUP_FAILURE.load(Ordering::SeqCst) {
                 return Err(io::Error::other(
                     "controlled Git cleanup confirmation failure",
