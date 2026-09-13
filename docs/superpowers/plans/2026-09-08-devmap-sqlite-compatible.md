@@ -2,7 +2,9 @@
 
 > **For agentic workers:** Use superpowers:subagent-driven-development for independently reviewable tasks, with parent-owned integration and evidence. Follow checkbox steps and review each task before closing it.
 
-**Goal:** Replace local multi-file operational state with repository SQLite and an on-demand shared core while retaining the exact currently installed frontend and devmap/dock/4 semantics.
+**Goal:** Replace local multi-file operational state with repository SQLite and an on-demand shared core while retaining actual frontend appearance, interaction and devmap/dock/4 semantics.
+
+**2026-09-13 user-authorized delivery amendment:** Follow [two-stage acceptance](2026-09-13-devmap-two-stage-acceptance.md) as the controlling delivery checklist. Stage 1 is a replaceable simplified version with correctness, recovery, real user-flow and preregistered old/new comparative performance gates. The original absolute latency objectives remain Stage 2 work; Stage 1 completion does not establish whole-goal completion. Keep the existing worktree and history. Do not use this split to waive resource leaks, unverified host behavior or data integrity.
 
 **Architecture:** Preserve existing domain types, reducer, frontend resources and public tool signatures. Add a transactional repository store behind compatibility APIs, strict read-only legacy snapshots and migration activation, then consolidate runtime ownership. Durable history and provenance remain distinguishable from current projections.
 
@@ -13,7 +15,7 @@
 ## Global constraints
 
 - Work only in codex/devmap-sqlite-compatible; no merge, push, publish, live plugin replacement or real repository-state migration.
-- Source baseline db696768baf366b442adf6097e0c1f4cec3f7e08 plus the verified installed frontend overlay recorded in runtime-baseline.json. Do not change the two frontend assets to simplify backend implementation.
+- Source baseline db696768baf366b442adf6097e0c1f4cec3f7e08 plus the verified installed frontend overlay recorded in runtime-baseline.json. Asset hashes identify evidence; they are not the final UI acceptance rule. A minimal user-state preservation fix is permitted with actual visual, interaction and protocol comparisons. No redesign is authorized.
 - Keep devmap/dock/4, public route/capture structures, start_commit, CAS conflicts, retry behavior, confidence, provenance, partial inventories, leases and unknown semantics.
 - SQLite lives in canonical git-common-dir/devmap/devmap.db, not per-worktree .git pointers. Durable write defaults: WAL, foreign_keys ON, synchronous FULL, finite contention timeout. Unknown schema refuses writes; corruption does not recreate a database.
 - Legacy remains authoritative until explicit validated activation. Shadow imports operate on immutable copies; no persistent dual writer. Context Git stays legacy-only.
@@ -97,10 +99,10 @@ The shared owner is keyed by canonical common dir. IPC has bounded typed request
 
 Files: tests/browser/sqlite-compatibility.cjs or target/verification scripts, docs/audits/2026-09-08-sqlite-compatibility.md, docs/installation.md and storage operations guidance.
 
-- [ ] Assert verified installed asset SHA256s unchanged; run JS renderer/metro core and Rust UI contract tests.
+- [ ] Record asset SHA256s and explain each intentional difference; run JS renderer/metro core and Rust UI contract tests, then prove actual visual and behavioral compatibility under the two-stage checklist.
 - [ ] Capture old/new real browser render with identical frozen inputs at desktop/sidebar widths; compare screenshots and interaction results (selection, zoom/pan, expansion, refresh/reconnect) including legitimate dynamic exclusions explicitly documented.
 - [ ] Build release binary and exercise local real MCP stdio + browser + host event loop using isolated repo and configuration; distinguish host integration fixtures from real host evidence and leave unproven host claims open.
-- [ ] Measure cold open, warm query p50/p95, small Git-change freshness, CPU/RSS, concurrent owner count and summary bytes against roadmap budgets; report hardware, sample counts and failures. Fix failures or retain failed gates; do not lower guarantees to claim success.
+- [ ] Stage 1: run the preregistered same-machine old/new comparison and hard resource/concurrency/recovery gates. Stage 2: meet the retained absolute cold/hot/freshness budgets. Report hardware, populations and failures separately; neither smoke nor in-process timing proves process/browser acceptance.
 - [ ] Run `cargo test --all-targets --no-fail-fast`, `cargo fmt --check`, relevant clippy/packaging checks and independent whole-branch review. Audit every P0–P5 requirement against current evidence before goal completion.
 - [ ] Keep branch/worktree for user review; no merge, push, install or publication without a subsequent explicit request.
 
