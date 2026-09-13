@@ -204,6 +204,8 @@ impl GitRelationshipResolver {
                 .min(unique.len().max(1));
             let chunk_size = unique.len().div_ceil(worker_count).max(1);
             let budget = crate::git_process::current_budget();
+            #[cfg(test)]
+            let mut profile = crate::dock::collection_profile::Clock::relationships();
             // These reads have independent inputs. Keep the original command
             // helpers and capture status only for this operation, never a cache.
             let (configured, root_target, mut development_probes, status_chunks) =
@@ -265,6 +267,8 @@ impl GitRelationshipResolver {
                     )
                 });
             // Consume in the original gate order. A speculative status failure
+            #[cfg(test)]
+            profile.mark("parallel_initial_probes");
             // cannot replace the configuration/root/development target error.
             let configured = configured?;
             let root_target = root_target?;
@@ -292,6 +296,8 @@ impl GitRelationshipResolver {
                 .filter(|(_, status)| status.is_ok())
                 .flat_map(|(matches, _)| matches.iter().copied())
                 .collect::<Vec<_>>();
+            #[cfg(test)]
+            profile.mark("target_selection");
             let (shared, shared_groups) = if share {
                 shared_facts::compute(
                     workspace,
@@ -307,6 +313,8 @@ impl GitRelationshipResolver {
                 (BTreeMap::new(), 0)
             };
             let shared_rows = std::sync::atomic::AtomicUsize::new(0);
+            #[cfg(test)]
+            profile.mark("shared_facts");
             let original_rows = std::sync::atomic::AtomicUsize::new(0);
             let mut by_worktree_id = BTreeMap::new();
             let resolved = std::thread::scope(|scope| {
@@ -377,6 +385,8 @@ impl GitRelationshipResolver {
                     .collect::<Vec<_>>()
             });
 
+            #[cfg(test)]
+            profile.mark("row_resolution");
             let stats = SharedFactsTestStats {
                 shared_groups,
                 shared_rows: shared_rows.into_inner(),

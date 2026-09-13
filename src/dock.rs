@@ -817,6 +817,10 @@ impl Clone for DockStorageInputs {
     }
 }
 
+#[cfg(test)]
+#[path = "dock_collection_profile.rs"]
+pub(crate) mod collection_profile;
+
 /// Git observations collected once before a migration write transaction.
 pub(crate) struct DockProjectionContext {
     workspace: SourceWorkspace,
@@ -833,10 +837,20 @@ impl DockProjectionContext {
         plans: &[crate::route_plan::RoutePlan],
     ) -> Result<Self, DevMapError> {
         crate::git_process::with_operation(|| {
+            #[cfg(test)]
+            let mut profile = collection_profile::Clock::new();
             let worktrees = WorktreeScanner::scan(workspace)?;
+            #[cfg(test)]
+            profile.mark("opening_worktrees");
             let before = topology_cache_key(workspace, &worktrees)?;
+            #[cfg(test)]
+            profile.mark("opening_topology_key");
             let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
+            #[cfg(test)]
+            profile.mark("topology");
             let configured = GitRelationshipResolver::development_configuration(workspace)?;
+            #[cfg(test)]
+            profile.mark("configuration");
             let configuration_key = configured
                 .as_deref()
                 .map(|value| sha256_hex(value.as_bytes()));
@@ -845,6 +859,8 @@ impl DockProjectionContext {
                 &worktrees,
                 configured.as_deref(),
             )?;
+            #[cfg(test)]
+            profile.mark("relationships");
             let mut targets = BTreeMap::new();
             for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
                 if !targets.contains_key(target) {
@@ -860,11 +876,15 @@ impl DockProjectionContext {
                 }
             }
             let after_worktrees = WorktreeScanner::scan(workspace)?;
+            #[cfg(test)]
+            profile.mark("targets_and_closing_worktrees");
             if worktrees != after_worktrees
                 || before != topology_cache_key(workspace, &after_worktrees)?
             {
                 return Err(DevMapError::InvalidDomain("Git changed during collection"));
             }
+            #[cfg(test)]
+            profile.mark("closing_topology_key");
             Ok(Self {
                 workspace: workspace.clone(),
                 worktrees,
