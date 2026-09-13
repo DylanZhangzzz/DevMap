@@ -1,5 +1,7 @@
 # 第一阶段证据索引
 
+> 当前按用户要求转为[代码交付、人工验收](../devmap-manual-acceptance.md)。本页保留历史结果和未验证范围，开放自动验收项不再阻塞交付，也没有被改写为通过。
+
 执行合同：[两阶段验收](../superpowers/plans/2026-09-13-devmap-two-stage-acceptance.md)。本索引不等于阶段通过。当前候选为 5dd8288，CLI SHA-256：25BF6631EF7387E524744A1B2B8CCE01B76D54C58CDB897353ACC5D042DFADEC。相对 1cc1831 / 4C91 修改 Codex SessionEnd 安装配置及旧配置升级识别，共享核心和 HTML 不变；下表的历史构件范围保持明确。配置字节一致的历史结论不再适用于该新版。
 
 | 验收项 | 当前证据 | 证据能够支持的范围 | 剩余项 |
