@@ -1,6 +1,6 @@
 # 第一阶段证据索引
 
-执行合同：[两阶段验收](../superpowers/plans/2026-09-13-devmap-two-stage-acceptance.md)。本索引不等于阶段通过。生产候选为 4e426e8；其后目前仅修改文档。实际 CLI SHA-256：6D261B3F7387D32D1872BBAC5C8E44ABD83B328009C8C5653594FB430D33FE41。
+执行合同：[两阶段验收](../superpowers/plans/2026-09-13-devmap-two-stage-acceptance.md)。本索引不等于阶段通过。生产候选为 4e426e8；其后修改为文档和测试工具，生产源码未变。实际 CLI SHA-256：6D261B3F7387D32D1872BBAC5C8E44ABD83B328009C8C5653594FB430D33FE41。
 
 | 验收项 | 当前证据 | 证据能够支持的范围 | 剩余项 |
 |---|---|---|---|
@@ -37,3 +37,5 @@
 其中独立 Job 和计划内清理已通过[小样例预检](../../tests/browser/stage1-owned-map-preflight.md)：stage1-owned-map-WOxfcn 旧/新样本均确认 Job 清空、端点消失及 SQL/旧文件/备份保持。五项真实 Windows 负控制与正常退出检查通过。它不证明自然生命周期，单次候选冷打开比旧版慢的观察也已保留，不修改预注册上限。
 
 四客户端公共读取预检已补齐：stage1-owned-map-oeIKdP 每版本四客户端各三次测量，独立保留样本/错误，Job、端点和数据保护检查通过；不等同单写核心进程数量验收。干净匹配的规模输入、完整语义校验与基线 A/A 校准仍待实现；没有启动正式比较，也没有冻结校准后数值。
+
+新增[纯旧存储规模预检](../../tests/browser/stage1-legacy-scale-preflight.md)：scale-legacy-jI7MaE 具有 20 worktree、100 会话、10 万条记录，尚无 DB；生成与只读登记证据保留。T5pEW1 旧版四客户端预检通过，完整业务指纹一致，独立检查 Git 时间及逐客户端观测计数；原先严格比较失败的三个报告保留。纯旧输入准备完成，但 SQL 匹配、候选缓存/观测语义和足量 A/A 校准仍未完成。
