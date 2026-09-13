@@ -396,6 +396,57 @@ fn profile_manifest_file_io(
     if std::env::var("DEVMAP_QUERY_PROFILE_NOREPARSE").as_deref() == Ok("1") {
         profile_noreparse_files(manifest, report)?;
     }
+    #[cfg(windows)]
+    if std::env::var("DEVMAP_QUERY_PROFILE_DIRECTORIES").as_deref() == Ok("1") {
+        profile_noreparse_directories(manifest, report)?;
+    }
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+fn profile_noreparse_directories(
+    manifest: &FrozenManifest,
+    report: &mut impl FnMut(&'static str, u128, usize),
+) -> Result<(), DevMapError> {
+    let parents: Vec<_> = manifest
+        .files
+        .iter()
+        .map(|file| {
+            let path = manifest.origins[file.origin]
+                .git_dir
+                .join("devmap")
+                .join(&file.relative);
+            let parent = path
+                .parent()
+                .ok_or_else(|| fail("directory profile parent"))?
+                .to_owned();
+            let expected = safe::checked_canonical_directory(&parent)?;
+            Ok((parent, expected))
+        })
+        .collect::<Result<_, DevMapError>>()?;
+    // Keep repeated parent visits: this measures the existing call population.
+    for native in [false, true, true, false] {
+        let start = std::time::Instant::now();
+        for (path, expected) in &parents {
+            let actual = if native {
+                safe::read_no_reparse::directory_probe(path)?
+            } else {
+                safe::checked_canonical_directory(path)?
+            };
+            if &actual != expected {
+                return Err(fail("directory profile canonical output mismatch"));
+            }
+        }
+        report(
+            if native {
+                "manifest_parent_directories_native"
+            } else {
+                "manifest_parent_directories_original"
+            },
+            start.elapsed().as_micros(),
+            0,
+        );
+    }
     Ok(())
 }
 

@@ -119,7 +119,7 @@ fn split(path: &Path) -> Result<(PathBuf, Vec<u16>), DevMapError> {
     Ok((root, tail))
 }
 
-fn relative_file(root: &File, name: &mut [u16]) -> Result<File, DevMapError> {
+fn relative_open(root: &File, name: &mut [u16], directory: bool) -> Result<File, DevMapError> {
     let bytes = u16::try_from(name.len() * 2).map_err(|_| invalid())?;
     let mut name = UNICODE_STRING {
         Length: bytes,
@@ -139,7 +139,7 @@ fn relative_file(root: &File, name: &mut [u16]) -> Result<File, DevMapError> {
         information: 0,
     };
     let mut handle = std::ptr::null_mut();
-    // FILE_GENERIC_READ; sharing read/write/delete; synchronous, non-directory,
+    // FILE_GENERIC_READ; sharing read/write/delete; synchronous, explicit kind,
     // open-reparse-point. OBJ_DONT_REPARSE also covers intermediate components.
     // SAFETY: all input/output buffers live through this synchronous call;
     // RootDirectory is a live owned directory handle. No kernel handle flag.
@@ -150,7 +150,7 @@ fn relative_file(root: &File, name: &mut [u16]) -> Result<File, DevMapError> {
             &attributes,
             &mut io,
             7,
-            0x20 | 0x40 | 0x0020_0000,
+            0x20 | (if directory { 1 } else { 0x40 }) | 0x0020_0000,
         )
     };
     if status < 0 {
@@ -192,13 +192,13 @@ fn checked_parts(
 ) -> Result<File, DevMapError> {
     let root = open_directory_nofollow(&root_path)?;
     let root_identity = file_identity(&root)?;
-    let file = relative_file(&root, &mut tail)?;
+    let file = relative_open(&root, &mut tail, false)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || is_link_or_reparse(&metadata) {
         return Err(DevMapError::UnsafeInstallerOverwrite(path.to_owned()));
     }
     after_first();
-    let reopened = relative_file(&root, &mut tail)?;
+    let reopened = relative_open(&root, &mut tail, false)?;
     let closing_metadata = reopened.metadata()?;
     if !closing_metadata.is_file()
         || is_link_or_reparse(&closing_metadata)
@@ -210,10 +210,101 @@ fn checked_parts(
     Ok(file)
 }
 
+/// Directory experiment only: retain std canonical output inside a native
+/// full-path/physical-identity sandwich. No production directory caller yet.
+#[cfg(test)]
+pub(crate) fn directory_probe(path: &Path) -> Result<PathBuf, DevMapError> {
+    directory_with_hook(path, || {})
+}
+
+#[cfg(test)]
+fn directory_with_hook(
+    path: &Path,
+    after_canonical: impl FnOnce(),
+) -> Result<PathBuf, DevMapError> {
+    let (root_path, mut tail) = split(path)?;
+    let root = open_directory_nofollow(&root_path)?;
+    let root_identity = file_identity(&root)?;
+    let directory = relative_open(&root, &mut tail, true)?;
+    let metadata = directory.metadata()?;
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
+        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_owned()));
+    }
+    let canonical = fs::canonicalize(path)?;
+    after_canonical();
+    // If spelling changed, the final reopen of `path` alone cannot bind the
+    // returned name. Check that name through the same no-reparse mechanism too.
+    if canonical != path {
+        let (canonical_root_path, mut canonical_tail) = split(&canonical)?;
+        let canonical_root = open_directory_nofollow(&canonical_root_path)?;
+        let canonical_root_identity = file_identity(&canonical_root)?;
+        let output = relative_open(&canonical_root, &mut canonical_tail, true)?;
+        let output_metadata = output.metadata()?;
+        if !output_metadata.is_dir()
+            || is_link_or_reparse(&output_metadata)
+            || file_identity(&output)? != file_identity(&directory)?
+            || canonical_root_identity
+                != file_identity(&open_directory_nofollow(&canonical_root_path)?)?
+        {
+            return Err(DevMapError::UnsafeInstallerOverwrite(path.to_owned()));
+        }
+    }
+    let reopened = relative_open(&root, &mut tail, true)?;
+    let closing = reopened.metadata()?;
+    if !closing.is_dir()
+        || is_link_or_reparse(&closing)
+        || file_identity(&directory)? != file_identity(&reopened)?
+        || root_identity != file_identity(&open_directory_nofollow(&root_path)?)?
+    {
+        return Err(DevMapError::UnsafeInstallerOverwrite(path.to_owned()));
+    }
+    Ok(canonical)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn directory_probe_returns_exact_original_canonical_paths() {
+        let owned = tempfile::tempdir().unwrap();
+        let mut long = fs::canonicalize(owned.path()).unwrap();
+        for _ in 0..12 {
+            long.push("long-directory-component");
+        }
+        fs::create_dir_all(&long).unwrap();
+        let unicode = owned.path().join("中文 directory");
+        fs::create_dir(&unicode).unwrap();
+        for path in [owned.path().to_owned(), unicode, long] {
+            assert_eq!(
+                directory_probe(&path).unwrap(),
+                checked_canonical_directory(&path).unwrap()
+            );
+        }
+        assert!(directory_probe(&owned.path().join("missing")).is_err());
+        fs::write(owned.path().join("file"), b"not a directory").unwrap();
+        assert!(directory_probe(&owned.path().join("file")).is_err());
+    }
+
+    #[test]
+    fn directory_probe_rejects_replacement_after_canonicalization() {
+        let owned = tempfile::tempdir().unwrap();
+        let path = owned.path().join("directory");
+        let moved = owned.path().join("moved");
+        assert!(
+            path.is_absolute() && path.starts_with(owned.path()) && moved.starts_with(owned.path())
+        );
+        fs::create_dir(&path).unwrap();
+        let result = directory_with_hook(&path, || {
+            fs::rename(&path, &moved).unwrap();
+            fs::create_dir(&path).unwrap();
+        });
+        assert!(matches!(
+            result,
+            Err(DevMapError::UnsafeInstallerOverwrite(_))
+        ));
+    }
 
     #[test]
     fn ordinary_unicode_and_long_files_match_original_identity_and_bytes() {
@@ -251,6 +342,7 @@ mod tests {
             .unwrap();
         assert!(output.status.success(), "{output:?}");
         assert!(checked_file(&alias.join("nested/payload")).is_err());
+        assert!(directory_probe(&alias.join("nested")).is_err());
         assert!(checked_file(&target.join("nested/payload")).is_ok());
         fs::remove_dir(&alias).unwrap();
     }
@@ -383,10 +475,12 @@ mod tests {
         let path = owned.path().join("payload");
         fs::write(&path, b"warm").unwrap();
         drop(checked_file(&path).unwrap());
+        drop(directory_probe(owned.path()).unwrap());
         let before = count();
         for _ in 0..128 {
             fs::write(&path, b"current").unwrap();
             drop(checked_file(&path).unwrap());
+            drop(directory_probe(owned.path()).unwrap());
             assert!(checked_with_hook(&path, || fs::remove_file(&path).unwrap()).is_err());
         }
         assert_eq!(count(), before, "owned native handles leaked");
