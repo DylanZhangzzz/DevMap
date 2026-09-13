@@ -385,6 +385,7 @@ THE SOFTWARE.
     <section class="observation-strip" aria-label="Live data and refresh status">
       <p class="connection" id="connection" aria-live="polite">Git · connecting</p>
       <p class="task-inventory" id="task-inventory">Tasks · observation unavailable</p>
+      <span id="agent-refresh-action"></span>
         <p class="refresh-status" id="refresh-status" role="status">Not refreshed yet</p>
     </section>
     <main id="dock-main" tabindex="-1">
@@ -473,7 +474,7 @@ THE SOFTWARE.
         unattended_work: "Unattended work · no passengers; uncommitted or unmerged changes remain",
         unprotected_head: "Detached work lacks a stable ref",
         concurrent_writes: "Concurrent writing observed",
-        task_activity_unknown: "Passenger presence unknown",
+        task_activity_unknown: "Agent activity needs confirmation",
         git_state_unknown: "Working state unknown",
         shared_workspace: "Shared workspace"
       };
@@ -576,10 +577,15 @@ THE SOFTWARE.
         })), passengerObservation(value), Date.now());
       }
       function passengerObservation(value) { return {complete:value.task_observation?.scope === "unarchived_chats" && value.task_observation.complete === true,observedAtMs:instant(value.task_observation?.observed_at)}; }
+      function agentInventoryLabel(summary, value) {
+        const ms = instant(value.task_inventory_synced_at || value.task_observation?.observed_at), age = Date.now() - ms;
+        const stale = ms === null || age < 0 || age > Core.TASK_FRESHNESS_MS;
+        const known = summary.observedCount ? summary.observedCount + " known Agents" : summary.state === "unattended" ? "No Agents observed" : "Agent inventory unavailable";
+        return known + (stale ? " · status update needed" : summary.state === "unknown" ? value.task_observation?.complete ? " · location update needed" : " · partial inventory" : " · observed");
+      }
       function populatePassengers(node, lane, value) {
         const summary = Core.summarizePassengers(uniqueTasks(lane).map(chat => ({id:taskId(chat),lifecycle:chat.lifecycle,isChat:!!chat.codex_thread_id,status:effectiveConversationState(chat)})), passengerObservation(value), Date.now());
-        node.textContent = (summary.state === "unknown" ? "Passengers unknown · " + summary.observedCount + " last observed" : summary.observedCount + " passengers · observed") + [[summary.developing,"developing"],[summary.waiting,"waiting"],[summary.completed,"finished"],[summary.unknown,"activity unknown"]].filter(([count]) => count > 0).map(([count,label]) => " · " + count + " " + label).join("");
-        if (!value.task_observation?.complete) node.textContent += " · partial inventory";
+        node.textContent = agentInventoryLabel(summary, value) + (summary.observedCount ? " · last observed: " : "") + [[summary.developing,"developing"],[summary.waiting,"waiting"],[summary.completed,"finished"],[summary.unknown,"activity unknown"]].filter(([count]) => count > 0).map(([count,label]) => count + " " + label).join(" · ");
         const text = node.textContent; node.replaceChildren(passengerIcon(), element("span", "", text));
         return summary;
       }
@@ -641,7 +647,7 @@ THE SOFTWARE.
         if (!lane) { journeyWorkspaceId = null; panel.replaceChildren(); delete panel.dataset.signature; return; }
         const count = element("span", "journey-passengers"), passengers = populatePassengers(count, lane, value);
         count.title = count.textContent; count.children[1].className = "passenger-full";
-        count.append(element("span", "passenger-compact", passengers.state === "unknown" ? "Passengers unknown · " + passengers.observedCount + " observed" : passengers.observedCount + " passengers · observed"));
+        count.append(element("span", "passenger-compact", agentInventoryLabel(passengers, value)));
         const plans = (value.route_plans || []).filter(p => p.worktree_id === lane.worktree_id && !p.abandoned);
         const origin=value.workspace_facts?.find(f=>f.worktree_id===lane.worktree_id)?.origin;
         const signature = JSON.stringify([lane.workspace_path,lane.branch,lane.head,lane.relationship?.fork_point,origin,plans,count.textContent,value.warnings,journeyFocused]);
@@ -784,11 +790,12 @@ THE SOFTWARE.
         return root;
       }
       function observationLabel(value) {
-        const timestamp = value.task_observation?.observed_at, ms = instant(timestamp);
+        const timestamp = value.task_inventory_synced_at || value.task_observation?.observed_at, ms = instant(timestamp);
         if (ms === null) return "Task observation unavailable";
         const age = Date.now() - ms;
-        const quality = age < 0 || age > Core.TASK_FRESHNESS_MS ? "stale" : "fresh";
-        return "Tasks observed " + formatAge(age) + " · " + quality + (value.task_observation.complete ? "" : " · incomplete");
+        const quality = age < 0 || age > Core.TASK_FRESHNESS_MS ? "status update needed · known Agents retained" : "fresh";
+        const locationAt = instant(value.task_observation?.observed_at);
+        return "Tasks observed " + formatAge(age) + " · " + quality + (value.task_observation?.complete ? "" : " · incomplete") + (locationAt !== null && ms > locationAt && Date.now() - locationAt > Core.TASK_FRESHNESS_MS ? " · location report needs update" : "");
       }
       function tasksConfirmed(value) {
         const ms = instant(value?.task_observation?.observed_at), age = Date.now() - ms;
@@ -1029,9 +1036,7 @@ THE SOFTWARE.
       }
       function branchName(lane) { return lane.branch || (safeHash(lane.head) && !/^0+$/.test(lane.head) ? "Detached HEAD · " + lane.head.slice(0,8) : "No commit yet"); }
       function passengerLabel(count, value) {
-        if(count.state!=="unknown")return count.observedCount+" tasks";
-        if(!count.observedCount)return "Task count unconfirmed";
-        return count.observedCount+" seen · "+(tasksConfirmed(value)?"detail incomplete":value.task_observation?.complete?"refresh needed":"list incomplete");
+        return agentInventoryLabel(count,value);
       }
       function platformState(rows, primaryId) {
         const states=rows.map(({lane,facts})=>{
@@ -1813,6 +1818,10 @@ THE SOFTWARE.
         const text = "Tasks · " + label.replace(/^Tasks /, "");
         if (node.textContent !== text) node.textContent = text;
         node.dataset.stale = String(!value || !tasksConfirmed(value));
+        const action = byId("agent-refresh-action");
+        if (!action.children.length) action.append(copyButton("control", "Copy Agent refresh request", REFRESH_PROMPT, "Copy Agent refresh request"));
+        action.hidden = !!value && tasksConfirmed(value);
+        action.title = "Paste this request into Codex to refresh Agent information. Git refresh does not update the task inventory.";
         updateAgentLocation(value);
       }
       function currentAgentLane(value) {

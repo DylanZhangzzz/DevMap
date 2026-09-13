@@ -25,6 +25,7 @@ pub struct ViewerHandle {
 }
 
 pub struct ViewerRuntime {
+    _agent_sync: Option<crate::agent_sync::Subscription>,
     shutdown: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     server: Option<Arc<Server>>,
@@ -190,6 +191,10 @@ pub fn start_live_viewer_with_proxy(
     let running = Arc::new(AtomicBool::new(true));
     let worker_running = Arc::clone(&running);
     let worker_token = token.clone();
+    let agent_sync = dock
+        .lock()
+        .map_err(|_| DevMapError::Viewer("Dock state lock is poisoned".into()))?
+        .enable_agent_sync();
     let state = Arc::new(Mutex::new(ViewerState { dock }));
     let worker_state = Arc::clone(&state);
     let worker = thread::Builder::new()
@@ -203,6 +208,7 @@ pub fn start_live_viewer_with_proxy(
     Ok((
         ViewerHandle { address, token },
         ViewerRuntime {
+            _agent_sync: agent_sync,
             shutdown,
             running,
             server: Some(server),

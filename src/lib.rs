@@ -1,4 +1,5 @@
 pub mod adapter;
+mod agent_sync;
 pub mod application;
 pub mod canonical;
 pub mod capture;

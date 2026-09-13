@@ -460,7 +460,7 @@ test('sidebar journey keeps its focus action beside the heading and preserves en
   ui.acceptSnapshot(value);
   const panel = ui.ids.get('journey-context'), heading = panel.querySelector('.journey-heading');
   assert.ok(heading.querySelector('[data-journey-action="focus"]'));
-  assert.match(panel.querySelector('.passenger-compact').textContent, /Passengers unknown.*4 observed/);
+  assert.match(panel.querySelector('.passenger-compact').textContent, /4 known Agents.*partial inventory/);
   panel.querySelector('.journey-stops').scrollLeft = 90;
   ui.acceptSnapshot({...value,observation_revision:10});
   assert.equal(panel.querySelector('.journey-stops').scrollLeft, 90);
@@ -480,7 +480,7 @@ test('passenger icons and subordinate agents stay separate from chat occupancy',
   ui.acceptSnapshot(value); ui.inspectWorkspace();
   const card = ui.ids.get('selection-details').querySelector('[data-worktree-id]');
   assert.ok(card.querySelector('.passenger-icon'));
-  assert.match(card.querySelector('.passenger-count').textContent, /4 passengers/);
+  assert.match(card.querySelector('.passenger-count').textContent, /4 known Agents/);
   let group = card.querySelector('.subagent-group'); assert.ok(group); assert.equal(group.open, false);
   const summary = group.querySelector('summary'); summary.focus(); group.open = true; group.listeners.toggle();
   group = ui.ids.get('selection-details').querySelector('.subagent-group'); assert.equal(group.open, true);
@@ -493,7 +493,7 @@ test('passenger icons and subordinate agents stay separate from chat occupancy',
   assert.equal(ui.document.activeElement.dataset.objectId, summary.dataset.objectId);
   ui.advance(6 * 60 * 1000); ui.refreshDynamicState();
   assert.match(group.textContent, /Last observed/);
-  assert.match(ui.ids.get('selection-details').querySelector('.passenger-count').textContent, /Passengers unknown/);
+  assert.match(ui.ids.get('selection-details').querySelector('.passenger-count').textContent, /(?:known Agents|Agent inventory unavailable)/);
   assert.ok(ui.ids.get('selection-details').querySelector('.passenger-icon'));
   delete parent.subagents; value.observation_revision++;
   ui.acceptSnapshot(value); assert.equal(ui.ids.get('selection-details').querySelector('.subagent-group'), null);
@@ -550,7 +550,7 @@ test('journey separates missing origin, multiple destinations and partial passen
   ui.acceptSnapshot(value);
   const text = ui.ids.get('journey-context')?.textContent || '';
   assert.match(text, /Origin not recorded/);
-  assert.match(text, /Passengers unknown/);
+  assert.match(text, /(?:known Agents|Agent inventory unavailable)/);
   assert.match(text, /main/); assert.match(text, /dev.*unavailable/);
   assert.ok(!text.includes('merged'));
   const controls = ui.ids.get('journey-context').querySelectorAll('[data-journey-action]');
@@ -570,7 +570,7 @@ test('journey updates stale observations without stealing focused controls and f
   const head = journey?.querySelectorAll('[data-journey-action]').find(n=>n.dataset.journeyAction==='head');
   assert.ok(head); head.focus();
   ui.advance(120001); ui.refreshDynamicState();
-  assert.match(journey.textContent,/Passengers unknown/);
+  assert.match(journey.textContent,/(?:known Agents|Agent inventory unavailable)/);
   assert.equal(ui.document.activeElement.dataset.journeyAction,'head');
   const next = structuredClone(value); next.observation_revision++;
   next.lanes = next.lanes.slice(1); next.branch_groups[0].lanes = next.lanes;
@@ -630,7 +630,7 @@ test('empty legacy inventories cannot certify an unattended platform', () => {
   const ui=harness(), value=snapshot(); delete value.task_observation.scope;
   value.lanes[0].chats=[]; value.workspace_facts[0].working_state='dirty';
   assert.equal(ui.acceptSnapshot(value),true);
-  const surface=ui.ids.get('selection-details'); assert.ok(surface.textContent.includes('Passengers unknown'));
+  const surface=ui.ids.get('selection-details'); assert.ok(surface.textContent.match(/known Agents|Agent inventory unavailable/));
   assert.ok(!surface.textContent.includes('Unattended work'));
 });
 test('archiving the final passenger exposes unattended work and stale data retracts certainty', () => {
@@ -638,7 +638,7 @@ test('archiving the final passenger exposes unattended work and stale data retra
   lane.chats = [chat('owner','Finished but unarchived','completed')]; value.workspace_facts[0].working_state = 'dirty';
   assert.equal(ui.acceptSnapshot(value),true);
   const surface = ui.ids.get('selection-details');
-  assert.ok(surface.textContent.includes('1 passengers'));
+  assert.ok(surface.textContent.includes('1 known Agents'));
   assert.ok(surface.querySelectorAll('.task-node').some(n => n.textContent.includes('Finished but unarchived')));
   assert.equal(ui.ids.get('metric-open').textContent,'0');
   lane.chats[0].lifecycle = 'archived'; value.observation_revision++;
@@ -646,7 +646,7 @@ test('archiving the final passenger exposes unattended work and stale data retra
   assert.ok(surface.textContent.includes('Unattended work'));
   assert.equal(ui.ids.get('metric-open').textContent,'1');
   ui.advance(120001); ui.refreshDynamicState();
-  assert.ok(surface.textContent.includes('Passengers unknown'));
+  assert.ok(surface.textContent.match(/known Agents|Agent inventory unavailable/));
   assert.ok(!surface.querySelectorAll('.platform-occupancy')[0].textContent.includes('Unattended'));
   assert.ok(!surface.querySelectorAll('.workspace-risk')[0].textContent.includes('Unattended work'));
 });
@@ -664,7 +664,7 @@ test('platforms show passengers and shared ancestry without invented creation hi
   value.route_plans = [{route_id:'route-0123456789abcdef0123456789abcdef',repository_id:value.repository_id,revision:1,worktree_id:lane.worktree_id,start_commit:lane.head,goal:'Deliver login',target_ref:'refs/heads/main',milestones:[],source:'User plan',abandoned:false,updated_at:stamp}];
   assert.equal(ui.acceptSnapshot(value), true); ui.inspectWorkspace();
   const surface = ui.ids.get('selection-details');
-  assert.ok(surface.textContent.includes('4 passengers'));
+  assert.ok(surface.textContent.includes('4 known Agents'));
   assert.ok(surface.textContent.includes('Common ancestor'));
   assert.ok(surface.textContent.includes('Creation not recorded'));
   assert.ok(surface.querySelectorAll('.workspace-details').every(n => !n.open));
@@ -721,7 +721,7 @@ test('first view focuses the current workspace at readable size; full map is exp
   assert.equal(overview.hidden, true);
   assert.equal(overview.querySelectorAll('.overview-workspace').length, value.lanes.length);
   assert.ok(overview.textContent.includes('main-folder'));
-  assert.ok(overview.textContent.includes('4 passengers'));
+  assert.ok(overview.textContent.includes('4 known Agents'));
   assert.equal(overview.style.transform, undefined, 'readable summaries must not share the map transform');
 });
 
@@ -813,10 +813,10 @@ test('overview preserves dirty, not-included and unknown activity independently 
   assert.ok(overview, 'risk summary exists');
   assert.ok(overview.textContent.includes('Uncommitted changes'));
   assert.ok(overview.textContent.includes('Commits not included'));
-  assert.ok(overview.textContent.includes('Passenger presence unknown'));
-  assert.ok(overview.textContent.includes('Passengers unknown'));
+  assert.ok(overview.textContent.includes('Agent activity needs confirmation'));
+  assert.ok(overview.textContent.match(/known Agents|Agent inventory unavailable/));
   ui.advance(180000); ui.refreshDynamicState();
-  assert.ok(overview.textContent.includes('Passenger presence unknown'));
+  assert.ok(overview.textContent.includes('Agent activity needs confirmation'));
 });
 
 test('map zoom keys are scoped to the canvas and preserve browser zoom shortcuts', () => {
@@ -896,7 +896,7 @@ test('selected workspace details refresh facts and HEAD without selection messag
   assert.equal(ui.messages.length, messages);
   assert.deepEqual(ui.explorationState().viewportPosition, before);
   ui.advance(120001); ui.refreshDynamicState();
-  assert.match(ui.ids.get('selection-details').textContent, /stale/);
+  assert.match(ui.ids.get('selection-details').textContent, /status update needed/);
 });
 
 test('inspect-only conversation refresh follows identity through rename and relocation', () => {
@@ -1002,7 +1002,7 @@ test('budget-reduced task detail stays explicitly partial beside the named works
   assert.ok(!card.textContent.includes('No linked task observed'));
   assert.match(card.textContent, /Uncommitted changes/);
   assert.match(card.querySelector('.worktree-identity').getAttribute('aria-label'), /C:\/checkouts\/main-folder/);
-  assert.match(card.textContent, /Passenger presence unknown/);
+  assert.match(card.textContent, /Agent activity needs confirmation/);
 });
 
 test('v4 renders actual graph, compact platforms, exact names, and keeps invalid snapshots atomic', () => {
@@ -1016,7 +1016,7 @@ test('v4 renders actual graph, compact platforms, exact names, and keeps invalid
   assert.ok(details.querySelector('.worktree-identity').getAttribute('aria-label').includes('checkouts/main-folder'));
   assert.ok(details.textContent.includes('<img onerror=alert(1)> 保留完整任务标题'));
   assert.equal(surface.querySelectorAll('img').length, 0);
-  assert.match(details.querySelector('.passenger-count').textContent, /4 passengers.*3 developing.*1 waiting/);
+  assert.match(details.querySelector('.passenger-count').textContent, /4 known Agents.*3 developing.*1 waiting/);
   assert.equal(surface.querySelectorAll('.platform-chat').length,2);assert.equal(details.querySelectorAll('.task-node').length,2);
   const layout = surface.metroLayout;
   const card = surface.querySelectorAll('[data-worktree-id]')[0];
@@ -1049,7 +1049,7 @@ test('observation-only envelopes update independent facts without relaying out g
   const stale = structuredClone(value); stale.observation_revision++; stale.task_observation.observed_at = new Date(now - 300000).toISOString();
   assert.equal(ui.acceptSnapshot(stale), true);
   assert.equal(map.metroLayout, layout);
-  assert.ok(surface.textContent.includes('Passenger presence unknown'));
+  assert.ok(surface.textContent.includes('Agent activity needs confirmation'));
   assert.ok(!surface.textContent.includes('No active task observed'));
 });
 
@@ -1102,7 +1102,7 @@ test('a two-name preview retains an explicit passenger and activity count', () =
   assert.equal(card.querySelectorAll('.task-node').length, 2);
   const summary = card.querySelector('.passenger-count');
   assert.ok(summary, 'the preview must retain its passenger count');
-  assert.match(summary.textContent, /2 passengers.*2 developing/);
+  assert.match(summary.textContent, /2 known Agents.*2 developing/);
 });
 
 test('SVG routes use station centers and each crossing masks only its underpassing edge', () => {
@@ -1368,10 +1368,10 @@ test('platforms expose unfinished work and qualify incomplete passenger counts',
   ui.acceptSnapshot(value);
   const platform=ui.ids.get('relationship-map').querySelector('.route-platform');
   assert.match(platform.querySelector('.platform-state').textContent,/3 uncommitted.*Unpushed/);
-  assert.match(platform.querySelector('.platform-meta').textContent,/4 seen.*list incomplete/);
+  assert.match(platform.querySelector('.platform-meta').textContent,/4 known Agents.*partial inventory/);
   assert.doesNotMatch(platform.querySelector('.platform-meta').textContent,/observed.*unknown/);
   const empty=ui.ids.get('relationship-map').querySelectorAll('.route-platform').find(p=>p.dataset.worktreeId===value.lanes[2].worktree_id);
-  assert.match(empty.querySelector('.platform-meta').textContent,/Task count unconfirmed/);
+  assert.match(empty.querySelector('.platform-meta').textContent,/Agent inventory unavailable/);
   assert.notEqual(empty.dataset.retained,'true');
 });
 
@@ -1422,7 +1422,7 @@ test('fixed development scenario preserves parallel routes, shared HEADs, retain
   const current=platforms.find(p=>p.querySelector('.platform-current'));
   assert.match(current.textContent,/feature\/auth.*3 uncommitted.*Unpushed.*main.*planned/);
   const uiRoute=platforms.find(p=>p.querySelector('strong').textContent==='feature/ui');
-  assert.match(uiRoute.textContent,/Task count unconfirmed/);
+  assert.match(uiRoute.textContent,/Agent inventory unavailable/);
 });
 
 test('locating either workspace sharing a HEAD brings its own identity beside the single station', () => {
@@ -1455,7 +1455,7 @@ test('roster states and counts qualify stale, incomplete and missing observation
     value.observation_revision++; value.task_observation = observation;
     assert.equal(ui.acceptSnapshot(value), true);
     assert.equal(surface.querySelector('.conversation-state').textContent, 'Last observed ACTIVE');
-    assert.match(surface.querySelector('.passenger-count').textContent, /Passengers unknown.*3 developing/);
+    assert.match(surface.querySelector('.passenger-count').textContent, /4 known Agents.*3 developing/);
     assert.equal(surface.querySelector('.task-node').dataset.objectId, 'task:' + codexId('a'));
   }
   value.observation_revision++; value.task_observation = { scope: "unarchived_chats", observed_at: stamp, complete: true };
@@ -1533,8 +1533,8 @@ test('passenger freshness ages independently and idle chats keep ownership', () 
   assert.ok(ui.ids.get('selection-details').textContent.includes('Uncommitted changes'));
 
   ui.advance(120_001); ui.refreshDynamicState();
-  assert.match(ui.ids.get('task-inventory').textContent, /stale/);
-  assert.ok(ui.ids.get('selection-details').textContent.includes('Passenger presence unknown'));
+  assert.match(ui.ids.get('task-inventory').textContent, /status update needed/);
+  assert.ok(ui.ids.get('selection-details').textContent.includes('Agent activity needs confirmation'));
 
   const threshold = structuredClone(value); threshold.observation_revision++;
   threshold.task_observation.observed_at = new Date(now + 120_001).toISOString();
@@ -1542,7 +1542,7 @@ test('passenger freshness ages independently and idle chats keep ownership', () 
   threshold.branch_groups[0].lanes = threshold.lanes;
   assert.equal(ui.acceptSnapshot(threshold), true);
   assert.equal(ui.ids.get('metric-open').textContent, '0');
-  assert.ok(ui.ids.get('selection-details').textContent.includes('1 passengers'));
+  assert.ok(ui.ids.get('selection-details').textContent.includes('1 known Agents'));
 });
 
 test('refresh preserves keyboard focus by task identity and selected station viewport offset', () => {
@@ -1707,4 +1707,41 @@ test('copy feedback survives refresh and duplicate clicks share the pending writ
  const first=map.querySelector('.copy-field'),pending=first.listeners.click();first.listeners.click();assert.equal(writes,1);assert(first.disabled);
  ui.refreshDynamicState();assert(map.querySelector('.copy-field').disabled);resolve();await pending;ui.refreshDynamicState();assert.equal(map.querySelector('.copy-field').textContent,'Copied');
  ui.runTimer([...ui.timers.keys()].at(-1));assert.equal(map.querySelector('.copy-field').textContent,'Copy');
+});
+
+test('partial Agent inventory preserves named cards across long idle and fresh Git snapshots', () => {
+ const ui=harness({mode:'browser'}), value=snapshot();value.task_observation.complete=false;
+ ui.acceptSnapshot(value);
+ const names=()=>ui.ids.get('relationship-map').querySelectorAll('.platform-chat').map(n=>n.getAttribute('href'));
+ const before=names();assert.ok(before.length>0);
+ assert.match(ui.ids.get('journey-context').textContent,/4 known Agents.*partial inventory/);
+ ui.advance(3600000);ui.refreshDynamicState();
+ assert.deepEqual(names(),before);
+ assert.match(ui.ids.get('journey-context').textContent,/4 known Agents.*status update needed/);
+ const stampBefore=value.task_observation.observed_at;
+ ui.acceptSnapshot({...value,observation_revision:value.observation_revision+1});
+ assert.deepEqual(names(),before);
+ assert.match(ui.ids.get('task-inventory').textContent,/status update needed/);
+ assert.equal(value.task_observation.observed_at,stampBefore);
+ assert.doesNotMatch(ui.ids.get('journey-context').textContent,/Passengers unknown/);
+});
+
+test('Agent refresh request can be copied and disappears only after a fresh complete inventory',async()=>{
+ const copied=[],ui=harness({mode:'browser',clipboard:{writeText:async text=>copied.push(text)}}),v=snapshot();
+ v.task_observation.complete=false;ui.acceptSnapshot(v);
+ const action=ui.ids.get('agent-refresh-action');assert.equal(action.hidden,false);
+ await action.querySelector('button').listeners.click();assert.equal(copied.length,1);
+ assert.match(copied[0],/Refresh DevMap task inventory/);assert.match(copied[0],/workingDirectory/);
+ v.task_observation.complete=true;v.observation_revision++;ui.acceptSnapshot(v);assert.equal(action.hidden,true);
+ ui.advance(120001);ui.refreshDynamicState();assert.equal(action.hidden,false);
+});
+
+test('fresh automatic catalog does not inherit an old location report age',()=>{
+ const ui=harness(),value=snapshot();ui.acceptSnapshot(value);ui.advance(180000);
+ value.observation_revision++;value.task_inventory_synced_at=new Date(now+180000).toISOString();
+ ui.acceptSnapshot(value);
+ assert.match(ui.ids.get('task-inventory').textContent,/fresh.*location report needs update/);
+ assert.doesNotMatch(ui.ids.get('task-inventory').textContent,/status update needed/);
+ assert.match(ui.ids.get('journey-context').textContent,/known Agents.*location update needed/);
+ assert.doesNotMatch(ui.ids.get('journey-context').textContent,/Passengers unknown/);
 });

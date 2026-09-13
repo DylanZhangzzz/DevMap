@@ -72,6 +72,13 @@ fn prepare_first_write_for(
         activate_guarded(w, &snapshot, &guard)?;
         return Ok(WriteBackend::ActiveSql);
     }
+    if let Some(store) = existing.as_ref()
+        && crate::agent_sync::cache_only(store)?
+    {
+        return Ok(WriteBackend::LegacyPreserved(
+            "Agent cache only; domain data remains in legacy storage".into(),
+        ));
+    }
     if existing.is_some() {
         return Err(fail("unowned shadow database requires explicit recovery"));
     }

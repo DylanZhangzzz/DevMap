@@ -29,6 +29,7 @@ enum Backend {
 }
 
 pub struct QueryProxy {
+    agent_sync: bool,
     view: ClientView,
     backend: Backend,
     last_refresh: Instant,
@@ -57,6 +58,7 @@ impl QueryProxy {
             ProxyMode::Shared => Backend::Shared(None),
         };
         let mut proxy = Self {
+            agent_sync: false,
             view: ClientView::new(workspace),
             backend,
             last_refresh: Instant::now(),
@@ -72,6 +74,11 @@ impl QueryProxy {
         &self.view
     }
 
+    pub(crate) fn enable_agent_sync(&mut self) -> Option<crate::agent_sync::Subscription> {
+        self.agent_sync = true;
+        crate::agent_sync::start(self.view.workspace().clone())
+    }
+
     pub fn snapshot(&self) -> &DockReadModel {
         self.view
             .snapshot()
@@ -82,7 +89,14 @@ impl QueryProxy {
         self.refresh_failed = true;
         // This exact query (including prior heads and original inventory time)
         // survives a reconnect; the owner never owns the presentation counters.
-        let query = self.view.query_input()?;
+        let mut query = self.view.query_input()?;
+        if self.agent_sync {
+            // An unavailable adapter/cache must not take the Git map offline.
+            let mut candidate = query.clone();
+            if crate::agent_sync::overlay(self.view.workspace(), &mut candidate).is_ok() {
+                query = candidate;
+            }
+        }
         let result = match &mut self.backend {
             Backend::Direct(app) => app.project(self.view.workspace(), &query, now)?,
             Backend::Shared(client) => {
