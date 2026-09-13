@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'../..'),allowed=h.checked(path.join(root,'tar
 const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 const read=p=>JSON.parse(fs.readFileSync(p,'utf8').replace(/^\uFEFF/,''));
 const own=(p,kind)=>{const item=h.checked(p,kind);assert(h.within(item.path,allowed));return item;};
-async function main(file){
+async function main(file,diagnostic=false){
  assert.equal(process.platform,'win32');
  const configPath=own(path.resolve(file),'file'),config=read(configPath.path);
  assert.equal(config.schema,'devmap/stage1-baseline-calibration/1');
@@ -21,10 +21,12 @@ async function main(file){
  assert.equal(roots.length,20);
  const baseline=own(config.baseline,'file'),python=h.checked(config.python,'file');
  assert.equal(sha(baseline.path),'a1cfbb1c46bd9026b18db67da9f70485b0bb20c6c54fd779475b52531731d419');
- const files=[baseline.path,python.path,process.execPath,configPath.path,receiptPath.path,inventoryPath.path,__filename,path.join(__dirname,'process-performance.cjs'),path.join(__dirname,'full-map-fingerprint.cjs'),path.join(__dirname,'shared-summary-performance.cjs'),path.join(__dirname,'windows-owned-generator-job.py')];
+ const files=[baseline.path,python.path,process.execPath,configPath.path,receiptPath.path,inventoryPath.path,__filename,path.join(__dirname,'host-load-sampler.cjs'),path.join(__dirname,'process-performance.cjs'),path.join(__dirname,'full-map-fingerprint.cjs'),path.join(__dirname,'shared-summary-performance.cjs'),path.join(__dirname,'windows-owned-generator-job.py')];
  const inputs=files.map(p=>({identity:h.checked(p,'file'),sha256:sha(p)}));
  const run=fs.mkdtempSync(path.join(allowed,'stage1-baseline-aa-')),runIdentity=h.checked(run,'directory');
  const report={schema:config.schema,run,formal_candidate_acceptance:false,scope:'two old-only cold/warm arms; browser and change calibration remain separate',schedule:{arms:['A1','A2'],cold_per_arm:20,clients:4,warmup_per_client:10,warm_per_client:100},inputs,fixture:receipt,host:{platform:process.platform,release:os.release(),cpu:os.cpus()[0]?.model,logical_cpus:os.cpus().length,total_memory:os.totalmem(),free_memory_at_start:os.freemem(),node:process.version},arms:[],errors:[],completed:false};
+ if(diagnostic){report.scope='bounded old-only host-load diagnosis; not A/A calibration or latency acceptance';report.diagnostic_only=true;report.schedule={arms:['diagnostic'],cold_per_arm:1,clients:4,warmup_per_client:3,warm_per_client:20};}
+ const telemetry=[];let samplerTimer;
  function preserve(){
   assert.deepEqual(h.checked(run,'directory'),runIdentity);assert.deepEqual(h.checked(source.path,'directory'),source);
   for(const input of inputs){assert.deepEqual(h.checked(input.identity.path,'file'),input.identity);assert.equal(sha(input.identity.path),input.sha256);}
@@ -34,10 +36,12 @@ async function main(file){
  console.log(JSON.stringify({run,schedule:report.schedule}));save();
  try{
   preserve();let expectedModel;
+  if(diagnostic){const {sample}=require('./host-load-sampler.cjs');telemetry.push(sample());samplerTimer=setInterval(()=>{try{telemetry.push(sample(telemetry.at(-1)));}catch(e){report.errors.push(`OS sampler: ${e}`);}},5000);}
   for(const label of report.schedule.arms){
    preserve();const output=path.join(run,`${label}.worker.json`),jobPath=path.join(run,`${label}.job.json`);
    const out=fs.openSync(path.join(run,`${label}.stdout`),'wx'),err=fs.openSync(path.join(run,`${label}.stderr`),'wx');
    const env={...process.env,DEVMAP_BENCHMARK_EXE:baseline.path,DEVMAP_BENCHMARK_SOURCE:source.path,DEVMAP_BENCHMARK_OUTPUT:output,DEVMAP_BENCHMARK_COLD:'20',DEVMAP_BENCHMARK_CLIENTS:'4',DEVMAP_BENCHMARK_WARMUP:'10',DEVMAP_BENCHMARK_SAMPLES:'100',DEVMAP_BENCHMARK_VERIFY_MODEL:'1',DEVMAP_BENCHMARK_MODEL_MODE:'legacy-refresh',DEVMAP_BENCHMARK_PROGRESS:'1'};
+   env.DEVMAP_BENCHMARK_COLD=String(report.schedule.cold_per_arm);env.DEVMAP_BENCHMARK_WARMUP=String(report.schedule.warmup_per_client);env.DEVMAP_BENCHMARK_SAMPLES=String(report.schedule.warm_per_client);
    delete env.DEVMAP_BENCHMARK_MODEL_SHA256;if(expectedModel)env.DEVMAP_BENCHMARK_MODEL_SHA256=expectedModel;
    const arm={label,started_at:new Date().toISOString(),worker:output,job:jobPath};report.arms.push(arm);save();
    let child;
@@ -47,14 +51,14 @@ async function main(file){
    arm.code=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{expired=true;child.stdin.end('abort');},30*60*1000);child.stdin.on('error',()=>{});child.once('error',e=>{clearTimeout(timer);reject(e);});child.once('close',code=>{clearTimeout(timer);resolve(code);});});
    arm.expired=expired;arm.ended_at=new Date().toISOString();arm.job_result=read(jobPath);if(fs.existsSync(output))arm.result=read(output);save();
    preserve();assert(!expired);assert.equal(arm.code,0);assert.equal(arm.job_result.root_exit_code,0);assert.equal(arm.job_result.empty_confirmed,true);assert.equal(arm.job_result.aborted,false);assert(!arm.job_result.error&&!arm.job_result.cleanup_error&&!arm.job_result.descendants_after_root_exit);
-   assert.equal(arm.result.cold.count,20);assert.equal(arm.result.clients,4);assert.equal(arm.result.cohorts.length,4);
-   for(const cohort of arm.result.cohorts){assert.equal(cohort.summary.count,100);assert.deepEqual(cohort.errors,[]);}
+   assert.equal(arm.result.cold.count,report.schedule.cold_per_arm);assert.equal(arm.result.clients,4);assert.equal(arm.result.cohorts.length,4);
+   for(const cohort of arm.result.cohorts){assert.equal(cohort.summary.count,report.schedule.warm_per_client);assert.deepEqual(cohort.errors,[]);}
    assert.equal(arm.result.model_audit.enabled,true);expectedModel??=arm.result.model_audit.sha256;assert.equal(arm.result.model_audit.sha256,expectedModel);
    console.log(JSON.stringify({arm:label,completed:true,cold:arm.result.cold.p95_ms,warm_by_client:arm.result.cohorts.map(c=>c.summary.p95_ms)}));
   }
-  report.completed=true;
+  report.completed=report.errors.length===0;
  }catch(e){report.errors.push(String(e.stack||e));}
- finally{try{preserve();report.preserved=true;}catch(e){report.errors.push(String(e));report.completed=false;}save();}
+ finally{clearInterval(samplerTimer);if(diagnostic){report.host_load=telemetry;report.host_load_scope='Five-second read-only CPU time deltas and free physical memory; no paging/disk counters or causality claim';}try{preserve();report.preserved=true;}catch(e){report.errors.push(String(e));report.completed=false;}save();}
  console.log(JSON.stringify({run,completed:report.completed,errors:report.errors}));process.exitCode=report.completed?0:1;
 }
-if(require.main===module)main(process.argv[2]).catch(e=>{console.error(e);process.exitCode=1;});
+if(require.main===module){assert(process.argv[3]===undefined||process.argv[3]==='--diagnostic');main(process.argv[2],process.argv[3]==='--diagnostic').catch(e=>{console.error(e);process.exitCode=1;});}
