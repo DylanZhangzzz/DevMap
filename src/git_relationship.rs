@@ -671,52 +671,81 @@ fn relationship_for_observed(
             Some("git_merge_base_unavailable"),
         ));
     }
-    let tag_raw = required_output(
-        &worktree.root,
-        [
-            OsString::from("tag"),
-            OsString::from("--points-at"),
-            OsString::from(&merge_base),
-        ],
-    )?;
+    let read_tags = || {
+        let raw = required_output(
+            &worktree.root,
+            [
+                OsString::from("tag"),
+                OsString::from("--points-at"),
+                OsString::from(&merge_base),
+            ],
+        )?;
+        let text = output_text(&raw, "git tag --points-at")?;
+        let mut tags = text
+            .lines()
+            .filter(|tag| !tag.is_empty())
+            .map(|tag| bounded_utf8(tag, MAX_FORK_TAG_BYTES))
+            .take(MAX_FORK_TAGS)
+            .collect::<Vec<_>>();
+        tags.sort();
+        tags.dedup();
+        Ok::<_, DevMapError>((raw.stdout, tags))
+    };
+    let read_metadata = || {
+        let metadata = required_text(
+            &worktree.root,
+            [
+                OsString::from("show"),
+                OsString::from("-s"),
+                OsString::from("--format=%s%x00%aI"),
+                OsString::from(&merge_base),
+            ],
+        )?;
+        let (subject, authored_at) = metadata
+            .split_once('\0')
+            .ok_or_else(|| malformed_git("git show -s"))?;
+        Ok::<_, DevMapError>((subject.to_owned(), authored_at.to_owned()))
+    };
+    let read_counts = || {
+        let counts = required_text(
+            &worktree.root,
+            [
+                OsString::from("rev-list"),
+                OsString::from("--left-right"),
+                OsString::from("--count"),
+                OsString::from(format!("{}...{}", target.ref_name, worktree.head)),
+            ],
+        )?;
+        let mut fields = counts.split_whitespace();
+        let behind = parse_count(fields.next())?;
+        let ahead = parse_count(fields.next())?;
+        if fields.next().is_some() {
+            return Err(malformed_git("git rev-list --left-right --count"));
+        }
+        Ok((behind, ahead))
+    };
+    // Only the shared representative has an immutable target and a closing
+    // witness. Ordinary per-worktree readers retain their serial query order.
+    let ((raw_tags, tags), ((subject, authored_at), (behind, ahead))) =
+        if tag_witness.is_some() && valid_object_id(&target.ref_name) {
+            crate::git_process::probe_overlap::pair(
+                read_tags,
+                || {
+                    crate::git_process::probe_overlap::pair(
+                        read_metadata,
+                        read_counts,
+                        #[cfg(test)]
+                        false,
+                    )
+                },
+                #[cfg(test)]
+                false,
+            )?
+        } else {
+            (read_tags()?, (read_metadata()?, read_counts()?))
+        };
     if let Some(witness) = tag_witness {
-        *witness = tag_raw.stdout.clone();
-    }
-    let tag_output = output_text(&tag_raw, "git tag --points-at")?;
-    let mut tags = tag_output
-        .lines()
-        .filter(|tag| !tag.is_empty())
-        .map(|tag| bounded_utf8(tag, MAX_FORK_TAG_BYTES))
-        .take(MAX_FORK_TAGS)
-        .collect::<Vec<_>>();
-    tags.sort();
-    tags.dedup();
-    let metadata = required_text(
-        &worktree.root,
-        [
-            OsString::from("show"),
-            OsString::from("-s"),
-            OsString::from("--format=%s%x00%aI"),
-            OsString::from(&merge_base),
-        ],
-    )?;
-    let (subject, authored_at) = metadata
-        .split_once('\0')
-        .ok_or_else(|| malformed_git("git show -s"))?;
-    let counts = required_text(
-        &worktree.root,
-        [
-            OsString::from("rev-list"),
-            OsString::from("--left-right"),
-            OsString::from("--count"),
-            OsString::from(format!("{}...{}", target.ref_name, worktree.head)),
-        ],
-    )?;
-    let mut fields = counts.split_whitespace();
-    let behind = parse_count(fields.next())?;
-    let ahead = parse_count(fields.next())?;
-    if fields.next().is_some() {
-        return Err(malformed_git("git rev-list --left-right --count"));
+        *witness = raw_tags;
     }
     // Only an ancestor head makes the two ranges identical. In particular,
     // divergent criss-cross histories may have more than one merge base.
@@ -749,7 +778,7 @@ fn relationship_for_observed(
                 commit: merge_base,
                 tags,
                 subject: (!subject.is_empty())
-                    .then(|| bounded_utf8(subject, MAX_FORK_SUBJECT_BYTES)),
+                    .then(|| bounded_utf8(&subject, MAX_FORK_SUBJECT_BYTES)),
                 authored_at: (!authored_at.is_empty()).then(|| authored_at.to_owned()),
                 distance_to_target: Some(distance_to_target),
             }),
