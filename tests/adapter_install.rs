@@ -34,6 +34,57 @@ fn install_adapter(plan: AdapterPlan) -> Result<InstallReport, DevMapError> {
     install_reviewed(plan, &token)
 }
 
+#[test]
+fn codex_session_end_has_explicit_supported_shutdown_budget() {
+    for host in [AdapterHost::Codex, AdapterHost::Claude] {
+        let root = committed_repo();
+        let plan = plan_adapter(root.path(), host).unwrap();
+        let config = plan.config_path.clone();
+        install_adapter(plan).unwrap();
+        let document: Value = serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
+        for event in EVENTS {
+            let handler = &document["hooks"][event][0]["hooks"][0];
+            if matches!(host, AdapterHost::Codex) && event == "SessionEnd" {
+                assert_eq!(handler["timeout"], json!(3));
+            } else {
+                assert!(handler.get("timeout").is_none());
+            }
+        }
+        assert!(verify_adapter(root.path(), host).unwrap().configured);
+    }
+}
+
+#[test]
+fn prior_codex_end_binding_upgrades_without_empty_groups_or_duplicate_handlers() {
+    let root = committed_repo();
+    let plan = plan_adapter(root.path(), AdapterHost::Codex).unwrap();
+    let config = plan.config_path.clone();
+    install_adapter(plan).unwrap();
+    let mut previous: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    previous["hooks"]["SessionEnd"][0]["hooks"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("timeout");
+    fs::write(&config, serde_json::to_vec_pretty(&previous).unwrap()).unwrap();
+    assert!(
+        !verify_adapter(root.path(), AdapterHost::Codex)
+            .unwrap()
+            .configured
+    );
+    install_adapter(plan_adapter(root.path(), AdapterHost::Codex).unwrap()).unwrap();
+    let updated: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    assert_eq!(updated["hooks"]["SessionEnd"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        updated["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"],
+        json!(3)
+    );
+    assert!(
+        verify_adapter(root.path(), AdapterHost::Codex)
+            .unwrap()
+            .configured
+    );
+}
+
 fn uninstall_adapter(source: &Path, host: AdapterHost) -> Result<InstallReport, DevMapError> {
     let plan = plan_uninstall_adapter(source, host)?;
     let token = plan.plan_digest.clone();
@@ -896,7 +947,9 @@ fn all_devmap_handlers_use_official_shape(config: &Value) -> bool {
         })
         .all(|handler| {
             let object = handler.as_object().unwrap();
-            object.len() == 3
+            let timed_end = handler_binding_id(handler) == Some("devmap/v1/codex/SessionEnd");
+            object.len() == if timed_end { 4 } else { 3 }
+                && (!timed_end || object.get("timeout") == Some(&json!(3)))
                 && object.get("type") == Some(&Value::String("command".into()))
                 && object.get("command").is_some_and(Value::is_string)
                 && object.get("statusMessage").is_some_and(Value::is_string)

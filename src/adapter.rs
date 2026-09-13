@@ -1484,11 +1484,17 @@ fn expected_group(binding: &HookBinding) -> Value {
 }
 
 fn expected_handler(binding: &HookBinding) -> Value {
-    json!({
+    let mut handler = json!({
         "type": "command",
         "command": binding.command,
         "statusMessage": "Recording DevMap lifecycle",
-    })
+    });
+    // Codex gives SessionEnd only one second by default. Identity validation
+    // and durable recording need its supported three-second shutdown budget.
+    if binding.binding_id == "devmap/v1/codex/SessionEnd" {
+        handler["timeout"] = json!(3);
+    }
+    handler
 }
 
 #[derive(Debug)]
@@ -1569,7 +1575,24 @@ fn remove_owned_bindings(
             let devmap_generated = bindings
                 .iter()
                 .filter(|binding| binding.event == event)
-                .any(|binding| group == &expected_group(binding));
+                .any(|binding| {
+                    let expected = expected_group(binding);
+                    if group == &expected {
+                        return true;
+                    }
+                    // Recognize only the exact previously generated Codex end
+                    // group; retain user-authored group metadata as before.
+                    if binding.binding_id == "devmap/v1/codex/SessionEnd" {
+                        let mut previous = expected;
+                        previous["hooks"][0]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("timeout");
+                        group == &previous
+                    } else {
+                        false
+                    }
+                });
             let handlers = group["hooks"]
                 .as_array_mut()
                 .expect("validated handler list is an array");
