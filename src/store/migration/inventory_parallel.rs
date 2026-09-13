@@ -21,6 +21,9 @@ impl Default for Limits {
 }
 #[cfg(test)]
 struct Observation {
+    profile_queue: bool,
+    producer_wait_us: AtomicUsize,
+    producer_wait_count: AtomicUsize,
     selected_worker_limit: usize,
     started: AtomicUsize,
     joined: AtomicUsize,
@@ -40,6 +43,10 @@ struct Observation {
 impl Default for Observation {
     fn default() -> Self {
         Self {
+            profile_queue: std::env::var("DEVMAP_QUERY_PROFILE_MODE").as_deref()
+                == Ok("inventory_phases"),
+            producer_wait_us: AtomicUsize::new(0),
+            producer_wait_count: AtomicUsize::new(0),
             selected_worker_limit: 4,
             started: AtomicUsize::new(0),
             joined: AtomicUsize::new(0),
@@ -139,6 +146,8 @@ impl WorkQueue {
         let mut state = self.lock();
         while state.jobs.len() == 4 && !state.cancelled {
             #[cfg(test)]
+            let waiting = observation.profile_queue.then(std::time::Instant::now);
+            #[cfg(test)]
             let queued = state.jobs.len();
             drop(state);
             #[cfg(test)]
@@ -150,6 +159,16 @@ impl WorkQueue {
             state = self.lock();
             while state.jobs.len() == 4 && !state.cancelled {
                 state = self.recover(self.room.wait(state));
+            }
+            #[cfg(test)]
+            if let Some(waiting) = waiting {
+                observation.producer_wait_us.fetch_add(
+                    usize::try_from(waiting.elapsed().as_micros()).unwrap(),
+                    Ordering::Relaxed,
+                );
+                observation
+                    .producer_wait_count
+                    .fetch_add(1, Ordering::Relaxed);
             }
             #[cfg(test)]
             let queued = state.jobs.len();
@@ -484,6 +503,16 @@ fn candidate(
     {
         clock.mark("merge_and_sort");
         clock.finish();
+        if observation.profile_queue {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "diagnostic": "inventory-queue-wait/1",
+                    "wall_us": observation.producer_wait_us.load(Ordering::Relaxed),
+                    "waits": observation.producer_wait_count.load(Ordering::Relaxed),
+                })
+            );
+        }
     }
     Ok(Some(manifest))
 }
