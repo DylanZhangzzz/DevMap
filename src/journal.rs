@@ -19,6 +19,9 @@ use crate::git::SourceWorkspace;
 #[path = "journal_summary_tests.rs"]
 mod journal_summary_tests;
 
+#[cfg(test)]
+pub(crate) mod parse_profile;
+
 pub const MAX_JOURNAL_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_SESSION_RECORDS: usize = 100_000;
 const MAX_INTENT_BYTES: usize = 1024 * 1024;

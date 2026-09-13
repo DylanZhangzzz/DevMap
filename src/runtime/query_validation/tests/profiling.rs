@@ -135,6 +135,18 @@ fn owned_schema2_query_stage_profile() {
         .unwrap();
     assert_eq!(version, 2);
     match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
+        Ok(mode) if mode == "record_parse_batches" => {
+            crate::store::snapshot::profile_sql_inputs(
+                store.connection(),
+                &workspace,
+                dimensions.1 as usize,
+                dimensions.2 as u64,
+                |_, _, _| {},
+            )
+            .unwrap();
+            crate::journal::parse_profile::run(store.connection(), dimensions.2 as u64).unwrap();
+            return;
+        }
         Ok(mode) if mode == "sql_inputs" => {
             crate::store::snapshot::profile_sql_inputs(
                 store.connection(),
