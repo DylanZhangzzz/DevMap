@@ -144,6 +144,16 @@ type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
 #[cfg(unix)]
 type Stream = tokio::net::UnixStream;
 async fn connect(f: &Fixture, w: &Welcome) -> Stream {
+    // Prepare blocking filesystem/hash/Git inputs before opening the pipe.
+    // The owner starts its bounded Hello deadline as soon as it accepts us.
+    let hello = Hello {
+        protocol: VERSION,
+        repository: w.repository.clone(),
+        build: format!("{:x}", Sha256::digest(fs::read(&f.exe).unwrap())),
+        source: fs::canonicalize(&f.repo).unwrap(),
+        git_dir: fs::canonicalize(git(&f.repo, &["rev-parse", "--absolute-git-dir"])).unwrap(),
+        client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+    };
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut s = loop {
         #[cfg(windows)]
@@ -170,18 +180,7 @@ async fn connect(f: &Fixture, w: &Welcome) -> Stream {
             }
         }
     };
-    send(
-        &mut s,
-        &Hello {
-            protocol: VERSION,
-            repository: w.repository.clone(),
-            build: format!("{:x}", Sha256::digest(fs::read(&f.exe).unwrap())),
-            source: fs::canonicalize(&f.repo).unwrap(),
-            git_dir: fs::canonicalize(git(&f.repo, &["rev-parse", "--absolute-git-dir"])).unwrap(),
-            client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
-        },
-    )
-    .await;
+    send(&mut s, &hello).await;
     let reply: HelloReply = serde_json::from_value(receive(&mut s).await).unwrap();
     match reply {
         HelloReply::Accepted { welcome } => {
