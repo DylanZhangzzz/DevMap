@@ -18,6 +18,7 @@ assert.ok(resolved.startsWith(allowed+path.sep),'Benchmark source must be a disp
 function count(name,fallback) { const n=Number(process.env[name]||fallback);assert.ok(Number.isInteger(n)&&n>=1&&n<=1000);return n; }
 const samples=count('DEVMAP_BENCHMARK_SAMPLES',100),coldSamples=count('DEVMAP_BENCHMARK_COLD',20),warmup=count('DEVMAP_BENCHMARK_WARMUP',10);
 const clients=count('DEVMAP_BENCHMARK_CLIENTS',1);
+const progress=event=>{if(process.env.DEVMAP_BENCHMARK_PROGRESS==='1')console.log(JSON.stringify({progress:event}));};
 assert.ok(clients<=4,'At most four concurrent clients');
 const verifyModel=process.env.DEVMAP_BENCHMARK_VERIFY_MODEL==='1';
 const modelMode=process.env.DEVMAP_BENCHMARK_MODEL_MODE||'strict';
@@ -78,7 +79,7 @@ let population;
 async function main(){
   const cold=[],hot=[],cohorts=Array.from({length:clients},(_,client)=>({client,samples:[],errors:[]}));
   population={cold,cohorts};
-  for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();const row={ms:performance.now()-start,bytes};cold.push(row);audit(c,row);});}
+  for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();const row={ms:performance.now()-start,bytes};cold.push(row);audit(c,row);});progress({phase:'cold',completed:cold.length,total:coldSamples});}
   // A shared gate starts measured traffic only after every client has warmed up.
   // A failed warmup rejects that gate so peers cannot wait indefinitely.
   let ready=0,release,rejectGate;
@@ -93,6 +94,7 @@ async function main(){
         const row={client:cohort.client,sequence:i,ms:performance.now()-start,bytes};
         cohort.samples.push(row);hot.push(row);
         audit(c,row);
+        if((i+1)%10===0)progress({phase:'warm',client:cohort.client,completed:i+1,total:samples});
       }
     } catch(error) {rejectGate(error);throw error;}
   }).catch(error=>{cohort.errors.push({name:error.name,message:error.message});throw error;})));
