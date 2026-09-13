@@ -24,6 +24,9 @@ pub(crate) mod parse_profile;
 
 mod summary_batch;
 
+#[cfg(test)]
+mod canonical_reuse_tests;
+
 pub const MAX_JOURNAL_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_SESSION_RECORDS: usize = 100_000;
 const MAX_INTENT_BYTES: usize = 1024 * 1024;
@@ -1668,12 +1671,21 @@ fn parse_record(line: &[u8], line_number: usize) -> Result<JournalRecord, DevMap
     }
     let record: JournalRecord = serde_json::from_slice(line)
         .map_err(|error| corruption(format!("malformed JSON at line {line_number}: {error}")))?;
-    if line != canonical_json(&record)? {
+    let mut canonical = serde_json::to_value(&record)?;
+    crate::canonical::ensure_no_floating_points(&canonical)?;
+    canonical.sort_all_objects();
+    if line != serde_json::to_vec(&canonical)? {
         return Err(corruption(format!(
             "record at line {line_number} is not canonical JSON"
         )));
     }
-    if record.sha256 != record.expected_sha256()? {
+    // The unsigned record has the same fields except the top-level digest.
+    // Reuse the already checked, sorted tree; nested payload digests stay intact.
+    canonical
+        .as_object_mut()
+        .expect("serialized journal object")
+        .remove("sha256");
+    if record.sha256 != sha256_hex(&serde_json::to_vec(&canonical)?) {
         return Err(corruption(format!(
             "SHA-256 mismatch at line {line_number}"
         )));
