@@ -149,7 +149,7 @@ async fn connect(f: &Fixture, w: &Welcome) -> Stream {
     let hello = Hello {
         protocol: VERSION,
         repository: w.repository.clone(),
-        build: format!("{:x}", Sha256::digest(fs::read(&f.exe).unwrap())),
+        build: w.build.clone(),
         source: fs::canonicalize(&f.repo).unwrap(),
         git_dir: fs::canonicalize(git(&f.repo, &["rev-parse", "--absolute-git-dir"])).unwrap(),
         client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),

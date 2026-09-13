@@ -417,6 +417,13 @@ fn route_only_native_origin_rejects_presence_without_an_accepted_sql_session() {
 
 fn recreate_native(main: &SourceWorkspace, path: &Path) {
     let old = workspace(path);
+    // Retain the old inodes until replacement exists, so this fixture actually
+    // exercises a distinct incarnation even on aggressively reusing filesystems.
+    #[cfg(unix)]
+    let _old_directories = (
+        fs::File::open(&old.root).unwrap(),
+        fs::File::open(&old.git_dir).unwrap(),
+    );
     support::git(&main.root, ["worktree", "remove", path.to_str().unwrap()]);
     support::git(
         &main.root,
