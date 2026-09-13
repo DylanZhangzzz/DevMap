@@ -14,13 +14,27 @@ async function main(){
  assert(h.within(run,allowed));assert.equal(fs.readdirSync(run).length,0,'Fresh empty owned output required');
  const exe=h.checked(process.env.DEVMAP_BASELINE_EXE,'file').path;assert(h.within(exe,allowed));
  const sha=h.runtime.hash(fs.readFileSync(exe));assert.equal(sha,'a1cfbb1c46bd9026b18db67da9f70485b0bb20c6c54fd779475b52531731d419');
- const source=path.join(run,'repository');fs.mkdirSync(source);const probe=path.join(source,'probe.txt'),original=Buffer.from('owned full-map change probe\n');fs.writeFileSync(probe,original,{flag:'wx'});
+ let scale,source,probe,original,registeredInventory;
+ if(process.env.DEVMAP_CHANGE_SCALE_RECEIPT){
+  const receiptPath=h.checked(process.env.DEVMAP_CHANGE_SCALE_RECEIPT,'file').path;assert(h.within(receiptPath,allowed));scale=JSON.parse(fs.readFileSync(receiptPath));
+  assert.equal(scale.completed,true);assert.equal(scale.database_absent,true);assert.deepEqual(scale.dimensions,{worktrees:20,sessions:100,events:100000});assert.equal(scale.generator_sha256,'8c84e04ccb2669cd85d4fe1dd3a480be16134e201605e1dbeaa6884bf63d3b66');
+  source=h.checked(scale.source.path,'directory').path;assert(h.within(source,allowed));assert.deepEqual(h.checked(source,'directory'),scale.source);
+  assert(h.within(h.checked(scale.manifest,'file').path,allowed));assert.equal(h.runtime.hash(fs.readFileSync(scale.manifest)),scale.manifest_sha256);
+  assert(h.within(h.checked(scale.inventory,'file').path,allowed));registeredInventory=JSON.parse(fs.readFileSync(scale.inventory));assert.equal(registeredInventory.sha256,scale.legacy_inventory_sha256);
+  probe=h.checked(scale.probe.path,'file').path;assert(h.within(probe,source));original=fs.readFileSync(probe);assert.equal(h.runtime.hash(original),scale.probe.sha256);
+  assert.equal(scale.worktrees.length,20);for(const w of scale.worktrees){assert(h.within(w.identity.path,scale.allocation.path));assert(h.within(w.git_dir.path,scale.allocation.path));assert.deepEqual(h.checked(w.identity.path,'directory'),w.identity);assert.deepEqual(h.checked(w.git_dir.path,'directory'),w.git_dir);}
+ }else{
+  source=path.join(run,'repository');fs.mkdirSync(source);probe=path.join(source,'probe.txt');original=Buffer.from('owned full-map change probe\n');fs.writeFileSync(probe,original,{flag:'wx'});
+ }
  const git=(...args)=>execFileSync('git',args,{cwd:source,windowsHide:true,encoding:'utf8',timeout:10000,stdio:'pipe'}).trim();
- for(const args of [['init','-b','main'],['config','user.name','Full map probe'],['config','user.email','fixture@example.invalid'],['add','probe.txt'],['commit','-m','fixture']])git(...args);
+ if(!scale)for(const args of [['init','-b','main'],['config','user.name','Full map probe'],['config','user.email','fixture@example.invalid'],['add','probe.txt'],['commit','-m','fixture']])git(...args);
  const head=git('rev-parse','HEAD'),probeIdentity=h.checked(probe,'file'),sourceIdentity=h.checked(source,'directory'),runIdentity=h.checked(run,'directory');
- const hook=execFileSync(exe,['hook','handle','--source',source,'--host','codex','--event','SessionStart','--binding-id','devmap/v1/codex/SessionStart'],{cwd:source,input:JSON.stringify({session_id:'public-change-probe',cwd:source,hook_event_name:'SessionStart',source:'startup'}),encoding:'utf8',windowsHide:true,timeout:30000});assert.deepEqual(JSON.parse(hook),{});
- const legacy=h.inventory([path.join(source,'.git/devmap')]);
+ if(!scale){const hook=execFileSync(exe,['hook','handle','--source',source,'--host','codex','--event','SessionStart','--binding-id','devmap/v1/codex/SessionStart'],{cwd:source,input:JSON.stringify({session_id:'public-change-probe',cwd:source,hook_event_name:'SessionStart',source:'startup'}),encoding:'utf8',windowsHide:true,timeout:30000});assert.deepEqual(JSON.parse(hook),{});}
+ const legacyRoots=scale?scale.worktrees.map(w=>path.join(w.git_dir.path,'devmap')):[path.join(source,'.git/devmap')],legacy=h.inventory(legacyRoots);if(scale)assert.deepEqual(legacy,registeredInventory);
+ function verifyGit(){if(scale){assert.equal(head,scale.probe.head);for(const w of scale.worktrees){assert.deepEqual(h.checked(w.identity.path,'directory'),w.identity);assert.equal(git('-C',w.identity.path,'rev-parse','HEAD'),w.head);assert.equal(git('-C',w.identity.path,'status','--porcelain','--untracked-files=normal'),'');}}else{assert.equal(git('rev-parse','HEAD'),head);assert.equal(git('status','--porcelain','--untracked-files=normal'),'');}}
+ verifyGit();assert.equal(git('ls-files','--error-unmatch','--',path.relative(source,probe).split(path.sep).join('/')),path.relative(source,probe).split(path.sep).join('/'));
  const report={scope:'four-client old-only full-map change tooling preflight; not A/A or candidate/absolute acceptance',run,source,baseline_sha256:sha,protocol:{clients:4,warmups:2,measured:4,cadence_ms:100,trial_ms:30000,start:'after probe write and fsync',end:'parsed public full-map response validates changed worktree, unchanged HEAD and newer observation'},trials:[],errors:[],completed:false};
+ if(scale){report.scope='20-worktree 100-session 100000-event old-only full-map change preflight; not A/A or performance acceptance';report.scale_receipt=process.env.DEVMAP_CHANGE_SCALE_RECEIPT;report.scale_inventory_sha256=legacy.sha256;}
  report.trials=Array.from({length:6},(_,index)=>({index,phase:index<2?'warmup':'measured',dirty:index%2===0,status:'not-executed',clients:Array.from({length:4},(_,client)=>({client,status:'not-executed',polls:[]}))}));
  const failAt=process.env.DEVMAP_CHANGE_FAIL_AT===undefined?null:Number(process.env.DEVMAP_CHANGE_FAIL_AT);assert(failAt===null||(Number.isInteger(failAt)&&failAt>=0&&failAt<6));report.injected_failure_at=failAt;
  const ctx={children:[],verifyRun(){assert.deepEqual(h.checked(run,'directory'),runIdentity);},verifyFixture(){assert.deepEqual(h.checked(source,'directory'),sourceIdentity);},append(name,bytes){fs.appendFileSync(path.join(run,name),bytes);}};
@@ -82,7 +96,7 @@ async function main(){
   for(let i=0;i<4;i++){const data=await read(clients[i],`final-${i}`);retain(data);assert.equal(normalized(data.model,baselineRevision+6),baselineHash,'Full clean model preserved after changes');}
  }catch(e){report.errors.push(String(e.stack||e));}
  finally{
-  try{rewrite(false);assert.equal(git('status','--porcelain','--untracked-files=normal'),'');assert.equal(git('rev-parse','HEAD'),head);assert.deepEqual(h.inventory([path.join(source,'.git/devmap')]),legacy);assert(!fs.existsSync(path.join(source,'.git/devmap/devmap.db')));report.data_preserved=true;}catch(e){report.errors.push(`Preservation: ${e.stack||e}`);}
+  try{rewrite(false);verifyGit();assert.deepEqual(h.inventory(legacyRoots),legacy);assert(!fs.existsSync(path.join(source,'.git/devmap/devmap.db')));report.data_preserved=true;}catch(e){report.errors.push(`Preservation: ${e.stack||e}`);}
   const cleanup=await Promise.allSettled(clients.map(async c=>{c.entry.stopping=true;c.entry.child.stdin.end();let timer;try{await Promise.race([c.entry.closed,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('EOF cleanup timeout')),5000);})]);assert.deepEqual(c.entry.exit,{code:0,signal:null});}finally{clearTimeout(timer);}}));
   report.errors.push(...cleanup.filter(r=>r.status==='rejected').map(r=>String(r.reason)));if(ctx.asyncError)report.errors.push(String(ctx.asyncError));
   report.children=ctx.children.map(c=>({pid:c.child.pid,exit:c.exit}));report.population=population(report.trials);report.completed=report.errors.length===0&&report.population.full_population&&report.trials.every(t=>t.status==='complete');save();

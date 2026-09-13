@@ -83,3 +83,9 @@ not the required 100-change scale A/A gate. The retained legacy scale corpus has
 an empty initial Git commit and no tracked file; adding a tracked probe requires
 an explicitly prepared scale input before registration, not an unrecorded edit
 to the frozen cold/warm calibration fixture.
+
+That separate [tracked-probe scale input](legacy-change-scale.md) is now prepared
+as h7vZyC. Optional `DEVMAP_CHANGE_SCALE_RECEIPT` admits its registered receipt;
+Hs40L8 passed the unchanged small sample schedule at full data scale, including
+whole-model changes, preservation and strict Job cleanup. The required 100-change
+A/A populations remain open; no previous calibration result is transferred.
