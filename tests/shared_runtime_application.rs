@@ -129,7 +129,7 @@ type Stream = tokio::net::UnixStream;
 async fn connect(f: &Fixture, w: &Welcome) -> Stream {
     connect_source(f, w, &f.repo).await
 }
-async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
+async fn connect_source(_f: &Fixture, w: &Welcome, source: &Path) -> Stream {
     connect_source_welcome(w, source).await
 }
 async fn connect_source_welcome(w: &Welcome, source: &Path) -> Stream {
