@@ -135,6 +135,31 @@ fn owned_schema2_query_stage_profile() {
         .unwrap();
     assert_eq!(version, 2);
     match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
+        Ok(mode) if matches!(mode.as_str(), "boundary_phases" | "projection_phases") => {
+            drop(store);
+            let query = crate::application::ClientView::new(workspace.clone())
+                .query_input()
+                .unwrap();
+            let mut harness = QueryHarness::new(id, query);
+            let (first, _) = harness.call();
+            harness.max_age(Duration::from_secs(60));
+            for iteration in 0..10 {
+                QueryConfiguration::test_reset_source_capture_count();
+                let (mut next, starts) = measured("boundary_total", iteration, || harness.call());
+                assert_eq!(starts, 0);
+                assert_eq!(QueryConfiguration::test_source_capture_count(), 2);
+                next.model.generated_at = first.model.generated_at.clone();
+                assert_eq!(
+                    serde_json::to_value(&next).unwrap(),
+                    serde_json::to_value(&first).unwrap()
+                );
+            }
+            assert_eq!(
+                format!("{:x}", Sha256::digest(fs::read(receipt_path).unwrap())),
+                receipt_sha
+            );
+            return;
+        }
         Ok(mode) if mode == "collection_phases" => {
             crate::dock::collection_profile::run(&workspace, dimensions.0 as usize).unwrap();
             return;

@@ -193,6 +193,8 @@ pub(crate) enum QueryBoundaryAttempt {
     SourceStale,
     Ready(Box<ApplicationSnapshot>),
 }
+#[cfg(test)]
+mod query_profile;
 struct QueryAttemptGuard<'a> {
     application: &'a mut RepositoryApplication,
     committed: bool,
@@ -229,6 +231,8 @@ impl RepositoryApplication {
         now: OffsetDateTime,
         after_projection: impl FnOnce(),
     ) -> Result<QueryBoundaryAttempt, DevMapError> {
+        #[cfg(test)]
+        let mut profile = query_profile::Clock::new();
         // This seal is authorization, not the eligibility comparison below.
         let workspace = source.workspace()?.clone();
         if workspace.root != self.workspace.root
@@ -247,13 +251,19 @@ impl RepositoryApplication {
             application: self,
             committed: false,
         };
+        #[cfg(test)]
+        profile.mark("eligibility");
         let (source_valid, origin_valid) = epoch.boundary(&workspace, source.configuration())?;
+        #[cfg(test)]
+        profile.mark("opening_boundary");
         if !source_valid {
             return Ok(QueryBoundaryAttempt::SourceStale);
         }
         if !origin_valid || !attempt.application.query_anchor_unchanged(&workspace)? {
             return Ok(QueryBoundaryAttempt::Ineligible);
         }
+        #[cfg(test)]
+        profile.mark("opening_anchor");
         // Original read-only body, including all SQL/hash work, Git refreshes,
         // relationship/history misses, timestamps and source/anchor checks.
         let result = attempt.application.project_inner_in_epoch(
@@ -264,9 +274,13 @@ impl RepositoryApplication {
             Some(&epoch),
         )?;
         after_projection();
+        #[cfg(test)]
+        profile.mark("projection");
         // Closing origin drift retains precedence over a source-only stale
         // result. No closing capture runs after a failed or panicking body.
         let (source_valid, origin_valid) = epoch.boundary(&workspace, source.configuration())?;
+        #[cfg(test)]
+        profile.mark("closing_boundary");
         if !origin_valid {
             return Err(DevMapError::Store(
                 "origin enumeration proof changed after observation".into(),
@@ -281,12 +295,19 @@ impl RepositoryApplication {
         if !source_valid {
             return Ok(QueryBoundaryAttempt::SourceStale);
         }
+        #[cfg(test)]
+        profile.mark("closing_anchor");
         attempt
             .application
             .storage
             .restore_query_epoch(&workspace, epoch)?;
         let result = Box::new(result);
         attempt.committed = true;
+        #[cfg(test)]
+        {
+            profile.mark("restore");
+            profile.finish();
+        }
         Ok(QueryBoundaryAttempt::Ready(result))
     }
     pub fn open(workspace: &SourceWorkspace) -> Result<Self, DevMapError> {
@@ -401,6 +422,8 @@ impl RepositoryApplication {
         verified: Option<&crate::runtime::query_validation::VerifiedQuerySource>,
         epoch: Option<&crate::store::snapshot::QueryReadEpoch>,
     ) -> Result<ApplicationSnapshot, DevMapError> {
+        #[cfg(test)]
+        let mut profile = query_profile::Clock::projection(epoch.is_some());
         query.validate()?;
         let actual = match verified {
             Some(source) => source.workspace()?.clone(),
@@ -461,6 +484,8 @@ impl RepositoryApplication {
             self.git = None;
             self.collected = None;
         }
+        #[cfg(test)]
+        profile.mark("source_and_anchor");
         let (generation, inputs) = match (epoch, verified) {
             (Some(epoch), _) => self.storage.read_in_query_epoch(&self.workspace, epoch)?,
             (None, Some(source)) => self
@@ -472,6 +497,8 @@ impl RepositoryApplication {
         if let Some(mut hook) = self.test_after_storage.take() {
             hook()?;
         }
+        #[cfg(test)]
+        profile.mark("storage_read");
         let origin_fingerprint = self.storage.origin_fingerprint().map(str::to_owned);
         let plans = inputs
             .routes
@@ -506,6 +533,8 @@ impl RepositoryApplication {
             self.dirty = false;
             self.origin_fingerprint = origin_fingerprint;
         }
+        #[cfg(test)]
+        profile.mark("collection_eligibility");
         // Collection can finish after the caller sampled its projection clock.
         // Keep evaluation at least as recent as those newly collected facts.
         let now = now.max(self.git_at.unwrap());
@@ -514,6 +543,8 @@ impl RepositoryApplication {
             Some(source) => context.prepare_verified_query(source)?,
             None => context.prepare_client(workspace)?,
         };
+        #[cfg(test)]
+        profile.mark("prepare_client");
         let mut next = prepared.project(
             inputs,
             now,
@@ -521,6 +552,8 @@ impl RepositoryApplication {
             query.inventory_observed_at.clone(),
             query.complete,
         )?;
+        #[cfg(test)]
+        profile.mark("model_projection");
         let git_observed_at = self.git_at.unwrap().format(&Rfc3339)?;
         for facts in &mut next.workspace_facts {
             if facts.git_observed_at.is_some() {
@@ -539,7 +572,7 @@ impl RepositoryApplication {
             self.ancestry.insert(key, result);
             Ok(result)
         })?;
-        Ok(ApplicationSnapshot {
+        let snapshot = ApplicationSnapshot {
             model: next,
             store_generation: generation,
             store_inputs_observed_at: self
@@ -549,7 +582,13 @@ impl RepositoryApplication {
                 .transpose()?,
             git_observed_at,
             git_cycle: self.cycle,
-        })
+        };
+        #[cfg(test)]
+        {
+            profile.mark("history_and_snapshot");
+            profile.finish();
+        }
+        Ok(snapshot)
     }
 
     /// IPC write seam: accepts bounded prior inventory only, never a hydrated map.
