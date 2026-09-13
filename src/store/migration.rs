@@ -929,6 +929,24 @@ fn inventory_hash(path: &Path, remaining: u64) -> Result<(u64, String), DevMapEr
     inventory_hash_reader(inventory_checked_file(path)?, remaining)
 }
 
+// The independent serial oracle above retains its original checked path walk.
+// Only speculative candidate workers select the kernel no-reparse opener.
+fn inventory_candidate_checked_file(path: &Path) -> Result<fs::File, DevMapError> {
+    #[cfg(windows)]
+    if let Some(result) = safe::read_no_reparse::try_checked_file(path) {
+        let file = result?;
+        if super::link_count(&file)? != 1 {
+            return Err(fail("hard-linked legacy artifact refused"));
+        }
+        return Ok(file);
+    }
+    inventory_checked_file(path)
+}
+
+fn inventory_candidate_hash(path: &Path, remaining: u64) -> Result<(u64, String), DevMapError> {
+    inventory_hash_reader(inventory_candidate_checked_file(path)?, remaining)
+}
+
 trait InventoryReadObserver {
     fn returned(&mut self, _bytes: usize) {}
     fn accepted(&mut self, _bytes: usize) {}
@@ -949,7 +967,7 @@ fn inventory_hash_observed(
     observer: impl InventoryReadObserver,
     opened: impl FnOnce(),
 ) -> Result<(u64, String), DevMapError> {
-    let file = inventory_checked_file(path)?;
+    let file = inventory_candidate_checked_file(path)?;
     opened(); // Successful checked payload open, not temporary identity handles.
     inventory_hash_reader_observed(file, remaining, observer)
 }
@@ -997,6 +1015,20 @@ fn inventory_hash_reader_observed(
 #[cfg(test)]
 mod inventory_hash_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn unsupported_native_parent_traversal_uses_original_checked_opener() {
+        let owned = tempfile::tempdir().unwrap();
+        fs::create_dir(owned.path().join("child")).unwrap();
+        fs::write(owned.path().join("payload"), b"same full bytes").unwrap();
+        let path = owned.path().join("child").join("..").join("payload");
+        assert!(safe::read_no_reparse::try_checked_file(&path).is_none());
+        assert_eq!(
+            inventory_candidate_hash(&path, MAX_BYTES).unwrap(),
+            inventory_hash(&path, MAX_BYTES).unwrap()
+        );
+    }
 
     #[test]
     fn interrupted_short_reads_and_errors_preserve_read_semantics() {

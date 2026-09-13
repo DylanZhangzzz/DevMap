@@ -440,7 +440,7 @@ fn profile_noreparse_files(
 
 #[cfg(all(test, windows))]
 fn probe_inventory_file(path: &Path) -> Result<fs::File, DevMapError> {
-    let file = safe::noreparse_probe::checked_file(path)?;
+    let file = safe::read_no_reparse::checked_file(path)?;
     if super::super::link_count(&file)? != 1 {
         return Err(fail("hard-linked legacy artifact refused"));
     }

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::error::DevMapError;
 
-#[cfg(all(test, windows))]
-pub(crate) mod noreparse_probe;
+#[cfg(windows)]
+pub(crate) mod read_no_reparse;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileIdentity {

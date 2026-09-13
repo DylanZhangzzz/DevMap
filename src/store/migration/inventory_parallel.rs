@@ -263,10 +263,10 @@ fn hash_jobs(
         let hashed = if let Some(pipeline) = &observation.pipeline {
             pipeline.hash_job(&path, job.bytes)
         } else {
-            inventory_hash(&path, job.bytes)
+            inventory_candidate_hash(&path, job.bytes)
         };
         #[cfg(not(test))]
-        let hashed = inventory_hash(&path, job.bytes);
+        let hashed = inventory_candidate_hash(&path, job.bytes);
         #[cfg(test)]
         observation.hashed.fetch_add(1, Ordering::SeqCst);
         let valid = hashed.as_ref().is_ok_and(|(bytes, _)| *bytes == job.bytes);

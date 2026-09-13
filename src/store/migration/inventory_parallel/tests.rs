@@ -1127,7 +1127,7 @@ impl PipelineHooks {
     ) -> Result<(u64, String), DevMapError> {
         let Some(plan) = &self.admission else {
             // No observation allocation for existing fault/overlap controls.
-            return inventory_hash(path, expected_bytes);
+            return inventory_candidate_hash(path, expected_bytes);
         };
         let ordinal = {
             let state = plan.state.lock().unwrap();
