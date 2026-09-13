@@ -68,7 +68,7 @@ async function main() {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const url = `http://127.0.0.1:${server.address().port}/`;
   const browser = await chromium.launch({headless:true,args:['--disable-gpu'],executablePath:process.env.CODEX_DOC_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe'});
-  const reports = [], captures = new Map();
+  const reports = [], interactionReports = [], captures = new Map();
   try {
     for(const viewport of [{width:1280,height:900},{width:560,height:900},{width:360,height:800}]) {
       const variantStates = {};
@@ -96,6 +96,8 @@ async function main() {
             zoom:document.querySelector('#zoom-level')?.textContent||document.querySelector('#zoom-reset')?.textContent,
             scroll:{left:document.querySelector('#topology-viewport').scrollLeft,top:document.querySelector('#topology-viewport').scrollTop},
             inspector:document.querySelector('#selection-details').hidden,
+            selection:[...document.querySelectorAll('[aria-current="true"]')].map(el=>el.dataset.objectId||el.id||el.tagName),
+            focus:{tag:document.activeElement?.tagName||null,id:document.activeElement?.id||null,object:document.activeElement?.dataset.objectId||null},
             horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
           }));
           states.push({name,...state});
@@ -127,6 +129,7 @@ async function main() {
       }
       assert.deepEqual(variantStates.control,variantStates.baseline,'Same-source control interaction mismatch');
       assert.deepEqual(variantStates.candidate,variantStates.baseline,`Interactions changed at ${viewport.width}px`);
+      interactionReports.push({width:viewport.width,variants:variantStates});
       for(const comparedVariant of ['control','candidate']) for(const state of variantStates.baseline) {
         const a=PNG.sync.read(captures.get(`${viewport.width}-baseline-${state.name}`));
         const b=PNG.sync.read(captures.get(`${viewport.width}-${comparedVariant}-${state.name}`));
@@ -150,7 +153,7 @@ async function main() {
     assert.ok(pixelmatch(example.data,changed,null,example.width,example.height,{threshold:0.01,includeAA:true})>0);
     const evidence={scope,reference_commit:baselineRef,resource_sha256:sha256(baselineHtml),fixed_time:stamp,
       baseline_snapshot_file:process.env.DEVMAP_BASELINE_SNAPSHOT||null,candidate_snapshot_file:process.env.DEVMAP_CANDIDATE_SNAPSHOT||null,
-      excluded_pixels:0,clock_frozen:true,build_metadata_fixed:true,animations_disabled:true,max_allowed_channel_delta:2,negative_control:'pass',reports,
+      excluded_pixels:0,clock_frozen:true,build_metadata_fixed:true,animations_disabled:true,max_allowed_channel_delta:2,negative_control:'pass',reports,interaction_reports:interactionReports,
       note:'Fixture rendering is not evidence that the SQLite backend or a real host lifecycle has passed. Backend/migration gates are separate.'};
     fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(evidence,null,2));
     console.log(JSON.stringify(evidence));
