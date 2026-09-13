@@ -1795,10 +1795,12 @@ THE SOFTWARE.
         const surface=byId("relationship-map");
         if(surface.metroLayout) {
           const focus=[...surface.querySelectorAll("[data-object-id]")].find(n=>n===document.activeElement)?.dataset.objectId;
+          const currentId=surface.querySelector('[aria-current="true"]')?.dataset.objectId;
           const savedChatScrolls=chatScrolls(surface),summaryScroll=surface.querySelector(".workspace-summary")?.scrollTop||0;
-          for(const n of surface.querySelectorAll(".route-platform")) n.remove();
-          for(const n of surface.querySelectorAll(".workspace-summary")) n.remove();
-          surface.append(...renderPlatforms(records,lastSnapshot,surface.metroLayout));
+          const oldPlatforms=[...surface.querySelectorAll(".route-platform"),...surface.querySelectorAll(".workspace-summary")];
+          for(const n of renderPlatforms(records,lastSnapshot,surface.metroLayout)) surface.insertBefore(n,oldPlatforms[0]||null);
+          for(const n of oldPlatforms) n.remove();
+          if(currentId) [...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===currentId)?.setAttribute("aria-current","true");
           restoreChatScrolls(surface,savedChatScrolls);
         const summary=surface.querySelector(".workspace-summary");if(summary)summary.scrollTop=summaryScroll;
           if(focus) ([...surface.querySelectorAll("[data-object-id]")].find(n=>n.dataset.objectId===focus)||(focus.startsWith("summary")?summary:null))?.focus({preventScroll:true});

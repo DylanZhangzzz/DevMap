@@ -22,6 +22,7 @@ class Element {
   get textContent() { return this._text + this.children.map(c => c.textContent).join(''); }
   append(...nodes) { for (const node of nodes) { if (node.tagName === '#fragment') this.append(...node.children); else { node.parentNode = this; this.children.push(node); } } }
   appendChild(node) { this.append(node); return node; }
+  insertBefore(node, reference) { if (!reference) return this.appendChild(node); const index=this.children.indexOf(reference); assert(index>=0); node.parentNode=this;this.children.splice(index,0,node);return node; }
   replaceChildren(...nodes) { this.children = []; this._text = ''; this.append(...nodes); }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(n => n !== this); }
   setAttribute(k, v) { this.attributes[k] = String(v); }
@@ -1650,6 +1651,27 @@ test('Agent locator requires exact identity and fresh reported directory, never 
  assert.equal(ui.ids.get('locate-agent').disabled,false);assert.match(ui.ids.get('agent-location').textContent,/auth-folder/);
  ui.advance(301000);ui.refreshDynamicState();assert.equal(ui.ids.get('locate-agent').disabled,true);
  assert.match(ui.ids.get('agent-location').textContent,/expired/);
+});
+
+test('workspace selection survives age refresh and accepted snapshots without extra messages', () => {
+  const ui=harness(),value=snapshot();ui.acceptSnapshot(value);
+  // A normal interaction render has already painted the selected workspace.
+  ui.renderSnapshot(value);
+  const surface=ui.ids.get('relationship-map'),selectedId='workspace:'+value.current_worktree_id;
+  const selected=()=>surface.querySelectorAll('[aria-current="true"]').map(n=>n.dataset.objectId);
+  assert.deepEqual(selected(),[selectedId]);
+  const details=surface.querySelector('.platform-details');details.focus();
+  const layerOrder=surface.children.map(n=>n.className);
+  const focusedId=details.dataset.objectId,messageCount=ui.messages.length;
+  ui.advance(120001);ui.refreshDynamicState();
+  assert.deepEqual(selected(),[selectedId]);
+  assert.deepEqual(surface.children.map(n=>n.className),layerOrder,'Age redraw changed map layer order');
+  assert.equal(ui.document.activeElement.dataset.objectId,focusedId);
+  assert.equal(ui.messages.length,messageCount);
+  assert.equal(ui.acceptSnapshot({...value,observation_revision:value.observation_revision+1}),true);
+  assert.deepEqual(selected(),[selectedId]);
+  assert.equal(ui.document.activeElement.dataset.objectId,focusedId);
+  assert.equal(ui.messages.length,messageCount);
 });
 
 test('initial view and Agent locator reveal reported chat card without an inspector', () => {
