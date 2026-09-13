@@ -1,0 +1,15 @@
+# Codex 结束事件超时缺口与修复
+
+官方 [Hooks 文档](https://learn.chatgpt.com/docs/hooks)规定 SessionEnd 默认 1 秒、最高 3 秒；非托管 hook 的定义变化需要重新审核信任。此前候选和冻结旧版生成的 SessionEnd 都没有显式 timeout，配置相同不代表真实宿主能够完成结束记录。
+
+4C91 在 hook-budget-u3oavT 新建仓库中直接运行三组 SessionStart/SessionEnd 原生命令。结束命令分别耗时 1866.9097、1532.6188、1642.0067 ms，全部退出 0，但全部超过默认 1000 ms。这是实际命令耗时，未启用宿主 hook，也未模拟宿主 1 秒强杀；不能声称观察到了真实宿主丢记录。首个开始命令为 3710.8652 ms，说明冷路径也不能直接假定小于 3 秒。
+
+源代码提交 5dd8288 为 Codex SessionEnd 显式生成 timeout=3；其他事件和 Claude 配置不变。迁移识别此前 DevMap 精确生成的无 timeout 结束组，升级时不留空组或重复 handler；用户自定义组元数据仍保留。21 个 adapter_install 检查通过，含新配置、旧配置升级、幂等、安全覆盖和自定义配置保留。初次回归有一个检查仍限定 handler 恰好三个字段，已更新为仅允许 Codex SessionEnd 多出经过断言的 timeout=3 字段；失败日志不能当作生产运行失败。
+
+这是一项实际配置变化，因此早前“新旧安装文件字节一致”和“再次安装无改写”的结论只适用于 4C91。新版安装计划 digest 会变化，用户应按正常宿主流程审核新定义；未替用户修改现用项目或全局信任。新增一次审核是否符合第一阶段“不增加日常操作”的完整接入合同仍须在阶段报告解释，不能隐藏这项升级成本。
+
+尚未关闭：当前新构件实际宿主自动触发、SessionEnd 的冷启动/高负载/宿主终止边界和落库确认。3 秒是宿主支持的最大窗口，不是当前代码所有情形都满足的保证。不使用绕过信任参数，也不以直接运行命令冒充宿主触发。核心身份校验和持久化确认没有因本修复被跳过。
+
+原始命令和时间在 target/verification/hook-budget-u3oavT/report.json，session 61154 退出 0。测试属于原生命令路径检查；SQLite 完整记录和实际宿主身份须另外核对。
+
+新 release 构件：target/verification/task6-candidate-5dd8288/devmap.exe，SHA-256 25BF6631EF7387E524744A1B2B8CCE01B76D54C58CDB897353ACC5D042DFADEC；构建退出 0，36.59 秒。2 个 adapter_conformance 检查亦通过（43.64 秒），与 21 个安装检查共 23 项。实际新 CLI 在 u3oavT 仓库完成审阅计划对应的安装，生成 timeout=3；verify 返回 configured=true、activation_verified=false，原始输出 new-adapter-install.txt / new-adapter-verify.txt 保留。未触发自动 hook、未修改全局配置/信任或已安装插件。旧版 4C91 命令耗时不能写成新构件的宿主性能结果。
