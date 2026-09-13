@@ -349,6 +349,7 @@ pub fn prepare_identity(command: &mut tokio::process::Command) {
     command.creation_flags(0x08000000 | 0x00000004);
 }
 pub struct IdentityTree(windows_sys::Win32::Foundation::HANDLE);
+pub(super) mod owner_lifetime;
 mod pss;
 #[cfg(test)]
 mod pss_tests;

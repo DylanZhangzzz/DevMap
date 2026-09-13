@@ -7,6 +7,8 @@ use fs2::FileExt;
 use std::{io, path::Path, sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 pub(super) fn run(source: &Path, instance: String, idle_seconds: u64) -> io::Result<()> {
+    #[cfg(windows)]
+    platform::owner_lifetime::install()?;
     let reactor = super::reactor()?;
     let id = reactor.block_on(super::identity_async(source))?;
     let location = location(&id)?;
