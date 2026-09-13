@@ -23,6 +23,9 @@ impl Clock {
         Self::selected("projection_phases", "query-projection-phase/1", enabled)
     }
     pub(crate) fn storage(enabled: bool) -> Self {
+        if std::env::var("DEVMAP_QUERY_PROFILE_MODE").as_deref() == Ok("cold_projection_phases") {
+            return Self::selected("cold_projection_phases", "cold-storage-phase/1", !enabled);
+        }
         Self::selected("storage_phases", "query-storage-phase/1", enabled)
     }
     pub(crate) fn observer() -> Self {
