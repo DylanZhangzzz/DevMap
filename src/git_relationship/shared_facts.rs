@@ -1,5 +1,6 @@
 //! Guarded successful relationship facts shared only within one operation.
 mod configuration_paths;
+mod probe_overlap;
 mod query_configuration;
 pub(crate) use query_configuration::QueryConfiguration;
 
@@ -473,79 +474,102 @@ fn capture_using_directory(
     for (path, _) in &candidates {
         witness(path, &mut evidence)?;
     }
-    evidence.config = probe(
-        &caller.root,
-        &[
-            "config",
-            "--no-includes",
-            "--null",
-            "--list",
-            "--show-origin",
-            "--show-scope",
-        ],
-    )?;
-    validate_config(&evidence.config, &candidates, &caller.root)?;
-    evidence.refs = probe(
-        &caller.root,
-        &[
-            "for-each-ref",
-            "--count=2049",
-            "--format=%(refname)%00%(objectname)%00%(symref)",
-        ],
-    )?;
-    let refs = std::str::from_utf8(&evidence.refs).map_err(|_| decline())?;
-    if refs.lines().count() > MAX_REFS {
-        return Err(decline());
-    }
-    let mut ref_oids = BTreeMap::new();
-    for line in refs.lines() {
-        let columns: Vec<_> = line.split('\0').collect();
-        if columns.len() != 3
-            || !super::valid_object_id(columns[1])
-            || columns[0].len() > 1024
-            || columns[0].chars().any(char::is_control)
-            || !(columns[0].starts_with("refs/heads/")
-                || columns[0].starts_with("refs/remotes/")
-                || columns[0].starts_with("refs/tags/"))
-            || !(columns[2].is_empty()
-                || columns[0] == "refs/remotes/origin/HEAD"
-                    && columns[2].starts_with("refs/remotes/origin/"))
-        {
-            return Err(decline());
-        }
-        if ref_oids.insert(columns[0], columns[1]).is_some() {
-            return Err(decline());
-        }
-    }
-    for row in worktrees {
-        let admin = checked_canonical_directory(&row.git_dir)?;
-        let Some(Witness::File { bytes, .. }) = evidence.files.get(&admin.join("HEAD")) else {
-            return Err(decline());
-        };
-        let head = std::str::from_utf8(bytes)
-            .map_err(|_| decline())?
-            .trim_end_matches(['\r', '\n']);
-        let resolved = match &row.branch {
-            Some(branch) => {
-                let expected = format!("refs/heads/{branch}");
-                if head.strip_prefix("ref: ") != Some(expected.as_str()) {
+    // All candidate files have been witnessed. Only independent Git reads
+    // overlap; consume configuration and ref validation in their original order.
+    let (_, remote_head) = probe_overlap::pair(
+        || {
+            let (config, refs) = probe_overlap::pair(
+                || {
+                    let config = probe(
+                        &caller.root,
+                        &[
+                            "config",
+                            "--no-includes",
+                            "--null",
+                            "--list",
+                            "--show-origin",
+                            "--show-scope",
+                        ],
+                    )?;
+                    validate_config(&config, &candidates, &caller.root)?;
+                    Ok(config)
+                },
+                || {
+                    probe(
+                        &caller.root,
+                        &[
+                            "for-each-ref",
+                            "--count=2049",
+                            "--format=%(refname)%00%(objectname)%00%(symref)",
+                        ],
+                    )
+                },
+                #[cfg(test)]
+                false,
+            )?;
+            evidence.config = config;
+            evidence.refs = refs;
+            let refs = std::str::from_utf8(&evidence.refs).map_err(|_| decline())?;
+            if refs.lines().count() > MAX_REFS {
+                return Err(decline());
+            }
+            let mut ref_oids = BTreeMap::new();
+            for line in refs.lines() {
+                let columns: Vec<_> = line.split('\0').collect();
+                if columns.len() != 3
+                    || !super::valid_object_id(columns[1])
+                    || columns[0].len() > 1024
+                    || columns[0].chars().any(char::is_control)
+                    || !(columns[0].starts_with("refs/heads/")
+                        || columns[0].starts_with("refs/remotes/")
+                        || columns[0].starts_with("refs/tags/"))
+                    || !(columns[2].is_empty()
+                        || columns[0] == "refs/remotes/origin/HEAD"
+                            && columns[2].starts_with("refs/remotes/origin/"))
+                {
                     return Err(decline());
                 }
-                ref_oids
-                    .get(expected.as_str())
-                    .copied()
-                    .ok_or_else(decline)?
+                if ref_oids.insert(columns[0], columns[1]).is_some() {
+                    return Err(decline());
+                }
             }
-            None if super::valid_object_id(head) => head,
-            None => return Err(decline()),
-        };
-        if resolved != row.head {
-            return Err(decline());
-        }
-    }
-    let remote_head = super::git_output(
-        &caller.root,
-        ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
+            for row in worktrees {
+                let admin = checked_canonical_directory(&row.git_dir)?;
+                let Some(Witness::File { bytes, .. }) = evidence.files.get(&admin.join("HEAD"))
+                else {
+                    return Err(decline());
+                };
+                let head = std::str::from_utf8(bytes)
+                    .map_err(|_| decline())?
+                    .trim_end_matches(['\r', '\n']);
+                let resolved = match &row.branch {
+                    Some(branch) => {
+                        let expected = format!("refs/heads/{branch}");
+                        if head.strip_prefix("ref: ") != Some(expected.as_str()) {
+                            return Err(decline());
+                        }
+                        ref_oids
+                            .get(expected.as_str())
+                            .copied()
+                            .ok_or_else(decline)?
+                    }
+                    None if super::valid_object_id(head) => head,
+                    None => return Err(decline()),
+                };
+                if resolved != row.head {
+                    return Err(decline());
+                }
+            }
+            Ok(())
+        },
+        || {
+            super::git_output(
+                &caller.root,
+                ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
+            )
+        },
+        #[cfg(test)]
+        false,
     )?;
     if !remote_head.stderr.is_empty() || remote_head.stdout.len() > 2048 {
         return Err(decline());
