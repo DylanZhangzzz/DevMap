@@ -57,7 +57,9 @@ git('init', '-b', 'main');
 git('config', 'user.name', 'Isolated host fixture');
 git('config', 'user.email', 'fixture@example.invalid');
 git('commit', '--allow-empty', '-m', 'Host fixture base');
-execFileSync(candidate, ['storage', 'migrate', '--source', source, '--backup-dir', path.join(output, 'frozen')], {cwd: source, timeout: 30000, stdio: 'pipe'});
+const emptyStart = process.env.DEVMAP_HOST_EMPTY_START === '1';
+if (emptyStart) assert.equal(fs.existsSync(path.join(source, '.git/devmap')), false, 'Empty-start fixture already has storage');
+else execFileSync(candidate, ['storage', 'migrate', '--source', source, '--backup-dir', path.join(output, 'frozen')], {cwd: source, timeout: 30000, stdio: 'pipe'});
 const prompt = 'This is an isolated MCP integration test. Use only the devmap_candidate MCP server. '
   + 'First call devmap_read_map with no arguments. Then call devmap_set_route_plan using the returned current_worktree_id, '
   + 'request_id "actual-host-route-1", expected_revision 0, goal "Actual Codex host acceptance fixture", source "isolated actual host smoke". '
@@ -75,7 +77,7 @@ const configs = {
 const args = ['exec', '--ephemeral', '--ignore-user-config', '--json', '--sandbox', 'read-only', '--cd', source];
 for (const [key, value] of Object.entries(configs)) args.push('-c', `${key}=${JSON.stringify(value)}`);
 args.push(prompt);
-const metadata = {scope: 'actual_codex_cli_mcp_smoke', source, candidate,
+const metadata = {scope: 'actual_codex_cli_mcp_smoke', source, candidate, empty_start: emptyStart, manual_migration_performed: !emptyStart,
   candidate_sha256: crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex'),
   codex, args, started_at: new Date().toISOString(),
   note: 'Ephemeral actual CLI MCP flow. This does not establish automatic hooks, desktop navigation, shared owner restart, or final resource acceptance.'};

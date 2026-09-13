@@ -95,3 +95,18 @@ authentication or installed plugins. The child has a 180-second timeout.
 Automatic hooks, desktop navigation and shared-owner restart are separate gates.
 `DEVMAP_RECHECK_HOST_FIXTURE` rechecks saved events without another model run,
 including a wrong-route readback negative control, into a new validated report.
+
+Set `DEVMAP_HOST_EMPTY_START=1` to skip the fixture's explicit migration and
+assert that its DevMap directory is absent before the first real-host call.
+This tests automatic database initialization on the first route write, not
+legacy upgrade or host trust. Record the independent read-only `sqlState`
+snapshot as `startup-sql.json` before reopening.
+
+`codex-host-reopen.cjs <owned-empty-start-fixture>` requires that snapshot and
+the validated first-session report. Set `DEVMAP_PYTHON_EXE` to Python for the
+SQL checks and retain the same isolated state-root environment. It verifies
+the old owner endpoint is absent, then starts a different actual CLI session
+with only one read-map call enabled. The complete route, SQL state and automatic
+backup inventories must remain unchanged. Results go to a new `reopen-*`
+directory. `node --test tests/browser/codex-host-reopen.test.cjs` exercises
+readback acceptance and identity/data mismatch controls without a model call.

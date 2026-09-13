@@ -9,7 +9,7 @@
 | 旧文件保持 | stage1-storage-file-inventory.json，legacy-process-cXQcFM/manifest.json | 样例旧 13 个文件哈希相同，新增 6 个数据库/安全辅助文件 | 激活后新写入增长范围；无旧数据仓库；全磁盘与备份账本 |
 | 当前渲染/交互对照 | legacy-process-cXQcFM/stage1-browser/report.json；stage1-native-browser.log；root 86248 exit 0 | 1280/560/360 px，24 组含控制组；可见差异 0，排除像素 0，最大通道差 2（阈值 2），负控制通过 | 真实运行时强杀/重连及用户打开流程；不是实时宿主截图 |
 | 浏览器人工复核 | 560-candidate-workspace-details.png 已实际查看 | 展开详情页面与自动对照结果一致；不能推导所有视口无既有 UI 缺陷 | 重启选中标记基线问题单独处理 |
-| 真实 CLI MCP | 历史候选 codex-host-OxiNB3/report-validated.json | 95906C5C 版本完成 read→set-route→read 与错误结果负控制 | 当前 6D261B3F 实际宿主复验，自动 hook 与桌面使用流程 |
+| 真实 CLI MCP | 当前 4C91 的 codex-host-NzWaI4/report-validated.json 与 reopen-vZ65ao/report.json | 干净仓库免手动迁移的 read→set-route→read、独立会话重开和完整路线/SQL/备份保持 | 自动 hook 与 Codex in-app Browser 使用流程 |
 | owner 强杀无孤儿 | owner lifetime 的确定性窗口测试；shared-browser-UWqMyP 历史实际重启 | febbb69 专用 owner Job 修复有专项和真实重启证据；当前完整回归含专项 | 当前实际构件自然生命周期/重启与资源复验；不以强制测试清理冒充自然清理 |
 | 资源/并发 | 当前完整回归的共享运行时组；早期资源审计 | 当前代码回归未出现并发/恢复失败 | 当前四客户端进程数量、总内存、十分钟核心 CPU/RSS 与空闲退出 |
 | 简化账本 | [已实测文件账本](2026-09-13-simplification-ledger.md) | 明确物理文件未减少、保留证据用途 | 安装/配置/日常打开/维护动作和进程实际计数 |
@@ -17,6 +17,8 @@
 | 平台与宿主范围 | 当前 Windows 本机验证 | 不声称 macOS/Linux/Claude 实际端到端通过 | 按合同列出当前 Windows/Codex 用户流程；其他范围显式未验证 |
 
 上述 target/verification 路径均相对 worktree 根。运行构件、日志与截图仍保留在隔离验收目录，不在已安装插件中。
+
+新增[宿主首次启动、重开与项目配置对比](2026-09-13-host-startup-and-configuration.md)：实际当前 CLI 两会话通过；adapter-parity-3Zuz9L 的新旧安装计划及干净安装配置相同，候选复用旧配置时无改写。仅覆盖项目配置步骤，不代表宿主信任和自动触发通过。
 
 ## 公共端点工具预检（不用于延迟验收）
 
