@@ -113,6 +113,14 @@ fn directory(path: &Path, evidence: &mut Evidence) -> Result<PathBuf, DevMapErro
 }
 
 fn witness(path: &Path, evidence: &mut Evidence) -> Result<(), DevMapError> {
+    witness_using_directory(path, evidence, directory)
+}
+
+fn witness_using_directory(
+    path: &Path,
+    evidence: &mut Evidence,
+    directory: fn(&Path, &mut Evidence) -> Result<PathBuf, DevMapError>,
+) -> Result<(), DevMapError> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(decline());
     }

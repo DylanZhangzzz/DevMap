@@ -2,6 +2,90 @@
 //! Shares low-level bounded witnesses, not relationship/ref caching behavior.
 use super::*;
 
+// A capture-local directory sandwich. Every path still traverses checked
+// metadata/canonicalization. Retain the first identity, never overwrite it with
+// a later identity, then reopen every distinct ancestor after all file reads.
+fn source_directory(path: &Path, evidence: &mut Evidence) -> Result<PathBuf, DevMapError> {
+    let canonical = checked_canonical_directory(path)?;
+    for ancestor in canonical.ancestors() {
+        if !evidence.directories.contains_key(ancestor) {
+            evidence
+                .directories
+                .insert(ancestor.to_owned(), checked_directory_identity(ancestor)?);
+        }
+    }
+    Ok(canonical)
+}
+
+fn source_witness(path: &Path, evidence: &mut Evidence) -> Result<(), DevMapError> {
+    witness_using_directory(path, evidence, source_directory)
+}
+
+fn close_source_directories(evidence: &Evidence) -> Result<(), DevMapError> {
+    for (path, before) in &evidence.directories {
+        if &checked_directory_identity(path)? != before {
+            return Err(decline());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod source_directory_tests {
+    use super::*;
+
+    #[test]
+    fn captures_the_original_complete_file_and_ancestor_evidence() {
+        let owned = tempfile::tempdir().unwrap();
+        let root = owned.path().canonicalize().unwrap();
+        let refs = root.join("refs/heads");
+        std::fs::create_dir_all(&refs).unwrap();
+        let mut original = blank(Vec::new());
+        let mut candidate = blank(Vec::new());
+        for index in 0..24 {
+            let path = refs.join(format!("topic-{index}"));
+            std::fs::write(&path, format!("{index:040x}\n")).unwrap();
+            witness(&path, &mut original).unwrap();
+            source_witness(&path, &mut candidate).unwrap();
+        }
+        let missing = refs.join("absent");
+        witness(&missing, &mut original).unwrap();
+        source_witness(&missing, &mut candidate).unwrap();
+        close_source_directories(&candidate).unwrap();
+        assert!(original == candidate);
+    }
+
+    #[test]
+    fn later_reads_cannot_overwrite_a_replaced_ancestor_identity() {
+        let owned = tempfile::tempdir().unwrap();
+        let root = owned.path().canonicalize().unwrap();
+        let refs = root.join("refs");
+        std::fs::create_dir(&refs).unwrap();
+        let path = refs.join("HEAD");
+        std::fs::write(&path, b"same bytes\n").unwrap();
+        let mut evidence = blank(Vec::new());
+        source_witness(&path, &mut evidence).unwrap();
+        let before = evidence.directories[&refs].clone();
+        std::fs::rename(&refs, root.join("old-refs")).unwrap();
+        std::fs::create_dir(&refs).unwrap();
+        std::fs::write(&path, b"same bytes\n").unwrap();
+        source_witness(&path, &mut evidence).unwrap();
+        assert_eq!(evidence.directories[&refs], before);
+        assert!(close_source_directories(&evidence).is_err());
+    }
+
+    #[test]
+    fn closing_capture_rejects_a_removed_directory() {
+        let owned = tempfile::tempdir().unwrap();
+        let refs = owned.path().join("refs");
+        std::fs::create_dir(&refs).unwrap();
+        let mut evidence = blank(Vec::new());
+        source_directory(&refs, &mut evidence).unwrap();
+        std::fs::rename(&refs, owned.path().join("moved-refs")).unwrap();
+        assert!(close_source_directories(&evidence).is_err());
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     // All source/configuration rechecks currently run on the query caller;
@@ -27,9 +111,9 @@ impl SourceResolutionWitness {
         #[cfg(test)]
         SOURCE_CAPTURE_COUNT.with(|count| count.set(count.get() + 1));
         let mut evidence = blank(Vec::new());
-        directory(common, &mut evidence)?;
-        directory(admin, &mut evidence)?;
-        let objects = directory(&common.join("objects"), &mut evidence)?;
+        source_directory(common, &mut evidence)?;
+        source_directory(admin, &mut evidence)?;
+        let objects = source_directory(&common.join("objects"), &mut evidence)?;
         // Git discovery requires accessible objects/refs directories. Opening an
         // iterator checks access without scanning the potentially huge object DB.
         let _objects_access = std::fs::read_dir(objects)?;
@@ -45,7 +129,7 @@ impl SourceResolutionWitness {
             if depth > 16 {
                 return Err(decline());
             }
-            directory(path, evidence)?;
+            source_directory(path, evidence)?;
             for entry in std::fs::read_dir(path)? {
                 let path = entry?.path();
                 *nodes += 1;
@@ -57,7 +141,7 @@ impl SourceResolutionWitness {
                 if meta.is_dir() {
                     refs_tree(&path, depth + 1, evidence, nodes, path_bytes)?;
                 } else {
-                    witness(&path, evidence)?;
+                    source_witness(&path, evidence)?;
                 }
             }
             Ok(())
@@ -74,13 +158,14 @@ impl SourceResolutionWitness {
             if checked_metadata(&refs)?.is_some() {
                 refs_tree(&refs, 0, &mut evidence, &mut nodes, &mut path_bytes)?;
             } else {
-                witness(&refs, &mut evidence)?;
+                source_witness(&refs, &mut evidence)?;
             }
         }
         for root in [common, admin] {
-            witness(&root.join("HEAD"), &mut evidence)?;
-            witness(&root.join("packed-refs"), &mut evidence)?;
+            source_witness(&root.join("HEAD"), &mut evidence)?;
+            source_witness(&root.join("packed-refs"), &mut evidence)?;
         }
+        close_source_directories(&evidence)?;
         Ok(Self {
             common: common.to_owned(),
             admin: admin.to_owned(),
