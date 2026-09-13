@@ -5,7 +5,10 @@ use super::*;
 // A capture-local directory sandwich. Every path still traverses checked
 // metadata/canonicalization. Retain the first identity, never overwrite it with
 // a later identity, then reopen every distinct ancestor after all file reads.
-fn source_directory(path: &Path, evidence: &mut Evidence) -> Result<PathBuf, DevMapError> {
+pub(super) fn source_directory(
+    path: &Path,
+    evidence: &mut Evidence,
+) -> Result<PathBuf, DevMapError> {
     let canonical = checked_canonical_directory(path)?;
     for ancestor in canonical.ancestors() {
         if !evidence.directories.contains_key(ancestor) {
@@ -21,7 +24,7 @@ fn source_witness(path: &Path, evidence: &mut Evidence) -> Result<(), DevMapErro
     witness_using_directory(path, evidence, source_directory)
 }
 
-fn close_source_directories(evidence: &Evidence) -> Result<(), DevMapError> {
+pub(super) fn close_source_directories(evidence: &Evidence) -> Result<(), DevMapError> {
     for (path, before) in &evidence.directories {
         if &checked_directory_identity(path)? != before {
             return Err(decline());

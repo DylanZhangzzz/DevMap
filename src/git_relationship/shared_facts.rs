@@ -164,15 +164,28 @@ fn witness_using_directory(
 }
 
 fn absent(path: &Path, evidence: &mut Evidence) -> Result<(), DevMapError> {
-    witness(path, evidence)?;
+    absent_using_directory(path, evidence, directory)
+}
+
+fn absent_using_directory(
+    path: &Path,
+    evidence: &mut Evidence,
+    directory: fn(&Path, &mut Evidence) -> Result<PathBuf, DevMapError>,
+) -> Result<(), DevMapError> {
+    witness_using_directory(path, evidence, directory)?;
     if !matches!(evidence.files.get(path), Some(Witness::Missing)) {
         return Err(decline());
     }
     Ok(())
 }
 
-fn pointer(path: &Path, prefix: &str, evidence: &mut Evidence) -> Result<PathBuf, DevMapError> {
-    witness(path, evidence)?;
+fn pointer_using_directory(
+    path: &Path,
+    prefix: &str,
+    evidence: &mut Evidence,
+    directory: fn(&Path, &mut Evidence) -> Result<PathBuf, DevMapError>,
+) -> Result<PathBuf, DevMapError> {
+    witness_using_directory(path, evidence, directory)?;
     let Some(Witness::File { bytes, .. }) = evidence.files.get(path) else {
         return Err(decline());
     };
@@ -301,6 +314,27 @@ fn capture(
     caller: &SourceWorkspace,
     worktrees: &[WorktreeDescriptor],
 ) -> Result<Evidence, DevMapError> {
+    capture_using_directory(
+        caller,
+        worktrees,
+        query_configuration::source_directory,
+        query_configuration::close_source_directories,
+    )
+}
+
+fn capture_using_directory(
+    caller: &SourceWorkspace,
+    worktrees: &[WorktreeDescriptor],
+    directory: fn(&Path, &mut Evidence) -> Result<PathBuf, DevMapError>,
+    close: fn(&Evidence) -> Result<(), DevMapError>,
+) -> Result<Evidence, DevMapError> {
+    let witness =
+        |path: &Path, evidence: &mut Evidence| witness_using_directory(path, evidence, directory);
+    let absent =
+        |path: &Path, evidence: &mut Evidence| absent_using_directory(path, evidence, directory);
+    let pointer = |path: &Path, prefix: &str, evidence: &mut Evidence| {
+        pointer_using_directory(path, prefix, evidence, directory)
+    };
     if worktrees.is_empty() || worktrees.len() > 256 {
         return Err(decline());
     }
@@ -529,6 +563,7 @@ fn capture(
         Some(1) if remote_head.stdout.is_empty() => {}
         _ => return Err(decline()),
     }
+    close(&evidence)?;
     Ok(evidence)
 }
 
@@ -897,6 +932,18 @@ mod tests {
         let worktrees = WorktreeScanner::scan(&caller).unwrap();
         assert_eq!(worktrees.len(), 2);
         assert_eq!(worktrees[0].head, worktrees[1].head);
+        if case == "capture_directory_sandwich_matches_original_evidence" {
+            let original =
+                capture_using_directory(&caller, &worktrees, directory, |_| Ok(())).unwrap();
+            let current = capture(&caller, &worktrees).unwrap();
+            assert!(
+                original == current,
+                "complete evidence must match the original capture on unchanged inputs"
+            );
+            assert!(current.directories.len() > worktrees.len());
+            assert!(current.files.len() > worktrees.len());
+            return;
+        }
         if case == "query_target_listing_matches_real_git" {
             let local_path = caller.git_common_dir.join("config");
             let original = fs::read(&local_path).unwrap();
@@ -1070,6 +1117,7 @@ mod tests {
         ($($case:ident),+ $(,)?) => { $(#[test] fn $case() { isolated(stringify!($case)); })+ };
     }
     cases!(
+        capture_directory_sandwich_matches_original_evidence,
         query_target_listing_matches_real_git,
         plain_linked_roots_are_eligible,
         cat_pager_is_eligible,
