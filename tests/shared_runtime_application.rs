@@ -277,13 +277,15 @@ fn partial_upload_reserves_capacity_and_disconnect_does_not_harm_peer() {
     let w = f.welcome();
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
         let mut held = Vec::new();
-        let mut c = connect(&f,&w).await;
         let bytes = serde_json::to_vec(&json!({"operation":"AcceptInventory","prior":empty_query(),"tasks":[],"complete":true,"observed_at":"2026-09-08T00:00:00Z"})).unwrap();
         for _ in 0..devmap::runtime::protocol::MAX_EXCHANGES {
             let mut stream = connect(&f,&w).await;
             begin(&mut stream,&w,1,&bytes).await;
             held.push(stream);
         }
+        // Open the probing peer only after the reservations are established;
+        // preparing other peers must not consume its idle request deadline.
+        let mut c = connect(&f,&w).await;
         send(&mut c,&json!({"operation":"Begin","protocol":VERSION,"repository":w.repository,"client_instance":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","request_id":1,"owner_instance":w.owner_instance,"total":bytes.len(),"digest":format!("{:x}",Sha256::digest(&bytes))})).await;
         assert_eq!(receive(&mut c).await["status"],"Busy");
         drop(held);
