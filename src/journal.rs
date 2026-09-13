@@ -22,6 +22,8 @@ mod journal_summary_tests;
 #[cfg(test)]
 pub(crate) mod parse_profile;
 
+mod summary_batch;
+
 pub const MAX_JOURNAL_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_SESSION_RECORDS: usize = 100_000;
 const MAX_INTENT_BYTES: usize = 1024 * 1024;
@@ -1971,55 +1973,63 @@ pub(crate) fn sql_summary(
     let mut bytes = 0usize;
     let mut previous_sha256 = None;
     let mut event_ids = HashSet::new();
-    while let Some(row) = rows.next()? {
-        let sequence: i64 = row.get(0)?;
-        let event_id: String = row.get(1)?;
-        let json: String = row.get(2)?;
-        let size: i64 = row.get(3)?;
-        if json.len() as i64 != size {
-            return Err(corruption("journal byte length mismatch"));
+    loop {
+        let (batch, pending_error) = summary_batch::next(&mut rows, count);
+        let empty = batch.is_empty();
+        for row in batch {
+            let sequence = row.sequence;
+            let event_id = row.event_id;
+            if row.bytes as i64 != row.size {
+                return Err(corruption("journal byte length mismatch"));
+            }
+            // Count the NDJSON separator used by the authoritative saved extent.
+            bytes = bytes
+                .checked_add(row.bytes + 1)
+                .ok_or_else(|| corruption("journal resource limit exceeded"))?;
+            count += 1;
+            if bytes > MAX_JOURNAL_BYTES || count > MAX_SESSION_RECORDS {
+                return Err(corruption("journal resource limit exceeded"));
+            }
+            let record = row.parsed?;
+            if record.sequence as i64 != sequence
+                || record.event_id != event_id
+                || record.session_id != id
+            {
+                return Err(corruption("journal row identity mismatch"));
+            }
+            if record.sequence < count as u64 {
+                return Err(DevMapError::DuplicateSequence(record.sequence));
+            }
+            if record.sequence != count as u64 {
+                return Err(corruption(format!(
+                    "expected sequence {count}, found {} at line {count}",
+                    record.sequence
+                )));
+            }
+            if record.event_sequence != record.sequence {
+                return Err(corruption(format!(
+                    "event sequence does not match record sequence at line {count}"
+                )));
+            }
+            if !event_ids.insert(event_id) {
+                return Err(corruption(format!(
+                    "duplicate event ID {}",
+                    record.event_id
+                )));
+            }
+            if record.previous_sha256 != previous_sha256 {
+                return Err(corruption(format!(
+                    "previous SHA-256 link mismatch at line {count}"
+                )));
+            }
+            previous_sha256 = Some(record.sha256);
         }
-        // Count the NDJSON separator used by the authoritative saved extent.
-        bytes = bytes
-            .checked_add(json.len() + 1)
-            .ok_or_else(|| corruption("journal resource limit exceeded"))?;
-        count += 1;
-        if bytes > MAX_JOURNAL_BYTES || count > MAX_SESSION_RECORDS {
-            return Err(corruption("journal resource limit exceeded"));
+        if let Some(error) = pending_error {
+            return Err(error);
         }
-        let record = parse_record(json.as_bytes(), count)?;
-        if record.sequence as i64 != sequence
-            || record.event.event_id() != event_id
-            || record.event.context().session_id() != id
-        {
-            return Err(corruption("journal row identity mismatch"));
+        if empty {
+            break;
         }
-        if record.sequence < count as u64 {
-            return Err(DevMapError::DuplicateSequence(record.sequence));
-        }
-        if record.sequence != count as u64 {
-            return Err(corruption(format!(
-                "expected sequence {count}, found {} at line {count}",
-                record.sequence
-            )));
-        }
-        if record.event.sequence() != record.sequence {
-            return Err(corruption(format!(
-                "event sequence does not match record sequence at line {count}"
-            )));
-        }
-        if !event_ids.insert(event_id) {
-            return Err(corruption(format!(
-                "duplicate event ID {}",
-                record.event.event_id()
-            )));
-        }
-        if record.previous_sha256 != previous_sha256 {
-            return Err(corruption(format!(
-                "previous SHA-256 link mismatch at line {count}"
-            )));
-        }
-        previous_sha256 = Some(record.sha256);
     }
     if registered {
         let (saved_count, saved_hash, saved_bytes): (i64, Option<String>, i64) = c.query_row(

@@ -213,3 +213,60 @@ fn streaming_summary_bounds_indexed_event_id_before_owned_allocation() {
     ));
     assert!(sql_records(&c, "session").is_err());
 }
+
+#[test]
+fn batched_summary_matches_full_verifier_across_chunk_boundaries() {
+    for count in [63, 64, 511, 512, 513, 1025] {
+        let c = fixture(count);
+        assert_eq!(
+            sql_summary(&c, "session").unwrap(),
+            legacy_summary(&c, "session").unwrap()
+        );
+    }
+}
+
+#[test]
+fn batched_summary_preserves_earliest_failure_before_later_sql_decode_error() {
+    for first in [1, 127, 512, 513] {
+        let c = fixture(1025);
+        c.execute(
+            "UPDATE journal_records SET event_id='incorrect' WHERE sequence=?1",
+            [first],
+        )
+        .unwrap();
+        c.execute(
+            "UPDATE journal_records SET event_id=?1 WHERE sequence=?2",
+            params!["x".repeat(MAX_RECORD_BYTES + 1), first + 1],
+        )
+        .unwrap();
+        let error = sql_summary(&c, "session").unwrap_err().to_string();
+        assert!(
+            error.contains("journal row identity mismatch"),
+            "{first}: {error}"
+        );
+    }
+}
+
+#[test]
+fn batched_summary_preserves_row_metadata_precedence_and_absolute_parse_line() {
+    let c = fixture(1025);
+    c.execute(
+        "UPDATE journal_records SET record_json='{}',byte_length=3 WHERE sequence=513",
+        [],
+    )
+    .unwrap();
+    assert!(
+        sql_summary(&c, "session")
+            .unwrap_err()
+            .to_string()
+            .contains("journal byte length mismatch")
+    );
+    c.execute(
+        "UPDATE journal_records SET byte_length=2 WHERE sequence=513",
+        [],
+    )
+    .unwrap();
+    let error = sql_summary(&c, "session").unwrap_err().to_string();
+    let original = parse_record(b"{}", 513).unwrap_err().to_string();
+    assert_eq!(error, original);
+}
