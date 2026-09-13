@@ -18,6 +18,9 @@ impl Clock {
     pub(crate) fn storage(enabled: bool) -> Self {
         Self::selected("storage_phases", "query-storage-phase/1", enabled)
     }
+    pub(crate) fn observer() -> Self {
+        Self::selected("observer_phases", "query-observer-phase/1", true)
+    }
     fn selected(mode: &str, diagnostic: &'static str, enabled: bool) -> Self {
         Self {
             diagnostic,

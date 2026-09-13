@@ -639,7 +639,11 @@ fn observe_active_origins_using(
     journal: bool,
     mut enumerate: impl FnMut() -> Result<Vec<FrozenOrigin>, DevMapError>,
 ) -> Result<ActiveOriginReport, DevMapError> {
+    #[cfg(test)]
+    let mut profile = crate::application::query_profile::Clock::observer();
     let activation = validated_activation(w, c)?;
+    #[cfg(test)]
+    profile.mark("activation_validation");
     if journal && activation.is_none() {
         // No frozen legacy source exists. Validate this native journal target
         // using the same reciprocal pointer and physical identity rules, not a
@@ -664,6 +668,8 @@ fn observe_active_origins_using(
         });
     }
     let before = enumerate()?;
+    #[cfg(test)]
+    profile.mark("opening_enumeration");
     let mut unavailable = Vec::new();
     let mut observed_paths = Vec::new();
     if let Some(record) = activation {
@@ -736,7 +742,11 @@ fn observe_active_origins_using(
                 return Err(fail("retained snapshot differs from activation provenance"));
             }
         }
+        #[cfg(test)]
+        profile.mark("origin_classification");
         let current = inventory(w, inspected, manifest.evaluated_at.clone())?;
+        #[cfg(test)]
+        profile.mark("legacy_inventory");
         // Reuse the exact complete inventory already captured here. Ordinary
         // journal admission retains strict global equality without rescanning
         // Git and hashing every legacy file through check_legacy_drift again.
@@ -781,6 +791,8 @@ fn observe_active_origins_using(
             }
         }
     }
+    #[cfg(test)]
+    profile.mark("inventory_comparison");
     let after = enumerate()?;
     if before != after {
         return Err(fail("origin identities changed during observation"));
@@ -795,13 +807,21 @@ fn observe_active_origins_using(
             return Err(fail("unavailable origin changed during observation"));
         }
     }
+    #[cfg(test)]
+    profile.mark("closing_enumeration");
     let fingerprint = sha256_hex(&serde_json::to_vec(&(&before, &unavailable))?);
-    Ok(ActiveOriginReport {
+    let result = ActiveOriginReport {
         current: before
             .into_iter()
             .map(|origin| (origin.worktree_id.clone(), origin))
             .collect(),
         unavailable,
         fingerprint,
-    })
+    };
+    #[cfg(test)]
+    {
+        profile.mark("fingerprint_and_report");
+        profile.finish();
+    }
+    Ok(result)
 }
