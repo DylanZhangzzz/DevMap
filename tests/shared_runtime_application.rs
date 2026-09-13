@@ -133,6 +133,16 @@ async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
     connect_source_exe(&f.exe, w, source).await
 }
 async fn connect_source_exe(exe: &Path, w: &Welcome, source: &Path) -> Stream {
+    // Hashing a debug binary and Git identity probes must finish before the
+    // server starts its bounded handshake deadline on an accepted connection.
+    let hello = Hello {
+        protocol: VERSION,
+        repository: w.repository.clone(),
+        build: format!("{:x}", Sha256::digest(fs::read(exe).unwrap())),
+        source: fs::canonicalize(source).unwrap(),
+        git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
+        client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+    };
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut s = loop {
         #[cfg(windows)]
@@ -159,18 +169,7 @@ async fn connect_source_exe(exe: &Path, w: &Welcome, source: &Path) -> Stream {
             }
         }
     };
-    send(
-        &mut s,
-        &Hello {
-            protocol: VERSION,
-            repository: w.repository.clone(),
-            build: format!("{:x}", Sha256::digest(fs::read(exe).unwrap())),
-            source: fs::canonicalize(source).unwrap(),
-            git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
-            client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
-        },
-    )
-    .await;
+    send(&mut s, &hello).await;
     let reply: HelloReply = serde_json::from_value(receive(&mut s).await).unwrap();
     match reply {
         HelloReply::Accepted { welcome } => {
