@@ -2,6 +2,8 @@
 
 stdin is an owner control pipe (EOF or any line requests abort). The test gets
 NUL stdin and inherited stdout/stderr. No PID discovery or tree enumeration.
+Optional planned teardown is for performance sample isolation, never proof of
+natural descendant exit. The default strict lifecycle policy is unchanged.
 """
 import argparse
 import ctypes
@@ -18,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", required=True)
     parser.add_argument("--exe", required=True)
+    parser.add_argument("--teardown-descendants-after-success", action="store_true")
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert os.name == "nt"
@@ -142,6 +145,21 @@ def main():
                 report["aborted"] = True
                 require(k.TerminateJobObject(job, 71))
                 break
+        if args.teardown_descendants_after_success:
+            report["cleanup_policy"] = "planned_after_success"
+            report["natural_lifecycle_acceptance"] = False
+            report["planned_descendant_teardown"] = False
+            # Only the signaled root's successful exit permits planned teardown.
+            # An abort or failing worker must retain the strict failure path.
+            if report.get("aborted") is False:
+                finished_code = w.DWORD()
+                require(k.GetExitCodeProcess(process.process, ctypes.byref(finished_code)))
+                if finished_code.value == 0:
+                    remaining = active()
+                    report["active_processes_at_planned_teardown"] = remaining
+                    if remaining:
+                        require(k.TerminateJobObject(job, 71))
+                        report["planned_descendant_teardown"] = True
         try:
             empty()
         except TimeoutError:
