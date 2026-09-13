@@ -96,10 +96,12 @@ thread_local! {
     static SOURCE_CAPTURE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+#[derive(Clone)]
 pub(crate) struct QueryConfiguration {
-    evidence: Evidence,
+    evidence: std::sync::Arc<Evidence>,
     value: Option<String>,
-    source: SourceResolutionWitness,
+    source: std::sync::Arc<SourceResolutionWitness>,
+    root: PathBuf,
 }
 
 // Discovery dependencies, not a replacement Git ref parser. A successful fresh
@@ -321,9 +323,10 @@ impl QueryConfiguration {
             return Err(decline());
         }
         let proof = Self {
-            evidence,
+            evidence: std::sync::Arc::new(evidence),
             value: development_target,
-            source,
+            source: std::sync::Arc::new(source),
+            root,
         };
         if !proof.recheck()? {
             return Err(decline());
@@ -333,9 +336,24 @@ impl QueryConfiguration {
     pub(crate) fn value(&self) -> Option<&str> {
         self.value.as_deref()
     }
+    pub(crate) fn matches_workspace(&self, workspace: &SourceWorkspace) -> bool {
+        // Windows inspectors and checked paths can spell the same location
+        // differently (including the verbatim prefix). Qualify every supplied
+        // directory before comparing; a different linked worktree cannot match.
+        [
+            (&self.root, &workspace.root),
+            (&self.source.admin, &workspace.git_dir),
+            (&self.source.common, &workspace.git_common_dir),
+        ]
+        .into_iter()
+        .all(|(expected, supplied)| {
+            checked_canonical_directory(supplied).is_ok_and(|actual| actual == *expected)
+        })
+    }
     // Eligibility only. Callers separately bind exact workspace keys/seals.
     pub(crate) fn same_baseline(&self, other: &Self) -> bool {
-        self.value == other.value
+        self.root == other.root
+            && self.value == other.value
             && self.evidence == other.evidence
             && self.source.common == other.source.common
             && self.source.admin == other.source.admin
@@ -391,7 +409,7 @@ impl QueryConfiguration {
     ) -> Result<bool, DevMapError> {
         if !self
             .source
-            .recheck_against(peer.map(|other| &other.source))?
+            .recheck_against(peer.map(|other| other.source.as_ref()))?
         {
             return Ok(false);
         }

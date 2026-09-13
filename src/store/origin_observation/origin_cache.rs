@@ -95,16 +95,32 @@ impl ReadOriginCache {
         &mut self,
         w: &SourceWorkspace,
         c: &Connection,
+        configuration: Option<&QueryConfiguration>,
     ) -> Result<ActiveOriginReport, DevMapError> {
-        self.observe_checked(w, c, || {})
+        let result = self.observe_inner(w, c, || {}, configuration);
+        if result.is_err() {
+            self.clear();
+        }
+        result
     }
+    #[cfg(test)]
     pub(crate) fn observe_checked(
         &mut self,
         w: &SourceWorkspace,
         c: &Connection,
         after_first: impl FnOnce(),
     ) -> Result<ActiveOriginReport, DevMapError> {
-        let result = self.observe_inner(w, c, after_first);
+        self.observe_checked_with_configuration(w, c, after_first, None)
+    }
+    #[cfg(test)]
+    pub(crate) fn observe_checked_with_configuration(
+        &mut self,
+        w: &SourceWorkspace,
+        c: &Connection,
+        after_first: impl FnOnce(),
+        configuration: Option<&QueryConfiguration>,
+    ) -> Result<ActiveOriginReport, DevMapError> {
+        let result = self.observe_inner(w, c, after_first, configuration);
         if result.is_err() {
             self.clear();
         }
@@ -119,6 +135,7 @@ impl ReadOriginCache {
         w: &SourceWorkspace,
         c: &Connection,
         after_first: impl FnOnce(),
+        configuration: Option<&QueryConfiguration>,
     ) -> Result<ActiveOriginReport, DevMapError> {
         if let Some(proof) = &self.entry
             && !proof.valid(w)?
@@ -126,7 +143,7 @@ impl ReadOriginCache {
             self.clear();
         }
         if self.entry.is_none() {
-            self.entry = optional(Proof::acquire(w))?.flatten();
+            self.entry = optional(Proof::acquire_using(w, configuration))?.flatten();
         }
         let Some(proof) = &self.entry else {
             return observe_active_origins(w, c, false);
@@ -151,8 +168,24 @@ impl ReadOriginCache {
     }
 }
 impl Proof {
+    #[cfg(test)]
     fn acquire(w: &SourceWorkspace) -> Result<Option<Self>, DevMapError> {
-        let Some(config) = QueryConfiguration::acquire(w)? else {
+        Self::acquire_using(w, None)
+    }
+    fn acquire_using(
+        w: &SourceWorkspace,
+        configuration: Option<&QueryConfiguration>,
+    ) -> Result<Option<Self>, DevMapError> {
+        // Only the exact application anchor can reuse a query client's proof.
+        // Recheck before enumeration as well as after it; sharing immutable
+        // bytes does not reuse a prior successful validation result.
+        let config = match configuration {
+            Some(config) if config.matches_workspace(w) && config.recheck()? => {
+                Some(config.clone())
+            }
+            _ => QueryConfiguration::acquire(w)?,
+        };
+        let Some(config) = config else {
             return Ok(None);
         };
         let before = parallel::candidate(w, &parallel::NoHooks)?;

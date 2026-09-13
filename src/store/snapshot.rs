@@ -124,7 +124,7 @@ impl InputReader {
         epoch: &QueryReadEpoch,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
         self.validate_query_epoch(workspace, epoch)?;
-        let result = self.read_checked_in_epoch(workspace, || Ok(()), Some(epoch));
+        let result = self.read_checked_in_epoch(workspace, || Ok(()), Some(epoch), None);
         if result.is_err() {
             self.origins.clear();
             return result;
@@ -144,24 +144,37 @@ impl InputReader {
         }
         result
     }
+    pub(crate) fn read_with_configuration(
+        &mut self,
+        workspace: &SourceWorkspace,
+        configuration: &crate::git_relationship::QueryConfiguration,
+    ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
+        let result = self.read_checked_in_epoch(workspace, || Ok(()), None, Some(configuration));
+        if result.is_err() {
+            self.origins.clear();
+        }
+        result
+    }
     fn read_checked(
         &mut self,
         workspace: &SourceWorkspace,
         after_legacy: impl FnMut() -> Result<(), DevMapError>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
-        self.read_checked_in_epoch(workspace, after_legacy, None)
+        self.read_checked_in_epoch(workspace, after_legacy, None, None)
     }
     fn read_checked_in_epoch(
         &mut self,
         workspace: &SourceWorkspace,
         mut after_legacy: impl FnMut() -> Result<(), DevMapError>,
         epoch: Option<&QueryReadEpoch>,
+        configuration: Option<&crate::git_relationship::QueryConfiguration>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
         for _ in 0..2 {
             if let Some(epoch) = epoch {
                 self.validate_query_epoch(workspace, epoch)?;
             }
-            let result = self.read_after_generation_in_epoch(workspace, || Ok(()), epoch)?;
+            let result =
+                self.read_after_generation_in_epoch(workspace, || Ok(()), epoch, configuration)?;
             if result.0.is_some() {
                 return Ok(result);
             }
@@ -192,13 +205,14 @@ impl InputReader {
         workspace: &SourceWorkspace,
         after: impl FnOnce() -> Result<(), DevMapError>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
-        self.read_after_generation_in_epoch(workspace, after, None)
+        self.read_after_generation_in_epoch(workspace, after, None, None)
     }
     fn read_after_generation_in_epoch(
         &mut self,
         workspace: &SourceWorkspace,
         after: impl FnOnce() -> Result<(), DevMapError>,
         epoch: Option<&QueryReadEpoch>,
+        configuration: Option<&crate::git_relationship::QueryConfiguration>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
         if self.store.is_none() {
             self.store = RepositoryStore::open_existing(workspace)?;
@@ -258,7 +272,7 @@ impl InputReader {
         }
         let origins = match epoch {
             Some(epoch) => epoch.origins.observe_in_query_epoch(workspace, &tx)?,
-            None => self.origins.observe(workspace, &tx)?,
+            None => self.origins.observe(workspace, &tx, configuration)?,
         };
         let inputs = match &self.cached {
             Some((cached_generation, inputs)) if *cached_generation == generation => inputs.clone(),

@@ -461,9 +461,12 @@ impl RepositoryApplication {
             self.git = None;
             self.collected = None;
         }
-        let (generation, inputs) = match epoch {
-            Some(epoch) => self.storage.read_in_query_epoch(&self.workspace, epoch)?,
-            None => self.storage.read(&self.workspace)?,
+        let (generation, inputs) = match (epoch, verified) {
+            (Some(epoch), _) => self.storage.read_in_query_epoch(&self.workspace, epoch)?,
+            (None, Some(source)) => self
+                .storage
+                .read_with_configuration(&self.workspace, source.configuration())?,
+            (None, None) => self.storage.read(&self.workspace)?,
         };
         #[cfg(test)]
         if let Some(mut hook) = self.test_after_storage.take() {

@@ -166,6 +166,93 @@ fn hot(linked: bool) {
     assert_eq!(starts, 0, "active SQL repeat must reuse proven origins");
 }
 #[test]
+fn cold_configuration_reuse_is_exact_and_falls_back_when_stale_or_mismatched() {
+    if !isolated("cold_configuration_reuse_is_exact_and_falls_back_when_stale_or_mismatched") {
+        return;
+    }
+    for linked in [false, true] {
+        let (_owned, workspace, _) = fixture(linked);
+        for case in ["exact", "other_anchor", "stale"] {
+            let source = if case == "other_anchor" {
+                let root = if linked {
+                    workspace.root.parent().unwrap().join("main")
+                } else {
+                    workspace.root.parent().unwrap().join("linked")
+                };
+                crate::git::SourceGitInspector::open(&root)
+                    .unwrap()
+                    .workspace_allow_unborn()
+                    .unwrap()
+            } else {
+                workspace.clone()
+            };
+            let config = crate::git_relationship::QueryConfiguration::acquire(&source)
+                .unwrap()
+                .unwrap();
+            if case == "stale" {
+                git(
+                    &workspace.root,
+                    &["config", "devmap.developmentTarget", "changed"],
+                );
+                assert!(!config.recheck().unwrap());
+            }
+            let mut original = InputReader::new();
+            let start = crate::git_process::test_spawn_count();
+            let (generation, expected) = original.read(&workspace).unwrap();
+            let original_starts = crate::git_process::test_spawn_count() - start;
+            let mut candidate = InputReader::new();
+            let start = crate::git_process::test_spawn_count();
+            let (actual_generation, actual) = candidate
+                .read_with_configuration(&workspace, &config)
+                .unwrap();
+            let candidate_starts = crate::git_process::test_spawn_count() - start;
+            assert_eq!(actual_generation, generation);
+            assert_inputs_equal(&actual, &expected);
+            assert_eq!(
+                candidate.origin_fingerprint(),
+                original.origin_fingerprint()
+            );
+            assert_eq!(
+                candidate_starts + if case == "exact" { 3 } else { 0 },
+                original_starts,
+                "{case}, linked={linked}"
+            );
+        }
+    }
+}
+
+#[test]
+fn shared_configuration_rejects_change_during_observation() {
+    if !isolated("shared_configuration_rejects_change_during_observation") {
+        return;
+    }
+    let (_owned, workspace, _) = fixture(false);
+    let config = crate::git_relationship::QueryConfiguration::acquire(&workspace)
+        .unwrap()
+        .unwrap();
+    let store = RepositoryStore::open_existing(&workspace).unwrap().unwrap();
+    let mut reader = InputReader::new();
+    let result = reader.origins.observe_checked_with_configuration(
+        &workspace,
+        store.connection(),
+        || {
+            git(
+                &workspace.root,
+                &["config", "devmap.developmentTarget", "during-observation"],
+            )
+        },
+        Some(&config),
+    );
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("origin enumeration proof changed")
+    );
+    assert!(!reader.origins.has_entry());
+}
+#[test]
 fn active_sql_main_repeat_reuses_origin_enumeration() {
     if isolated("active_sql_main_repeat_reuses_origin_enumeration") {
         hot(false);
@@ -329,7 +416,7 @@ fn other_linked_head_change_matches_original_uncached_observer() {
     let direct =
         super::super::migration::observe_active_read_origins(&workspace, store.connection());
     let count = crate::git_process::test_spawn_count();
-    let cached = reader.origins.observe(&workspace, store.connection());
+    let cached = reader.origins.observe(&workspace, store.connection(), None);
     assert!(crate::git_process::test_spawn_count() > count);
     match (direct, cached) {
         (Ok(direct), Ok(cached)) => assert_eq!(report_value(&direct), report_value(&cached)),
@@ -342,7 +429,7 @@ fn other_linked_head_change_matches_original_uncached_observer() {
             .unwrap();
     let cached = reader
         .origins
-        .observe(&workspace, store.connection())
+        .observe(&workspace, store.connection(), None)
         .unwrap();
     assert_eq!(report_value(&direct), report_value(&cached));
 }
