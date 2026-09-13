@@ -135,7 +135,12 @@ fn owned_schema2_query_stage_profile() {
         .unwrap();
     assert_eq!(version, 2);
     match std::env::var("DEVMAP_QUERY_PROFILE_MODE") {
-        Ok(mode) if matches!(mode.as_str(), "boundary_phases" | "projection_phases") => {
+        Ok(mode)
+            if matches!(
+                mode.as_str(),
+                "boundary_phases" | "projection_phases" | "storage_phases"
+            ) =>
+        {
             drop(store);
             let query = crate::application::ClientView::new(workspace.clone())
                 .query_input()

@@ -214,6 +214,8 @@ impl InputReader {
         epoch: Option<&QueryReadEpoch>,
         configuration: Option<&crate::git_relationship::QueryConfiguration>,
     ) -> Result<(Option<u64>, DockStorageInputs), DevMapError> {
+        #[cfg(test)]
+        let mut profile = crate::application::query_profile::Clock::storage(epoch.is_some());
         if self.store.is_none() {
             self.store = RepositoryStore::open_existing(workspace)?;
             self.identity = self
@@ -243,6 +245,8 @@ impl InputReader {
             ));
         }
         drop(probe);
+        #[cfg(test)]
+        profile.mark("database_path_and_identity");
         let before_version: i64 = store
             .connection()
             .query_row("PRAGMA data_version", [], |r| r.get(0))?;
@@ -270,10 +274,14 @@ impl InputReader {
             tx.commit()?;
             return Ok((None, legacy(workspace)?));
         }
+        #[cfg(test)]
+        profile.mark("snapshot_and_schema");
         let origins = match epoch {
             Some(epoch) => epoch.origins.observe_in_query_epoch(workspace, &tx)?,
             None => self.origins.observe(workspace, &tx, configuration)?,
         };
+        #[cfg(test)]
+        profile.mark("observe_origins");
         let inputs = match &self.cached {
             Some((cached_generation, inputs)) if *cached_generation == generation => inputs.clone(),
             _ => {
@@ -283,7 +291,11 @@ impl InputReader {
             }
         };
         let mut qualified = inputs.clone();
+        #[cfg(test)]
+        profile.mark("inputs");
         qualify_origins(&tx, &origins, &mut qualified)?;
+        #[cfg(test)]
+        profile.mark("qualify_origins");
         tx.commit()?;
         let after_version: i64 = store
             .connection()
@@ -299,6 +311,11 @@ impl InputReader {
             self.data_version = None;
         }
         self.origin_fingerprint = Some(origins.fingerprint);
+        #[cfg(test)]
+        {
+            profile.mark("commit_and_cache");
+            profile.finish();
+        }
         Ok((Some(generation), qualified))
     }
     pub(crate) fn origin_fingerprint(&self) -> Option<&str> {

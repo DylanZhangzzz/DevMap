@@ -194,7 +194,7 @@ pub(crate) enum QueryBoundaryAttempt {
     Ready(Box<ApplicationSnapshot>),
 }
 #[cfg(test)]
-mod query_profile;
+pub(crate) mod query_profile;
 struct QueryAttemptGuard<'a> {
     application: &'a mut RepositoryApplication,
     committed: bool,

@@ -1,7 +1,7 @@
 //! Buffered, opt-in test diagnostics. No production instrumentation.
 use std::time::Instant;
 
-pub(super) struct Clock {
+pub(crate) struct Clock {
     diagnostic: &'static str,
     active: bool,
     start: Instant,
@@ -15,6 +15,9 @@ impl Clock {
     pub(super) fn projection(enabled: bool) -> Self {
         Self::selected("projection_phases", "query-projection-phase/1", enabled)
     }
+    pub(crate) fn storage(enabled: bool) -> Self {
+        Self::selected("storage_phases", "query-storage-phase/1", enabled)
+    }
     fn selected(mode: &str, diagnostic: &'static str, enabled: bool) -> Self {
         Self {
             diagnostic,
@@ -24,7 +27,7 @@ impl Clock {
             rows: Vec::new(),
         }
     }
-    pub(super) fn mark(&mut self, stage: &'static str) {
+    pub(crate) fn mark(&mut self, stage: &'static str) {
         if self.active {
             let starts = crate::git_process::test_spawn_count();
             self.rows.push((
@@ -36,7 +39,7 @@ impl Clock {
             self.start = Instant::now();
         }
     }
-    pub(super) fn finish(self) {
+    pub(crate) fn finish(self) {
         for (stage, wall_us, git_starts) in self.rows {
             println!(
                 "{}",
