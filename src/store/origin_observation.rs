@@ -290,6 +290,9 @@ fn profile_manifest_file_io(
     }
     let start_all = Instant::now();
     let mut opening = Duration::ZERO;
+    let mut parent_validation = Duration::ZERO;
+    let mut file_validation = Duration::ZERO;
+    let mut link_validation = Duration::ZERO;
     let mut reading = Duration::ZERO;
     let mut hashing = Duration::ZERO;
     let mut total = 0u64;
@@ -309,10 +312,15 @@ fn profile_manifest_file_io(
         let path = origin.git_dir.join("devmap").join(relative);
         let start = Instant::now();
         safe::checked_canonical_directory(path.parent().ok_or_else(|| fail("profiling parent"))?)?;
+        parent_validation += start.elapsed();
+        let file_start = Instant::now();
         let mut file = safe::checked_file(&path, false, false)?;
+        file_validation += file_start.elapsed();
+        let link_start = Instant::now();
         if super::super::link_count(&file)? != 1 {
             return Err(fail("hard-linked legacy artifact refused"));
         }
+        link_validation += link_start.elapsed();
         opening += start.elapsed();
         let mut hash = Sha256::new();
         let mut bytes = 0u64;
@@ -353,6 +361,22 @@ fn profile_manifest_file_io(
         0,
     );
     report("manifest_files_stream_read", reading.as_micros(), 0);
+    // Nested serial observations, not additional production-query costs.
+    report(
+        "manifest_files_parent_validation",
+        parent_validation.as_micros(),
+        0,
+    );
+    report(
+        "manifest_files_file_validation",
+        file_validation.as_micros(),
+        0,
+    );
+    report(
+        "manifest_files_link_validation",
+        link_validation.as_micros(),
+        0,
+    );
     report("manifest_files_sha_update_finalize", hashing.as_micros(), 0);
     report("manifest_files_independent_total", elapsed.as_micros(), 0);
     // Contains iteration, timing overhead, comparisons and close costs. It is
