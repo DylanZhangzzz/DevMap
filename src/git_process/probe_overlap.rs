@@ -1,7 +1,7 @@
 //! Scoped independent probes with ordered ordinary errors and fatal supervision.
-use super::DevMapError;
+use crate::error::DevMapError;
 
-pub(super) fn pair<A, B: Send>(
+pub(crate) fn pair<A, B: Send>(
     primary: impl FnOnce() -> Result<A, DevMapError>,
     secondary: impl Fn() -> Result<B, DevMapError> + Sync,
     #[cfg(test)] refuse_spawn: bool,
@@ -93,7 +93,7 @@ mod tests {
                 if index == stage {
                     Err(GitProcessError::Deadline.into())
                 } else {
-                    Err(super::super::decline())
+                    Err(DevMapError::MalformedAdapterConfig("test decline".into()))
                 }
             };
             let result = pair(|| pair(|| run(0), || run(1), false), || run(2), false);
@@ -124,7 +124,7 @@ mod tests {
     fn spawn_refusal_keeps_primary_validation_short_circuit() {
         let called = AtomicUsize::new(0);
         let result = pair::<(), ()>(
-            || Err(super::super::decline()),
+            || Err(DevMapError::MalformedAdapterConfig("test decline".into())),
             || {
                 called.fetch_add(1, Ordering::SeqCst);
                 Ok(())
@@ -163,13 +163,12 @@ mod tests {
     #[test]
     fn expired_budget_refuses_real_git_without_renewal() {
         let budget = GitBudget::new(Duration::ZERO);
-        let result = with_budget(&budget, || {
-            pair(
-                || super::super::probe(std::path::Path::new("."), &["--version"]),
-                || super::super::probe(std::path::Path::new("."), &["--version"]),
-                false,
-            )
-        });
+        let probe = || {
+            crate::git_process::output(std::process::Command::new("git").arg("--version"))
+                .map(|output| output.stdout)
+                .map_err(DevMapError::from)
+        };
+        let result = with_budget(&budget, || pair(probe, probe, false));
         assert!(matches!(
             result,
             Err(DevMapError::GitProcess(GitProcessError::Deadline))

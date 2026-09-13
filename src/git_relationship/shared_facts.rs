@@ -1,6 +1,6 @@
 //! Guarded successful relationship facts shared only within one operation.
 mod configuration_paths;
-mod probe_overlap;
+use crate::git_process::probe_overlap;
 mod query_configuration;
 pub(crate) use query_configuration::QueryConfiguration;
 

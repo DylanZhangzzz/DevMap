@@ -1510,12 +1510,12 @@ fn topology_cache_key(
             OsString::from("--is-shallow-repository"),
         ],
     ];
-    for (index, args) in inputs.into_iter().enumerate() {
+    let read = |args: &[OsString]| {
         let output = crate::git_process::output(
             Command::new("git")
                 .arg("-C")
                 .arg(&workspace.root)
-                .args(&args)
+                .args(args)
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .env("GIT_NO_LAZY_FETCH", "1")
                 .env("GIT_NO_REPLACE_OBJECTS", "1"),
@@ -1532,10 +1532,21 @@ fn topology_cache_key(
                 stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
             });
         }
-        if index == 1 && output.stdout.starts_with(b"true") {
-            return Ok(None);
-        }
-        bytes.extend_from_slice(&output.stdout);
+        Ok(output.stdout)
+    };
+    // Both reads remain inside the opening/closing collection boundary. Join
+    // every started probe and preserve refs-first ordinary error precedence.
+    let (refs, shallow) = crate::git_process::probe_overlap::pair(
+        || read(&inputs[0]),
+        || read(&inputs[1]),
+        #[cfg(test)]
+        false,
+    )?;
+    if shallow.starts_with(b"true") {
+        return Ok(None);
+    }
+    for output in [refs, shallow] {
+        bytes.extend_from_slice(&output);
         bytes.push(0xfe);
     }
     Ok(Some(format!("sha256-{}", sha256_hex(&bytes))))

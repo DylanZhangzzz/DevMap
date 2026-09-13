@@ -1,4 +1,5 @@
 //! Supervision for locally constructed read-only Git commands.
+pub(crate) mod probe_overlap;
 use std::{
     cell::RefCell,
     future::Future,
