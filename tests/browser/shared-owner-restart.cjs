@@ -143,13 +143,15 @@ async function main() {
     assert.equal(page.url(),opened.url);assert.equal(await page.locator('#snapshot-feedback').isVisible(),false);
     const reused=await call('devmap_open_map',{surface:'browser'});assert.equal(reused.url,opened.url);assert.equal(reused.reused,true);
     const selectionAfter=await selectionObservation();
+    assert.ok(selectionBefore.current.length>0,'Restart scenario must begin with a visible selection');
+    assert.deepEqual(selectionAfter,selectionBefore,'Selection or keyboard focus changed across actual owner replacement');
     assert.deepEqual(errors,[]);await page.screenshot({path:path.join(fixture,'after.png')});
     const report={scope:'actual_shared_owner_restart_browser',passed:true,candidate_sha256:build,fixture,
       mcp_pid:originalPid,owner_before:beforeOwner,owner_after:afterOwner,ui_state:before,
       selection_observation:{before:selectionBefore,after:selectionAfter,
         retained:JSON.stringify(selectionBefore)===JSON.stringify(selectionAfter)},
       revisions:{initial:initial.revision,opened:opened.revision,recovered:recovered.revision},
-      note:'Real HTTP/SSE and persistent MCP: expanded cards, chats, zoom and scroll retention. aria-current selection and keyboard focus are reported separately; passed does not establish selection retention or pixel parity. Replacement owner expires after clients disconnect.'};
+      note:'Real HTTP/SSE and persistent MCP: expanded cards, chats, zoom, scroll, aria-current selection and keyboard focus retention are required. This is not a pixel-parity or real host activation test. Replacement owner expires after clients disconnect.'};
     fs.writeFileSync(path.join(fixture,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
   } finally {
     if(browser)await browser.close();for(const entry of pending.values())clearTimeout(entry.timer);pending.clear();
