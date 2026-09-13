@@ -38,6 +38,15 @@ fn generate_disposable_legacy_scale_corpus() {
     support::git(&root, ["init", "-b", "main"]);
     support::git(&root, ["config", "user.name", "Synthetic scale fixture"]);
     support::git(&root, ["config", "user.email", "fixture@example.invalid"]);
+    let tracked_probe = std::env::var_os("DEVMAP_SCALE_TRACKED_PROBE").is_some_and(|v| v == "1");
+    if tracked_probe {
+        fs::write(
+            root.join("devmap-change-probe.txt"),
+            b"owned scale change probe\n",
+        )
+        .unwrap();
+        support::git(&root, ["add", "devmap-change-probe.txt"]);
+    }
     support::git(
         &root,
         ["commit", "--allow-empty", "-m", "Scale fixture base"],
@@ -108,7 +117,10 @@ fn generate_disposable_legacy_scale_corpus() {
             .join("devmap/devmap.db")
             .exists()
     );
-    let manifest = json!({"scope":"synthetic_legacy_scale_fixture","source":root,"worktrees":paths,"sessions":session_count,"events_per_session":events_per_session,"events":session_count*events_per_session,"evaluation_time":stamp,"note":"Generated through domain APIs with synthetic events; not real host evidence and not a performance result."});
+    let mut manifest = json!({"scope":"synthetic_legacy_scale_fixture","source":root,"worktrees":paths,"sessions":session_count,"events_per_session":events_per_session,"events":session_count*events_per_session,"evaluation_time":stamp,"note":"Generated through domain APIs with synthetic events; not real host evidence and not a performance result."});
+    if tracked_probe {
+        manifest["change_probe"] = json!({"path":root.join("devmap-change-probe.txt"),"tracked":true,"initial_bytes":"owned scale change probe\n"});
+    }
     fs::write(
         holder.path().join("manifest.json"),
         serde_json::to_vec_pretty(&manifest).unwrap(),
