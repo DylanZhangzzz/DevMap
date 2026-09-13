@@ -252,6 +252,9 @@ fn admitted_key(key: &str, value: &str) -> bool {
         "core.autocrlf" => boolean() || value == "input",
         // Identity is irrelevant to immutable object reads; all values remain guarded.
         "user.name" | "user.email" => true,
+        // Git still enforces repository trust on every probe. Guard these bytes
+        // like other configuration; they do not alter immutable graph facts.
+        "safe.directory" => true,
         // show -s does not produce a diff or invoke textconv; graph reads do not
         // checkout/add files and never execute these LFS filter commands.
         "diff.astextplain.textconv"
@@ -1072,6 +1075,18 @@ mod tests {
             }
             "semantic_environment_declines" => {}
             _ => {
+                if case == "safe_directory_is_guarded" {
+                    git(
+                        &main,
+                        &[
+                            "config",
+                            "--global",
+                            "--add",
+                            "safe.directory",
+                            main.to_str().unwrap(),
+                        ],
+                    );
+                }
                 let proof = acquire(&caller, &worktrees)
                     .unwrap()
                     .expect("plain real same-common roots require a closed proof");
@@ -1083,6 +1098,18 @@ mod tests {
                     "plain_linked_roots_are_eligible"
                     | "cat_pager_is_eligible"
                     | "empty_pager_is_eligible" => return,
+                    "safe_directory_is_guarded" => {
+                        git(
+                            &main,
+                            &[
+                                "config",
+                                "--global",
+                                "--replace-all",
+                                "safe.directory",
+                                linked.to_str().unwrap(),
+                            ],
+                        );
+                    }
                     "config_edit_invalidates" => {
                         git(&main, &["config", "user.name", "changed-fixture"]);
                     }
@@ -1159,6 +1186,7 @@ mod tests {
         unknown_configuration_declines,
         partial_layout_declines,
         config_edit_invalidates,
+        safe_directory_is_guarded,
         target_move_invalidates,
         tag_creation_invalidates,
         missing_config_creation_invalidates,

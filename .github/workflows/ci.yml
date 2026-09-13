@@ -26,6 +26,6 @@ jobs:
       - name: Rust lint
         run: cargo +1.96.1 clippy --locked --all-targets --all-features -- -D warnings
       - name: Rust tests
-        run: cargo +1.96.1 test --locked --all-targets --all-features
+        run: cargo +1.96.1 test --locked --all-targets --all-features --no-fail-fast
       - name: Packaging tests
         run: node --test packaging/tests/*.test.cjs

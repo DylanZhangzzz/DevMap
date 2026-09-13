@@ -155,12 +155,33 @@ fn hello(f: &Fixture, welcome: &Welcome) -> Hello {
 #[test]
 fn hidden_runtime_ping_starts_an_owner_without_database_or_stdio_lease() {
     let f = Fixture::new();
-    let started = Instant::now();
-    let welcome = f.ping(&f.repo, 10);
-    assert!(
-        started.elapsed() < Duration::from_secs(8),
-        "background owner retained captured client stdio"
-    );
+    let mut child = Command::new(&f.exe)
+        .args(["runtime", "--source"])
+        .arg(&f.repo)
+        .args(["--ping", "--idle-seconds", "10"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    let (finished, received) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        stdout.read_to_end(&mut out).unwrap();
+        stderr.read_to_end(&mut err).unwrap();
+        let _ = finished.send((out, err));
+    });
+    let status = child.wait().unwrap();
+    // Judge pipe closure after the client exits, independent of hashing/startup cost.
+    let (out, err) = received
+        .recv_timeout(Duration::from_secs(2))
+        .expect("background owner retained captured client stdio after client exit");
+    reader.join().unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&err));
+    let welcome: Welcome = serde_json::from_slice(&out).unwrap();
     assert!(welcome.owner_instance.len() >= 32);
     assert!(!f.repo.join(".git/devmap").exists());
     // Copied executable isolates the detached owner's lifetime from cargo builds.

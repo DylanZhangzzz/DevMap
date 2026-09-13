@@ -129,10 +129,20 @@ type Stream = tokio::net::UnixStream;
 async fn connect(f: &Fixture, w: &Welcome) -> Stream {
     connect_source(f, w, &f.repo).await
 }
-async fn connect_source(f: &Fixture, w: &Welcome, source: &Path) -> Stream {
-    connect_source_exe(&f.exe, w, source).await
+async fn connect_source(_f: &Fixture, w: &Welcome, source: &Path) -> Stream {
+    connect_source_welcome(w, source).await
 }
-async fn connect_source_exe(exe: &Path, w: &Welcome, source: &Path) -> Stream {
+async fn connect_source_welcome(w: &Welcome, source: &Path) -> Stream {
+    // Hashing a debug binary and Git identity probes must finish before the
+    // server starts its bounded handshake deadline on an accepted connection.
+    let hello = Hello {
+        protocol: VERSION,
+        repository: w.repository.clone(),
+        build: w.build.clone(),
+        source: fs::canonicalize(source).unwrap(),
+        git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
+        client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+    };
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut s = loop {
         #[cfg(windows)]
@@ -159,18 +169,7 @@ async fn connect_source_exe(exe: &Path, w: &Welcome, source: &Path) -> Stream {
             }
         }
     };
-    send(
-        &mut s,
-        &Hello {
-            protocol: VERSION,
-            repository: w.repository.clone(),
-            build: format!("{:x}", Sha256::digest(fs::read(exe).unwrap())),
-            source: fs::canonicalize(source).unwrap(),
-            git_dir: fs::canonicalize(git(source, &["rev-parse", "--absolute-git-dir"])).unwrap(),
-            client_instance: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
-        },
-    )
-    .await;
+    send(&mut s, &hello).await;
     let reply: HelloReply = serde_json::from_value(receive(&mut s).await).unwrap();
     match reply {
         HelloReply::Accepted { welcome } => {
@@ -278,13 +277,15 @@ fn partial_upload_reserves_capacity_and_disconnect_does_not_harm_peer() {
     let w = f.welcome();
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
         let mut held = Vec::new();
-        let mut c = connect(&f,&w).await;
         let bytes = serde_json::to_vec(&json!({"operation":"AcceptInventory","prior":empty_query(),"tasks":[],"complete":true,"observed_at":"2026-09-08T00:00:00Z"})).unwrap();
         for _ in 0..devmap::runtime::protocol::MAX_EXCHANGES {
             let mut stream = connect(&f,&w).await;
             begin(&mut stream,&w,1,&bytes).await;
             held.push(stream);
         }
+        // Open the probing peer only after the reservations are established;
+        // preparing other peers must not consume its idle request deadline.
+        let mut c = connect(&f,&w).await;
         send(&mut c,&json!({"operation":"Begin","protocol":VERSION,"repository":w.repository,"client_instance":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","request_id":1,"owner_instance":w.owner_instance,"total":bytes.len(),"digest":format!("{:x}",Sha256::digest(&bytes))})).await;
         assert_eq!(receive(&mut c).await["status"],"Busy");
         drop(held);
@@ -460,7 +461,7 @@ struct KeptOldStream<'scope> {
 impl<'scope> KeptOldStream<'scope> {
     fn start<'env>(
         scope: &'scope std::thread::Scope<'scope, 'env>,
-        exe: PathBuf,
+        _exe: PathBuf,
         welcome: Welcome,
         source: PathBuf,
     ) -> (Self, Value) {
@@ -476,7 +477,7 @@ impl<'scope> KeptOldStream<'scope> {
                 .enable_all()
                 .build()
                 .unwrap();
-            let mut stream = rt.block_on(connect_source_exe(&exe, &welcome, &source));
+            let mut stream = rt.block_on(connect_source_welcome(&welcome, &source));
             let mut request_id = 1u64;
             let warm = rt.block_on(async {
                 tokio::time::timeout(
