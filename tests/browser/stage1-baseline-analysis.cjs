@@ -21,7 +21,7 @@ function intervals(left,right,size,cap,seed=METHOD.seed){
 }
 function analyze(report){
  assert.equal(report.schema,'devmap/stage1-baseline-calibration/1');assert.equal(report.completed,true);assert.equal(report.preserved,true);assert.deepEqual(report.errors,[]);assert.equal(report.arms.length,2);
- const [a,b]=report.arms.map((arm,i)=>{assert.equal(arm.label,['A1','A2'][i]);assert.equal(arm.code,0);assert.equal(arm.job_result.empty_confirmed,true);assert.equal(arm.job_result.root_exit_code,0);assert.equal(arm.result.cold.count,20);assert.equal(arm.result.cohorts.length,4);return arm.result;});
+ const [a,b]=report.arms.map((arm,i)=>{assert.equal(arm.label,['A1','A2'][i]);assert.equal(arm.code,0);assert.equal(arm.job_result.empty_confirmed,true);assert.equal(arm.job_result.root_exit_code,0);assert.equal(arm.result.cold.count,20);assert.equal(arm.result.cold.samples.length,20);assert.equal(arm.result.cohorts.length,4);return arm.result;});
  assert.equal(a.executable_sha256,b.executable_sha256);assert.equal(a.model_audit.sha256,b.model_audit.sha256);
  const hot=result=>result.cohorts.map((cohort,c)=>{assert.equal(cohort.client,c);assert.equal(cohort.samples.length,100);assert.deepEqual(cohort.errors,[]);return cohort.samples.map((row,i)=>{assert.equal(row.client,c);assert.equal(row.sequence,i);return row.ms;});});
  const cold=intervals([a.cold.samples.map(r=>r.ms)],[b.cold.samples.map(r=>r.ms)],METHOD.cold_block_size,250);

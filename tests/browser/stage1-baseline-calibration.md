@@ -13,3 +13,23 @@ Run tkRaZE was dispatched with controller commit 06878bd on Windows, with the ho
 `stage1-baseline-analysis.cjs` uses nearest-rank p50/p95 and 5,000 seeded paired-block bootstrap resamples (seed 9132026). Cold samples use ordered blocks of five; warm samples use blocks of ten sequence numbers. Each warm block is resampled together across all four clients and both arms. Each client's interval is reported separately; pooled averages cannot hide it. The 95% intervals describe A2 − A1 p95 differences, compared with the existing maximum engineering caps: min(10% of A1 p95, 250 ms cold / 100 ms warm). This is a diagnostic for noise, not candidate acceptance or a newly frozen tolerance. With only two sequential arms the intervals cannot establish that future noise is bounded.
 
 Browser loading feedback, browser-ready timing and 100-change visibility calibration remain necessary. A formal candidate contract must still be committed with explicit evidence-supported tolerances and a hash before the candidate population starts. An excessive A/A noise interval calls for improving the environment or measurement design, not widening the caps. The original absolute performance targets remain Stage 2.
+
+## Executed result: tkRaZE
+
+Both arms finished successfully, 2026-09-13 10:12:06–10:34:10 UTC. The retained controller session 26864 exited 0; native roots 10716 and 27156 each exited 0 and their default strict Jobs confirmed empty. All 40 cold and 800 measured warm responses passed the legacy model audit; inventory preservation and database absence passed. There were no request failures, retries, discarded observations or missing clients.
+
+| Metric | A1 p95, ms | A2 p95, ms | A2 − A1 95% paired-block interval, ms | Maximum cap, ms | Noise within cap |
+|---|---:|---:|---:|---:|---|
+| Cold | 7399.774 | 7390.275 | −52.092 to 116.528 | ±250 | Yes |
+| Warm client 0 | 4883.313 | 4938.587 | −77.187 to 146.450 | ±100 | No |
+| Warm client 1 | 4917.935 | 4951.069 | −198.376 to 171.212 | ±100 | No |
+| Warm client 2 | 4931.786 | 4937.647 | −227.844 to 145.133 | ±100 | No |
+| Warm client 3 | 4867.949 | 4965.359 | −152.456 to 208.753 | ±100 | No |
+
+The sample collection succeeded, but warm noise calibration did **not** satisfy the preregistered diagnostic. No tolerance was frozen and no formal candidate comparison began. Do not widen the 100 ms cap, discard clients, or substitute the small p95 point differences for these intervals.
+
+Host: Windows 10.0.26200, Intel Core Ultra 7 155H, 22 logical CPUs, 16,597,598,208 bytes physical RAM, Node v24.19.0. Free RAM at start was 1,976,537,088 bytes; the post-run OS query reported 1,532,416 KiB free, with battery status 2 and 100% charge. These sparse observations suggest memory pressure deserves investigation; they do **not** establish it as the cause of latency variation. No CPU, paging or disk time series was captured, and unrelated user applications were not stopped. A later diagnostic should collect those signals at low frequency and improve conditions before repeating calibration. The existing Balanced power setting was unchanged.
+
+Three analysis controls passed after measurement ended: zero difference for identical paired blocks, correct signed intervals and rejection for constant shifts beyond budget, and rejection of invalid/incomplete populations. The additional cold-array length assertion tightens input validation without changing the preregistered statistical method.
+
+Evidence under `target/verification/stage1-baseline-aa-tkRaZE`: `report.json`, `A1.worker.json`, `A2.worker.json`, both stdout/stderr and native Job reports, and `analysis.json`. The analysis records input-report SHA-256 `5fa2a3efd37d10630bdd6ecbf1003b8c89ec9ba2c2cbe293fbb5ef731bb736ed`. Keep these artifacts unchanged. The original pure-legacy fixture remains unmigrated for follow-up calibration.
