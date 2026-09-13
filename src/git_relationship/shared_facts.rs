@@ -50,7 +50,13 @@ enum Witness {
     },
 }
 
+#[track_caller]
 fn decline() -> DevMapError {
+    #[cfg(test)]
+    eprintln!(
+        "sharing eligibility declined at {}",
+        std::panic::Location::caller()
+    );
     DevMapError::MalformedAdapterConfig("relationship sharing is not eligible".into())
 }
 
@@ -59,7 +65,12 @@ fn optional<T>(result: Result<T, DevMapError>) -> Result<Option<T>, DevMapError>
     match result {
         Ok(value) => Ok(Some(value)),
         Err(error @ DevMapError::GitProcess(_)) => Err(error),
-        Err(_) => Ok(None),
+        Err(error) => {
+            #[cfg(test)]
+            eprintln!("optional sharing proof declined: {error}");
+            let _ = error;
+            Ok(None)
+        }
     }
 }
 
