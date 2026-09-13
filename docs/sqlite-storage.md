@@ -111,6 +111,14 @@ The command uses SQLite's consistent backup interface and validates the copy.
 Copying only a live main `.db` file can omit committed records still in its WAL.
 Existing destinations are refused so a previous backup is not overwritten.
 
+The backup command currently returns the source's inspection report. Its
+`verified: false` field is not a backup failure: exit code zero means the backup
+operation completed, including the copy's integrity and foreign-key checks.
+Only `storage verify` sets the report's `verified` field to true after the
+additional source/provenance/domain checks. Do not interpret these two outputs
+as equivalent checks. A backup failure retains an incomplete destination for
+diagnosis; use a new destination for a subsequent attempt.
+
 ## Recovery boundary
 
 Retain the database, sidecars, activation record, original legacy files and
@@ -126,3 +134,20 @@ or automatic downgrade is provided by this candidate.
 The maintenance CLI does not offer an in-place restore command. Restore
 validation is performed on isolated copies in tests; replacing a live database
 while processes retain SQLite handles is outside this workflow.
+
+## Operator decision sequence
+
+| Observed result | Next action and boundary |
+|---|---|
+| `inspect` selects legacy; no database | Leave normal reads on legacy. For an authorized cutover, stop old writers and migrate to a new retained backup directory. `verify` failing with no database does not initialize one. |
+| Migration returns active and verified | Run `verify` explicitly, then use the existing MCP/browser workflow. Keep the original files and activation snapshot. |
+| The same migration is retried | Reuse the same snapshot path. A verified active database is retained; this is not an import reset. |
+| New SQL records have been accepted | Back up to a new path. Keep request IDs for retry; do not revert to the pre-activation snapshot. |
+| Existing backup destination is refused | Preserve that destination and its sidecars. Choose a new destination, rather than deleting the old backup to force reuse. |
+| Legacy drift is reported | Stop the late old writer; retain both histories and diagnose the difference. Re-running migration is not a merge or recovery command. General automatic reconciliation is not provided. |
+| Activation metadata exists but the database is missing, or verification otherwise fails | Preserve the complete remaining state and backups for diagnosis. Do not create an empty database or delete the activation fence to enable legacy fallback. |
+
+The current candidate's [isolated CLI rehearsal](audits/2026-09-13-storage-operator-rehearsal.md)
+exercises migration, idempotent post-activation writing, consistent backup and
+late-old-writer rejection. It does not authorize installing this candidate or
+migrating a real user repository, and it is not a general restore procedure.
