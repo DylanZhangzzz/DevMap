@@ -89,8 +89,15 @@ impl GitTopologyCollector {
                 });
             }
 
-            let shallow_oids = read_shallow_oids(&workspace.root)?;
-            let rows = read_commit_rows(&workspace.root, &tips)?;
+            // The bounded history traversal does not consume our shallow-file
+            // result. Keep both reads in this operation and join before using
+            // either result to construct boundary or parent-edge semantics.
+            let (shallow_oids, rows) = crate::git_process::probe_overlap::pair(
+                || read_shallow_oids(&workspace.root),
+                || read_commit_rows(&workspace.root, &tips),
+                #[cfg(test)]
+                false,
+            )?;
             let history_truncated = rows.len() > MAX_COMMITS;
             let retained_rows = &rows[..rows.len().min(MAX_COMMITS)];
             let retained_oids = retained_rows
