@@ -453,3 +453,13 @@ These checks establish unchanged frozen frontend source bytes and current core/r
 ## Current frontend regression after configuration and directory optimizations
 
 At 1975f57 (production 1c03505), both frontend files still match their frozen SHA-256 values: dock.html CB30C346129F6BA15670D0A6419D2CCBD7F939F4A7B1C86FED1359B0825F3FC0; metro-core.js 2D1C0968BDA36F9EFE58CCB7AB80A448CD519B87DE7F8DBAE1CF6E079E0C37AD. Node core/renderer regression exited 0 with 199 passed, zero failed/cancelled/skipped in 1959.13 ms. Evidence: target/verification/task6-1975f57-js.log and task6-1975f57-frontend-hashes.json. This refreshes the source/logic evidence only; current live old/new browser and host lifecycle gates remain open. The current all-target Rust root is still running at the time of this entry.
+
+## Full current Rust regression after directory witness optimization
+
+The all-target Cargo root 51559 has now terminated with exit code 0. The command was cargo test --all-targets --no-fail-fast -j 2 -- --test-threads=1, using the isolated test state directories and existing D-drive build target. The compiled source was 1975f57 (production 1c03505); subsequent frontend audit edits changed documentation only, and the relevant source/test/assets/Cargo/build inputs were compared against that revision.
+
+All 58 Cargo test groups have successful final summaries: **659 passed, 0 failed, 10 ignored**. The core library contributed 227 passed and six ignored; integration groups covered adapter protocols, Dock/MCP semantics, Git relationships/topology, shared owner/query/mutation behavior, journal integrity, SQLite migration/activation, identity replacement, worktree moves, retries and rollback. The summary uses only each Cargo group's final result, so nested helper-process summaries are not counted twice. Compilation took 40.23 s; reported suite durations sum to 1532.21 s, which is not a separately measured whole-command wall time.
+
+The ten ignored entries are six explicitly invoked library fixtures/diagnostics, two native old-version migration fixture tests, and two performance-fixture generators. They require their own owned runs. All-target testing does not include doctests, and the debug long-session performance test is not evidence of the release latency gate. Current full live old/new browser behavior, host lifecycle, resource measurements and formal latency populations remain open. No installed plugin or user repository data was migrated.
+
+Evidence: target/verification/task6-1975f57-full-rust.log, task6-1975f57-full-rust-summary.json, and the separately observed terminal root exit. Existing helper task6-summarize-full-rust.cjs was invoked with the explicit revision, and every group was checked for a nonmissing successful final summary.
