@@ -13,3 +13,11 @@
 原始命令和时间在 target/verification/hook-budget-u3oavT/report.json，session 61154 退出 0。测试属于原生命令路径检查；SQLite 完整记录和实际宿主身份须另外核对。
 
 新 release 构件：target/verification/task6-candidate-5dd8288/devmap.exe，SHA-256 25BF6631EF7387E524744A1B2B8CCE01B76D54C58CDB897353ACC5D042DFADEC；构建退出 0，36.59 秒。2 个 adapter_conformance 检查亦通过（43.64 秒），与 21 个安装检查共 23 项。实际新 CLI 在 u3oavT 仓库完成审阅计划对应的安装，生成 timeout=3；verify 返回 configured=true、activation_verified=false，原始输出 new-adapter-install.txt / new-adapter-verify.txt 保留。未触发自动 hook、未修改全局配置/信任或已安装插件。旧版 4C91 命令耗时不能写成新构件的宿主性能结果。
+
+## 新构件空闲退出后的结束事件
+
+hook-cold-end-OHStk1 使用固定 25BF 构件，在新仓库接受 SessionStart 后等待 75 秒，期间不探测运行时。随后单次连接确认命名管道不存在，再发送 SessionEnd 原生命令。开始耗时 3725.7815 ms，结束耗时 1690.0143 ms；两次退出均为 0，session 91953 正常结束。此次结束命令落在 3 秒内，不是百分位或高负载保证，也没有模拟宿主截止时强杀。
+
+只读 SQL 核对恰好一条 session_started 和一条 session_stopped：会话、宿主、仓库/工作区上下文及 actor 一致，sequence 为 1/2，第二条 previous_sha256 指向第一条。随后实际 storage verify 返回 active、generation=2、verified=true。结果在 report.json 和 storage-verify.json；两项验证器控制测试通过，错误会话/仓库/actor、缺失结束、错误顺序和哈希关联不能通过。增强验证器也已重放实际保存记录，无需重复启动场景。
+
+实际自动 hook 仍需正常宿主信任审核。已向用户请求仅针对 u3oavT 隔离仓库、固定 25BF 候选的审核例外，因为两阶段合同原先禁止修改全局信任。未获得回复前不写信任记录、不启用绕过参数；这项请求不等同已获授权，其他独立验收可继续。
