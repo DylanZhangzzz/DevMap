@@ -49,3 +49,10 @@ must share the same declared environment; record pre-run host load and obtain
 paging/disk evidence if memory pressure remains a proposed explanation. The
 formal candidate contract remains unfrozen. Other correctness and host work can
 continue while this environment limitation remains.
+
+Follow-up OS-only window `host-window-RE3E2E` (session 7313, exit 0) recorded
+another 30 seconds: mean busy 32.98%, maximum 37.54%, minimum free RAM 1548 MiB.
+No DevMap workload was launched during that window. It does not establish a
+quieter environment than the previous post-run sample, so full A/A was not
+repeated. The task instead implemented the missing public full-map change
+measurement preflight; its small-fixture timings are explicitly not calibration.
