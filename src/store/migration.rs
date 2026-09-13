@@ -747,6 +747,8 @@ fn inventory_collect(
             hash,
             limits,
             #[cfg(test)]
+            profile: None,
+            #[cfg(test)]
             pipeline,
             sink: &mut |_, _| Ok(()),
         },
@@ -760,8 +762,28 @@ struct InventoryWalk<'a> {
     hash: bool,
     limits: inventory_parallel::Limits,
     #[cfg(test)]
+    profile: Option<&'a mut InventoryWalkProfile>,
+    #[cfg(test)]
     pipeline: Option<&'a inventory_parallel::PipelineHooks>,
     sink: &'a mut dyn FnMut(usize, &FrozenFile) -> Result<(), DevMapError>,
+}
+#[cfg(test)]
+#[derive(Default)]
+struct InventoryWalkProfile {
+    nanos: [u128; 2],
+    calls: [usize; 2],
+}
+#[cfg(test)]
+impl InventoryWalk<'_> {
+    fn profile_start(&self) -> Option<std::time::Instant> {
+        self.profile.as_ref().map(|_| std::time::Instant::now())
+    }
+    fn profile_record(&mut self, index: usize, start: Option<std::time::Instant>) {
+        if let (Some(profile), Some(start)) = (&mut self.profile, start) {
+            profile.nanos[index] += start.elapsed().as_nanos();
+            profile.calls[index] += 1;
+        }
+    }
 }
 // The same serial walker owns every classification and global reservation.
 // Descriptors remain in discovery order until the sink's results are merged.
@@ -790,7 +812,11 @@ fn walk(
     total: &mut u64,
     context: &mut InventoryWalk<'_>,
 ) -> Result<(), DevMapError> {
+    #[cfg(test)]
+    let validation_start = context.profile_start();
     safe::checked_canonical_directory(directory)?;
+    #[cfg(test)]
+    context.profile_record(0, validation_start);
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
         let relative = path
@@ -821,8 +847,12 @@ fn walk(
             }
             continue;
         }
+        #[cfg(test)]
+        let metadata_start = context.profile_start();
         let metadata =
             safe::checked_metadata(&path)?.ok_or_else(|| fail("legacy inventory drift"))?;
+        #[cfg(test)]
+        context.profile_record(1, metadata_start);
         if metadata.is_dir() {
             let components: Vec<_> = relative.split('/').collect();
             if !matches!(

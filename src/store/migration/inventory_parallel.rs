@@ -347,6 +347,8 @@ fn candidate(
     #[cfg(test)]
     let mut clock = crate::application::query_profile::Clock::inventory();
     #[cfg(test)]
+    let mut walk_profile = InventoryWalkProfile::default();
+    #[cfg(test)]
     let worker_limit = {
         assert!(matches!(observation.selected_worker_limit, 4 | 8));
         observation.selected_worker_limit
@@ -416,6 +418,8 @@ fn candidate(
                 &mut InventoryWalk {
                     hash: false,
                     limits,
+                    #[cfg(test)]
+                    profile: observation.profile_queue.then_some(&mut walk_profile),
                     #[cfg(test)]
                     pipeline: observation.pipeline.as_deref(),
                     sink: &mut submit,
@@ -504,6 +508,16 @@ fn candidate(
         clock.mark("merge_and_sort");
         clock.finish();
         if observation.profile_queue {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "diagnostic": "inventory-walk-checks/1",
+                    "directory_validation_us": walk_profile.nanos[0] / 1000,
+                    "directory_validation_calls": walk_profile.calls[0],
+                    "entry_metadata_us": walk_profile.nanos[1] / 1000,
+                    "entry_metadata_calls": walk_profile.calls[1],
+                })
+            );
             println!(
                 "{}",
                 serde_json::json!({
