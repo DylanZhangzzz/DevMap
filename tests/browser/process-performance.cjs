@@ -65,7 +65,7 @@ function client() {
   });}
   return {async initialize(){const r=await request('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'devmap-benchmark',version:'1'}});assert.ok(r.result&&!r.error);},
     async map(){const r=await request('tools/call',{name:'devmap_read_map',arguments:{}});assert.ok(r.result&&!r.error&&!r.result.isError,JSON.stringify(r));assert.equal(r.result.structuredContent.schema_version,'devmap/dock/4');lastModel=r.result.structuredContent;return Buffer.byteLength(JSON.stringify(r));},
-    model(){return lastModel;},
+    pid:child.pid,model(){return lastModel;},
     async close(){if(spawnFailure){lines.close();throw spawnFailure;}if(child.exitCode!==null)return;const stopped=new Promise(resolve=>child.once('exit',resolve));child.stdin.end();const timer=setTimeout(()=>child.kill(),5000);await stopped;clearTimeout(timer);lines.close();assert.equal(child.exitCode,0,stderr);assert.equal(stderr,'','Unexpected process diagnostics');}};
 }
 function summarize(rows) {const values=rows.map(x=>x.ms).sort((a,b)=>a-b);return {count:rows.length,p50_ms:values[Math.ceil(values.length*0.5)-1],p95_ms:values[Math.ceil(values.length*0.95)-1],max_response_bytes:Math.max(...rows.map(x=>x.bytes)),samples:rows};}
@@ -79,7 +79,7 @@ let population;
 async function main(){
   const cold=[],hot=[],cohorts=Array.from({length:clients},(_,client)=>({client,samples:[],errors:[]}));
   population={cold,cohorts};
-  for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();const row={ms:performance.now()-start,bytes};cold.push(row);audit(c,row);});progress({phase:'cold',completed:cold.length,total:coldSamples});}
+  for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();const row={ms:performance.now()-start,bytes,pid:c.pid};cold.push(row);audit(c,row);});progress({phase:'cold',completed:cold.length,total:coldSamples});}
   // A shared gate starts measured traffic only after every client has warmed up.
   // A failed warmup rejects that gate so peers cannot wait indefinitely.
   let ready=0,release,rejectGate;
@@ -87,6 +87,7 @@ async function main(){
   gate.catch(()=>{});
   const outcomes=await Promise.allSettled(cohorts.map(cohort=>withClient(async c=>{
     try {
+      cohort.pid=c.pid;
       await c.initialize();for(let i=0;i<warmup;i++){await c.map();audit(c);}
       if(++ready===clients)release();await gate;
       for(let i=0;i<samples;i++){

@@ -12,7 +12,7 @@ WRAPPER = Path(__file__).with_name("windows-owned-generator-job.py").resolve()
 
 @unittest.skipUnless(os.name == "nt", "Windows Job integration")
 class OwnedJobTests(unittest.TestCase):
-    def run_case(self, *, descendant=False, code=0, planned=False, abort=False):
+    def run_case(self, *, descendant=False, code=0, planned=False, abort=False, resources=False):
         with tempfile.TemporaryDirectory(prefix="devmap-job-policy-") as directory:
             root = Path(directory)
             worker = root / "worker.py"
@@ -21,12 +21,15 @@ class OwnedJobTests(unittest.TestCase):
                 + ("subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
                    if descendant else "")
                 + ("time.sleep(60)\n" if abort else "")
+                + ("time.sleep(.7)\n" if resources else "")
                 + f"sys.exit({code})\n", encoding="utf8")
             report_path = root / "report.json"
             args = [sys.executable, str(WRAPPER), "--report", str(report_path),
                     "--exe", sys.executable]
             if planned:
                 args.append("--teardown-descendants-after-success")
+            if resources:
+                args += ['--resource-interval', '.1']
             args += ["--", str(worker)]
             with (root / "output.log").open("wb") as output:
                 child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=output,
@@ -54,6 +57,18 @@ class OwnedJobTests(unittest.TestCase):
         status, report = self.run_case()
         self.assertEqual(status, 0, report)
         self.assertNotIn("cleanup_policy", report)
+
+    def test_resource_sampling_includes_owned_descendant_and_exact_sums(self):
+        status, report = self.run_case(descendant=True, planned=True, resources=True)
+        self.assertEqual(status, 0, report)
+        rows = report['resources']['samples']
+        self.assertIn(report['root_pid'], [p['pid'] for p in rows[0]['processes']])
+        self.assertTrue(any(len(r['processes']) >= 2 for r in rows))
+        for row in rows:
+            self.assertEqual(row['membership_count'], len(row['processes']) + len(row['unobserved']))
+            self.assertEqual(row['sum_rss_bytes'], sum(p['rss_bytes'] for p in row['processes']))
+            self.assertEqual(row['sum_private_bytes'], sum(p['private_bytes'] for p in row['processes']))
+        self.assertFalse(report['natural_lifecycle_acceptance'])
 
     def test_default_surviving_descendant_is_failure(self):
         status, report = self.run_case(descendant=True)

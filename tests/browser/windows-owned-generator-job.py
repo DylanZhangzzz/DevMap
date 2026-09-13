@@ -21,11 +21,13 @@ def main():
     parser.add_argument("--report", required=True)
     parser.add_argument("--exe", required=True)
     parser.add_argument("--teardown-descendants-after-success", action="store_true")
+    parser.add_argument("--resource-interval", type=float)
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert os.name == "nt"
     assert os.path.isabs(args.report) and not os.path.exists(args.report)
     assert os.path.isabs(args.exe)
+    assert args.resource_interval is None or .1 <= args.resource_interval <= 10
     argv = args.args[1:] if args.args[:1] == ["--"] else args.args
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     size_t = ctypes.c_size_t
@@ -92,6 +94,7 @@ def main():
     assigned = False
     abort = threading.Event()
     report = {"schema": "devmap/owned-generator-job/1", "empty_confirmed": False}
+    sampler = None
 
     def active():
         accounting = Accounting()
@@ -126,6 +129,14 @@ def main():
         report["root_pid"] = process.pid
         require(k.AssignProcessToJobObject(job, process.process))
         assigned = True
+        if args.resource_interval is not None:
+            import importlib.util
+            from pathlib import Path
+            spec = importlib.util.spec_from_file_location('job_resources', Path(__file__).with_name('windows-job-resources.py'))
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+            sampler = module.Sampler(job)
+            sampler.sample()
+        next_sample = time.monotonic()
         if k.ResumeThread(process.thread) == 0xFFFFFFFF:
             raise ctypes.WinError(ctypes.get_last_error())
 
@@ -135,6 +146,9 @@ def main():
 
         threading.Thread(target=watch_control, daemon=True).start()
         while True:
+            if sampler is not None and time.monotonic() >= next_sample:
+                sampler.sample()
+                next_sample = time.monotonic() + args.resource_interval
             status = k.WaitForSingleObject(process.process, 50)
             if status == 0:
                 report["aborted"] = False
@@ -185,6 +199,8 @@ def main():
             except BaseException as cleanup_error:
                 report["cleanup_error"] = repr(cleanup_error)
     finally:
+        if sampler is not None:
+            report['resources'] = sampler.close()
         for handle in [process.thread, process.process, job]:
             if handle:
                 k.CloseHandle(handle)

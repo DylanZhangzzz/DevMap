@@ -27,6 +27,7 @@ async function main(configFile) {
   const config = read(owned(configFile, 'file').path);
   assert.equal(config.schema, 'devmap/stage1-map-preflight/1');
   const clients = config.clients ?? 1, samples = config.samples ?? 1;
+  if(config.resource_interval!==undefined)assert(Number.isFinite(config.resource_interval)&&config.resource_interval>=.1&&config.resource_interval<=10);
   assert([1, 4].includes(clients));
   assert(Number.isInteger(samples) && samples >= 1 && samples <= 10, 'Preflight is bounded to ten samples/client');
   const manifest = read(owned(config.manifest, 'file').path);
@@ -70,6 +71,7 @@ async function main(configFile) {
     const stdout = fs.openSync(output, 'wx'), stderr = fs.openSync(error, 'wx');
     const argv = [path.join(__dirname, 'windows-owned-generator-job.py'), '--report', jobFile, '--exe', executable];
     if (planned) argv.push('--teardown-descendants-after-success');
+    if(config.resource_interval!==undefined)argv.push('--resource-interval',String(config.resource_interval));
     argv.push('--', ...args);
     let child;
     try { child = spawn(python, argv, {cwd: root, env: {...process.env, ...env}, windowsHide: true, stdio: ['pipe', stdout, stderr]}); }
