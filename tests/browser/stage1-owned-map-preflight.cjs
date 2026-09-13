@@ -26,6 +26,9 @@ async function main(configFile) {
   assert.equal(process.platform, 'win32');
   const config = read(owned(configFile, 'file').path);
   assert.equal(config.schema, 'devmap/stage1-map-preflight/1');
+  const clients = config.clients ?? 1, samples = config.samples ?? 1;
+  assert([1, 4].includes(clients));
+  assert(Number.isInteger(samples) && samples >= 1 && samples <= 10, 'Preflight is bounded to ten samples/client');
   const manifest = read(owned(config.manifest, 'file').path);
   assert.equal(manifest.scope, 'legacy_native_process_fixture');
   const fixture = owned(manifest.fixture_root, 'directory');
@@ -108,12 +111,17 @@ async function main(configFile) {
         DEVMAP_BENCHMARK_EXE: executable,
         DEVMAP_BENCHMARK_SOURCE: source.path,
         DEVMAP_BENCHMARK_OUTPUT: workerReport,
-        DEVMAP_BENCHMARK_COLD: '1', DEVMAP_BENCHMARK_SAMPLES: '1', DEVMAP_BENCHMARK_WARMUP: '1',
+        DEVMAP_BENCHMARK_COLD: '1', DEVMAP_BENCHMARK_SAMPLES: String(samples), DEVMAP_BENCHMARK_WARMUP: '1',
+        DEVMAP_BENCHMARK_CLIENTS: String(clients),
       }, true);
       const result = read(workerReport);
       assert.equal(result.scope, 'native_mcp_full_map_including_git');
       assert.equal(result.executable_sha256, hash(fs.readFileSync(executable)));
-      assert.equal(result.cold.count, 1); assert.equal(result.hot.count, 1);
+      assert.equal(result.cold.count, 1); assert.equal(result.hot.count, clients * samples);
+      assert.equal(result.clients, clients); assert.equal(result.cohorts.length, clients);
+      for (const cohort of result.cohorts) {
+        assert.equal(cohort.summary.count, samples); assert.deepEqual(cohort.errors, []);
+      }
       report.samples.push({side, ...result});
       await absent(identity.repository);
     }

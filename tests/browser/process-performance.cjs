@@ -16,9 +16,11 @@ const resolved=fs.realpathSync(source);
 assert.ok(resolved.startsWith(allowed+path.sep),'Benchmark source must be a disposable verification repository');
 function count(name,fallback) { const n=Number(process.env[name]||fallback);assert.ok(Number.isInteger(n)&&n>=1&&n<=1000);return n; }
 const samples=count('DEVMAP_BENCHMARK_SAMPLES',100),coldSamples=count('DEVMAP_BENCHMARK_COLD',20),warmup=count('DEVMAP_BENCHMARK_WARMUP',10);
+const clients=count('DEVMAP_BENCHMARK_CLIENTS',1);
+assert.ok(clients<=4,'At most four concurrent clients');
 function client() {
   const child=spawn(exe,['mcp','--source',resolved],{stdio:['pipe','pipe','pipe'],windowsHide:true});
-  const waiting=new Map();let id=0,stderr='';
+  const waiting=new Map();let id=0,stderr='',spawnFailure;
   child.stderr.on('data',b=>{stderr=(stderr+b).slice(-8192);});
   const lines=createInterface({input:child.stdout});
   lines.on('line',line=>{
@@ -26,7 +28,7 @@ function client() {
     catch(error){for(const entry of waiting.values()){clearTimeout(entry.timeout);entry.reject(error);}waiting.clear();}
   });
   function fail(error){for(const entry of waiting.values()){clearTimeout(entry.timeout);entry.reject(error);}waiting.clear();}
-  child.on('error',fail);child.on('exit',code=>fail(new Error(`MCP exited ${code}: ${stderr}`)));
+  child.on('error',error=>{spawnFailure=error;fail(error);});child.on('exit',code=>fail(new Error(`MCP exited ${code}: ${stderr}`)));
   function request(method,params) {return new Promise((resolve,reject)=>{
     const current=++id;const timeout=setTimeout(()=>{waiting.delete(current);reject(new Error('Bounded MCP wait expired'));child.kill();},30000);
     waiting.set(current,{resolve,reject,timeout});
@@ -34,7 +36,7 @@ function client() {
   });}
   return {async initialize(){const r=await request('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'devmap-benchmark',version:'1'}});assert.ok(r.result&&!r.error);},
     async map(){const r=await request('tools/call',{name:'devmap_read_map',arguments:{}});assert.ok(r.result&&!r.error&&!r.result.isError,JSON.stringify(r));assert.equal(r.result.structuredContent.schema_version,'devmap/dock/4');return Buffer.byteLength(JSON.stringify(r));},
-    async close(){if(child.exitCode!==null)return;const stopped=new Promise(resolve=>child.once('exit',resolve));child.stdin.end();const timer=setTimeout(()=>child.kill(),5000);await stopped;clearTimeout(timer);lines.close();assert.equal(child.exitCode,0,stderr);assert.equal(stderr,'','Unexpected process diagnostics');}};
+    async close(){if(spawnFailure){lines.close();throw spawnFailure;}if(child.exitCode!==null)return;const stopped=new Promise(resolve=>child.once('exit',resolve));child.stdin.end();const timer=setTimeout(()=>child.kill(),5000);await stopped;clearTimeout(timer);lines.close();assert.equal(child.exitCode,0,stderr);assert.equal(stderr,'','Unexpected process diagnostics');}};
 }
 function summarize(rows) {const values=rows.map(x=>x.ms).sort((a,b)=>a-b);return {count:rows.length,p50_ms:values[Math.ceil(values.length*0.5)-1],p95_ms:values[Math.ceil(values.length*0.95)-1],max_response_bytes:Math.max(...rows.map(x=>x.bytes)),samples:rows};}
 async function withClient(action) {
@@ -43,16 +45,39 @@ async function withClient(action) {
   try {await c.close();} catch(error){failure=failure?new AggregateError([failure,error],'Benchmark request and cleanup failed'):error;}
   if(failure)throw failure;
 }
+let population;
 async function main(){
-  const cold=[],hot=[];
+  const cold=[],hot=[],cohorts=Array.from({length:clients},(_,client)=>({client,samples:[],errors:[]}));
+  population={cold,cohorts};
   for(let i=0;i<coldSamples;i++){const start=performance.now();await withClient(async c=>{await c.initialize();const bytes=await c.map();cold.push({ms:performance.now()-start,bytes});});}
-  await withClient(async c=>{await c.initialize();for(let i=0;i<warmup;i++)await c.map();for(let i=0;i<samples;i++){const start=performance.now(),bytes=await c.map();hot.push({ms:performance.now()-start,bytes});}});
+  // A shared gate starts measured traffic only after every client has warmed up.
+  // A failed warmup rejects that gate so peers cannot wait indefinitely.
+  let ready=0,release,rejectGate;
+  const gate=new Promise((resolve,reject)=>{release=resolve;rejectGate=reject;});
+  gate.catch(()=>{});
+  const outcomes=await Promise.allSettled(cohorts.map(cohort=>withClient(async c=>{
+    try {
+      await c.initialize();for(let i=0;i<warmup;i++)await c.map();
+      if(++ready===clients)release();await gate;
+      for(let i=0;i<samples;i++){
+        const start=performance.now(),bytes=await c.map();
+        const row={client:cohort.client,sequence:i,ms:performance.now()-start,bytes};
+        cohort.samples.push(row);hot.push(row);
+      }
+    } catch(error) {rejectGate(error);throw error;}
+  }).catch(error=>{cohort.errors.push({name:error.name,message:error.message});throw error;})));
+  const failures=outcomes.filter(outcome=>outcome.status==='rejected');
+  if(failures.length){
+    const error=new AggregateError(failures.map(outcome=>outcome.reason),'Concurrent full-map clients failed');
+    error.population={cold,cohorts};throw error;
+  }
   const report={scope:'native_mcp_full_map_including_git',source:resolved,executable:exe,executable_sha256:crypto.createHash('sha256').update(fs.readFileSync(exe)).digest('hex'),warmup,cold:summarize(cold),hot:summarize(hot),measured_at:new Date().toISOString(),note:'Full map includes Git refresh and IPC, not compact summary. No CPU/RSS/idle or real host measurement. Sample counts below 20 cold and 100 hot are smoke only.'};
+  report.clients=clients;report.cohorts=cohorts.map(cohort=>({...cohort,summary:summarize(cohort.samples)}));
   const output=process.env.DEVMAP_BENCHMARK_OUTPUT||path.join(root,'target/verification/process-performance.json');fs.writeFileSync(output,JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 }
 main().catch(error=>{
   const describe=e=>({name:e.name,message:e.message,errors:e.errors?.map(describe)});
   const output=process.env.DEVMAP_BENCHMARK_OUTPUT||path.join(root,'target/verification/process-performance.json');
-  fs.writeFileSync(output,JSON.stringify({scope:'native_mcp_full_map_including_git',passed:false,source:resolved,error:describe(error)},null,2));
+  fs.writeFileSync(output,JSON.stringify({scope:'native_mcp_full_map_including_git',passed:false,source:resolved,population:error.population||population,error:describe(error)},null,2));
   console.error(error);process.exitCode=1;
 });

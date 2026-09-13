@@ -1,6 +1,6 @@
 # Stage 1 public-map ownership preflight
 
-This is a small Windows transport and cleanup check, not the formal performance comparison or baseline A/A calibration. It uses one cold map and one measured warm map per executable on an existing disposable native migration fixture. It does not cover four concurrent clients, scale workloads or browser-ready timing.
+This is a small Windows transport and cleanup check, not the formal performance comparison or baseline A/A calibration. It uses one cold map per executable on an existing disposable native migration fixture. Optional `clients` (1 or 4, default 1) and `samples` (1–10 per client, default 1) enable concurrent warm observations. It does not cover scale workloads or browser-ready timing.
 
 Run with an explicit JSON configuration under the worktree's `target/verification`:
 
@@ -34,3 +34,11 @@ Actual old/new preflight `stage1-owned-map-WOxfcn` completed with empty Jobs, no
 The single cold observations were approximately 1829.802 ms (old) and 2282.898 ms (candidate); warm observations were 575.617/60.049 ms. These exploratory observations suggest a possible cold-start regression and faster warm response, but cannot establish either percentile acceptance or representative performance. Keep the existing predeclared bounds; do not widen them from these results. The fixture already contains migrated SQL alongside preserved legacy files, so a clean matched-view scale workload and old-only calibration are still required.
 
 Evidence: `stage1-job-policy-tests.log` (initial failed assertion), `stage1-job-policy-tests-corrected.log`, `stage1-owned-map-preflight-config.json`, `stage1-owned-map-preflight-final.log`, and the run's worker/Job/final reports under `target/verification`. Earlier run `stage1-owned-map-QtdQqh` preceded the added executable-preservation check; use WOxfcn as the final preflight evidence.
+
+## Four-client extension
+
+The worker now opens four MCP clients, completes each client's warmup, then releases a common gate for measured traffic. Each client's sequence, duration, response size, errors and summary remain separate; pooled timings are supplementary. Warmup failure rejects the gate, and all clients settle before reporting failure. Successful observations are retained in a failed population, including a failure during cold startup. The unchanged default is one client. This does not assert that four clients imply one owner; process role verification is still separate.
+
+Actual run `stage1-owned-map-oeIKdP` (final worker source) completed successfully for frozen A1CF and candidate 6D26, with one cold and four clients × three measured warm maps per side. Both Jobs emptied, endpoints disappeared, and preservation passed. `stage1-owned-map-PoGmuE` is an earlier successful run before the spawn-failure cleanup correction. Neither run is formal calibration or percentile acceptance. Configuration/logs: `stage1-four-client-preflight-config.json`, `stage1-four-client-preflight-final.log`.
+
+An actual missing-executable negative control exits with code 1 and records ENOENT plus the empty attempted population (`stage1-client-spawn-failure.json` / `.log`). The worker previously waited for an exit event after spawn had already failed; it now records that failure and closes its reader without waiting for an event that cannot arrive. This control covers startup failure, not every possible four-client mid-warmup failure.
