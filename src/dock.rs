@@ -845,22 +845,25 @@ impl DockProjectionContext {
             let before = topology_cache_key(workspace, &worktrees)?;
             #[cfg(test)]
             profile.mark("opening_topology_key");
-            let topology = GitTopologyCollector::scan(workspace, &worktrees)?;
-            #[cfg(test)]
-            profile.mark("topology");
-            let configured = GitRelationshipResolver::development_configuration(workspace)?;
-            #[cfg(test)]
-            profile.mark("configuration");
+            let (topology, (configured, relationships)) = crate::git_process::probe_overlap::pair(
+                || GitTopologyCollector::scan(workspace, &worktrees),
+                || {
+                    let configured = GitRelationshipResolver::development_configuration(workspace)?;
+                    let relationships = GitRelationshipResolver::resolve_with_configuration(
+                        workspace,
+                        &worktrees,
+                        configured.as_deref(),
+                    )?;
+                    Ok((configured, relationships))
+                },
+                #[cfg(test)]
+                false,
+            )?;
             let configuration_key = configured
                 .as_deref()
                 .map(|value| sha256_hex(value.as_bytes()));
-            let relationships = GitRelationshipResolver::resolve_with_configuration(
-                workspace,
-                &worktrees,
-                configured.as_deref(),
-            )?;
             #[cfg(test)]
-            profile.mark("relationships");
+            profile.mark("topology_and_relationships");
             let mut targets = BTreeMap::new();
             for target in plans.iter().filter_map(|p| p.target_ref.as_ref()) {
                 if !targets.contains_key(target) {
@@ -2454,3 +2457,7 @@ mod projection_tests {
         assert!(!workspace.git_common_dir.join("devmap/devmap.db").exists());
     }
 }
+
+#[cfg(test)]
+#[path = "dock_collection_overlap_tests.rs"]
+mod collection_overlap_tests;
