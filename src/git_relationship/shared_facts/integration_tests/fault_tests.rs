@@ -126,3 +126,32 @@ fn representative_real_deadline_is_fatal_not_original_fallback() {
     assert_eq!(encoded(&fresh), encoded(&expected));
     assert_shared(&stats);
 }
+
+#[test]
+fn change_after_opening_capture_cannot_publish_shared_results() {
+    let Some(owned) =
+        isolated_case("fault_tests::change_after_opening_capture_cannot_publish_shared_results")
+    else {
+        return;
+    };
+    let (workspace, rows) = fixture(&owned);
+    let (before, _) =
+        resolve_with_shared_facts_test(&workspace, &rows, SharedFactsTestMode::Original).unwrap();
+    let (actual, stats) = resolve_with_shared_facts_fault_test(
+        &workspace,
+        &rows,
+        SharedFactsTestFault::TagAfterCapture,
+    )
+    .unwrap();
+    let (expected, _) =
+        resolve_with_shared_facts_test(&workspace, &rows, SharedFactsTestMode::Original).unwrap();
+    assert_ne!(encoded(&before), encoded(&expected));
+    assert_eq!(encoded(&actual), encoded(&expected));
+    assert_eq!(stats.shared_rows, 0);
+    assert_eq!(stats.shared_groups, 0);
+    assert_eq!(stats.original_rows, rows.len());
+    let (fresh, stats) =
+        resolve_with_shared_facts_test(&workspace, &rows, SharedFactsTestMode::Shared).unwrap();
+    assert_eq!(encoded(&fresh), encoded(&expected));
+    assert_shared(&stats);
+}

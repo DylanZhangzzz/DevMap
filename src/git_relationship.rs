@@ -91,6 +91,7 @@ enum SharedFactsTestMode {
 
 #[cfg(test)]
 enum SharedFactsTestFault {
+    TagAfterCapture,
     OrdinaryRepresentativeFailure,
     TagBeforeRecheck,
     RepresentativeDeadline,

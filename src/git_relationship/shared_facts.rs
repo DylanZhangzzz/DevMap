@@ -21,7 +21,9 @@ use std::path::{Component, Path, PathBuf};
 const MAX_BYTES: usize = 1_048_576;
 const MAX_REFS: usize = 2048;
 
-struct SharedFactsProof {
+// An opening observation, not permission to publish shared results. compute()
+// retains every result locally until the complete closing recheck succeeds.
+struct SharedFactsCandidate {
     caller: SourceWorkspace,
     worktrees: Vec<WorktreeDescriptor>,
     evidence: Evidence,
@@ -64,19 +66,16 @@ fn optional<T>(result: Result<T, DevMapError>) -> Result<Option<T>, DevMapError>
 fn acquire(
     caller: &SourceWorkspace,
     worktrees: &[WorktreeDescriptor],
-) -> Result<Option<SharedFactsProof>, DevMapError> {
+) -> Result<Option<SharedFactsCandidate>, DevMapError> {
     crate::git_process::with_operation(|| {
         let Some(evidence) = optional(capture(caller, worktrees))? else {
             return Ok(None);
         };
-        // Close candidate discovery/file reads against changes during acquisition.
-        let Some(after) = optional(capture(caller, worktrees))? else {
-            return Ok(None);
-        };
-        if evidence != after {
-            return Ok(None);
-        }
-        Ok(Some(SharedFactsProof {
+        // The full closing capture is performed after the representative Git
+        // reads and tag witnesses, before any shared result leaves compute().
+        // A second pre-computation capture adds no closing coverage to those
+        // reads. Opening capture still closes every observed directory identity.
+        Ok(Some(SharedFactsCandidate {
             caller: caller.clone(),
             worktrees: worktrees.to_vec(),
             evidence,
@@ -84,7 +83,7 @@ fn acquire(
     })
 }
 
-impl SharedFactsProof {
+impl SharedFactsCandidate {
     fn recheck(&self) -> Result<bool, DevMapError> {
         crate::git_process::with_operation(|| {
             Ok(optional(capture(&self.caller, &self.worktrees))?
@@ -591,7 +590,7 @@ fn capture_using_directory(
     Ok(evidence)
 }
 
-impl SharedFactsProof {
+impl SharedFactsCandidate {
     fn direct_ref_oid(&self, reference: &str) -> Option<&str> {
         if !(reference.starts_with("refs/heads/") || reference.starts_with("refs/remotes/")) {
             return None;
@@ -649,6 +648,13 @@ pub(super) fn compute(
     let Some(proof) = acquire(caller, worktrees)? else {
         return Ok(empty());
     };
+    #[cfg(test)]
+    if matches!(fault, Some(super::SharedFactsTestFault::TagAfterCapture)) {
+        // Both representative and tag rereads see this new tag. Only the full
+        // closing evidence comparison can reject the older opening observation.
+        super::required_output(&proof.caller.root, ["tag", "changed-after-shared-capture"])?;
+        fault = None;
+    }
     let mut groups =
         BTreeMap::<(String, String), Vec<(&WorktreeDescriptor, &super::DevelopmentTarget)>>::new();
     for row in candidates {
