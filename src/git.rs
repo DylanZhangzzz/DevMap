@@ -104,23 +104,28 @@ impl SourceGitInspector {
     }
 
     fn workspace_with_head(&self, head: String) -> Result<SourceWorkspace, DevMapError> {
-        let paths = self.required_git([
-            "rev-parse",
-            "--show-toplevel",
-            "--git-dir",
-            "--git-common-dir",
-        ])?;
-        // Git has no NUL separator for these path options. Preserve the
-        // independent-command behavior for legal paths containing newlines.
-        let [root, git_dir, git_common_dir] = match workspace_paths(&paths) {
-            Some(paths) => paths.map(str::to_owned),
-            None => [
-                self.required_git(["rev-parse", "--show-toplevel"])?,
-                self.required_git(["rev-parse", "--git-dir"])?,
-                self.required_git(["rev-parse", "--git-common-dir"])?,
-            ],
-        };
-        let branch = self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"])?;
+        let ([root, git_dir, git_common_dir], branch) = crate::git_process::probe_overlap::pair(
+            || {
+                let paths = self.required_git([
+                    "rev-parse",
+                    "--show-toplevel",
+                    "--git-dir",
+                    "--git-common-dir",
+                ])?;
+                // Keep the independent-command fallback for newline paths.
+                Ok(match workspace_paths(&paths) {
+                    Some(paths) => paths.map(str::to_owned),
+                    None => [
+                        self.required_git(["rev-parse", "--show-toplevel"])?,
+                        self.required_git(["rev-parse", "--git-dir"])?,
+                        self.required_git(["rev-parse", "--git-common-dir"])?,
+                    ],
+                })
+            },
+            || self.optional_git(["symbolic-ref", "--short", "-q", "HEAD"]),
+            #[cfg(test)]
+            false,
+        )?;
         let root = PathBuf::from(root);
         let resolve = |value: String| {
             let path = PathBuf::from(value);
@@ -224,6 +229,9 @@ fn workspace_paths(text: &str) -> Option<[&str; 3]> {
     let paths = [fields.next()?, fields.next()?, fields.next()?];
     (fields.next().is_none() && paths.iter().all(|path| !path.is_empty())).then_some(paths)
 }
+
+#[cfg(test)]
+mod workspace_overlap_tests;
 
 #[cfg(test)]
 mod tests {
