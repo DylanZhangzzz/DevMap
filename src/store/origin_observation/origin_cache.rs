@@ -258,10 +258,17 @@ pub(super) fn profile_proof_stages(
     for serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {
         let count = crate::git_process::test_spawn_count();
         let start = std::time::Instant::now();
+        let mut phases = None;
         let evidence = if serial {
             Evidence::capture(w)?
         } else {
-            parallel::candidate(w, &parallel::NoHooks)?
+            let profile = parallel::profile_candidate(w)?;
+            phases = Some((
+                profile.discovery_us,
+                profile.payload_us,
+                profile.finishing_us,
+            ));
+            profile.evidence
         };
         report(
             if serial {
@@ -274,6 +281,11 @@ pub(super) fn profile_proof_stages(
         );
         if evidence != proof.evidence {
             return Err(fail("profile origin evidence changed"));
+        }
+        if let Some((discovery, payload, finishing)) = phases {
+            report("origin_proof_discovery", discovery, 0);
+            report("origin_proof_parallel_payload", payload, 0);
+            report("origin_proof_finishing", finishing, 0);
         }
     }
     for serial in [iteration.is_multiple_of(2), !iteration.is_multiple_of(2)] {

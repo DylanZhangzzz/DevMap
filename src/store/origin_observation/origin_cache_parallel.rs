@@ -26,6 +26,68 @@ pub(super) trait Hooks: Sync {
 pub(super) struct NoHooks;
 impl Hooks for NoHooks {}
 
+#[cfg(test)]
+pub(super) struct CaptureProfile {
+    pub(super) evidence: Evidence,
+    pub(super) discovery_us: u128,
+    pub(super) payload_us: u128,
+    pub(super) finishing_us: u128,
+}
+
+/// Observe the same candidate, retaining its complete evidence for comparison.
+/// Hook timestamps are nested in the enclosing capture, not separate queries.
+#[cfg(test)]
+pub(super) fn profile_candidate(w: &SourceWorkspace) -> Result<CaptureProfile, DevMapError> {
+    use std::sync::atomic::AtomicU64;
+    use std::time::Instant;
+    struct Profile {
+        start: Instant,
+        ready: AtomicU64,
+        last_origin: AtomicU64,
+        fallback: AtomicUsize,
+    }
+    impl Profile {
+        fn elapsed(&self) -> u64 {
+            u64::try_from(self.start.elapsed().as_micros()).unwrap()
+        }
+    }
+    impl Hooks for Profile {
+        fn tasks_ready(&self, total: usize) {
+            assert!(total > 0);
+            self.ready.store(self.elapsed(), Ordering::SeqCst);
+        }
+        fn after_origin(&self, _: usize) {
+            self.last_origin.fetch_max(self.elapsed(), Ordering::SeqCst);
+        }
+        fn serial_fallback(&self) {
+            self.fallback.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let hooks = Profile {
+        start: Instant::now(),
+        ready: AtomicU64::new(0),
+        last_origin: AtomicU64::new(0),
+        fallback: AtomicUsize::new(0),
+    };
+    let evidence = candidate(w, &hooks)?;
+    let finished = hooks.elapsed();
+    let ready = hooks.ready.load(Ordering::SeqCst);
+    let last_origin = hooks.last_origin.load(Ordering::SeqCst);
+    if hooks.fallback.load(Ordering::SeqCst) != 0
+        || ready == 0
+        || last_origin < ready
+        || finished < last_origin
+    {
+        return Err(fail("profiling origin capture boundaries invalid"));
+    }
+    Ok(CaptureProfile {
+        evidence,
+        discovery_us: u128::from(ready),
+        payload_us: u128::from(last_origin - ready),
+        finishing_us: u128::from(finished - last_origin),
+    })
+}
+
 struct Task {
     admin: PathBuf,
     root: PathBuf,
