@@ -138,7 +138,11 @@ fn owned_schema2_query_stage_profile() {
         Ok(mode)
             if matches!(
                 mode.as_str(),
-                "boundary_phases" | "projection_phases" | "storage_phases" | "observer_phases"
+                "boundary_phases"
+                    | "projection_phases"
+                    | "storage_phases"
+                    | "observer_phases"
+                    | "inventory_phases"
             ) =>
         {
             drop(store);
@@ -148,7 +152,7 @@ fn owned_schema2_query_stage_profile() {
             let mut harness = QueryHarness::new(id, query);
             let (first, _) = harness.call();
             harness.max_age(Duration::from_secs(60));
-            if mode == "observer_phases" {
+            if matches!(mode.as_str(), "observer_phases" | "inventory_phases") {
                 println!("{{\"diagnostic\":\"observer-hot-start/1\"}}");
             }
             for iteration in 0..10 {

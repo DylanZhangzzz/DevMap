@@ -326,6 +326,8 @@ fn candidate(
     after_enumeration: impl FnOnce(),
 ) -> Result<Option<FrozenManifest>, DevMapError> {
     #[cfg(test)]
+    let mut clock = crate::application::query_profile::Clock::inventory();
+    #[cfg(test)]
     let worker_limit = {
         assert!(matches!(observation.selected_worker_limit, 4 | 8));
         observation.selected_worker_limit
@@ -405,6 +407,8 @@ fn candidate(
             after_enumeration();
             Ok::<_, DevMapError>(manifest)
         }));
+        #[cfg(test)]
+        clock.mark("discovery_with_overlapping_hashes");
         if matches!(&produced, Ok(Ok(_))) {
             queue.finish();
         } else {
@@ -441,6 +445,8 @@ fn candidate(
             Err(_) => unreachable!("producer panic handled after worker joins"),
         }
     })?;
+    #[cfg(test)]
+    clock.mark("remaining_worker_joins");
     let Some((mut manifest, outputs)) = attempt else {
         return Ok(None);
     };
@@ -474,6 +480,11 @@ fn candidate(
     manifest
         .files
         .sort_by(|a, b| (a.origin, &a.relative).cmp(&(b.origin, &b.relative)));
+    #[cfg(test)]
+    {
+        clock.mark("merge_and_sort");
+        clock.finish();
+    }
     Ok(Some(manifest))
 }
 
