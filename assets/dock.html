@@ -325,6 +325,9 @@ THE SOFTWARE.
     .route-platform .platform-branch{font-size:.75rem;font-weight:400;color:var(--muted);}
     .platform-chats{overflow:visible;flex:none;}
     .platform-chat{position:relative!important;display:block;width:100%;min-height:88px;padding:12px 24px 12px 0;text-align:left;border:0;border-radius:6px;background:transparent;box-shadow:none;text-decoration:none;}
+    .platform-chat.associated-chat{min-height:44px;padding-block:10px;}
+    .platform-chat.associated-chat .task-title{font-size:.9375rem;font-weight:500;}
+    .platform-chat.associated-chat .conversation-facts{display:none;}
     .platform-chat+.platform-chat{border-top:1px solid var(--line-soft);}
     .platform-chat .task-heading{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:6px;}
     .platform-chat .current-chat{grid-column:2;justify-self:start;}
@@ -794,8 +797,11 @@ THE SOFTWARE.
         if (ms === null) return "Task observation unavailable";
         const age = Date.now() - ms;
         const quality = age < 0 || age > Core.TASK_FRESHNESS_MS ? "status update needed · known Agents retained" : "fresh";
-        const locationAt = instant(value.task_observation?.observed_at);
-        return "Tasks observed " + formatAge(age) + " · " + quality + (value.task_observation?.complete ? "" : " · incomplete") + (locationAt !== null && ms > locationAt && Date.now() - locationAt > Core.TASK_FRESHNESS_MS ? " · location report needs update" : "");
+        return "Tasks observed " + formatAge(age) + " · " + quality + (value.task_observation?.complete ? "" : " · incomplete");
+      }
+      function inventoryConfirmed(value) {
+        const ms = instant(value?.task_inventory_synced_at || value?.task_observation?.observed_at), age = Date.now() - ms;
+        return ms !== null && age >= 0 && age <= Core.TASK_FRESHNESS_MS && value?.task_observation?.complete === true;
       }
       function tasksConfirmed(value) {
         const ms = instant(value?.task_observation?.observed_at), age = Date.now() - ms;
@@ -1054,9 +1060,16 @@ THE SOFTWARE.
         const id=(window.location.hash||"").slice(12);
         return uniqueTasks(lane).filter(c=>c.lifecycle==="present").sort((a,b)=>Number(b.codex_thread_id===id)-Number(a.codex_thread_id===id));
       }
-      function platformHeight(lane) {
-        const n=platformChats(lane).length;
-        return 146+Math.max(1,expandedPlatformChats.has(lane.worktree_id)?Math.min(n,8):Math.min(n,2))*96+(n>2?40:0);
+      function platformChatGroups(lane,value) {
+        const chats=platformChats(lane),id=(window.location.hash||"").slice(12);
+        const ms=instant(value?.task_inventory_synced_at||value?.task_observation?.observed_at),age=Date.now()-ms;
+        const fresh=ms!==null&&age>=0&&age<=Core.TASK_FRESHNESS_MS;
+        const featured=chats.filter(c=>(id&&c.codex_thread_id===id)||(fresh&&effectiveConversationState(c)==="active")).slice(0,2);
+        return {featured,related:chats.filter(c=>!featured.includes(c))};
+      }
+      function platformHeight(lane,value=lastSnapshot) {
+        const {featured,related}=platformChatGroups(lane,value);
+        return 146+(!featured.length&&!related.length?1:featured.length+(expandedPlatformChats.has(lane.worktree_id)?related.length:0))*96+(related.length?40:0);
       }
       function renderPlatforms(records,value,layout) {
         const nodes=[],scale=layout.textScale||1;
@@ -1066,31 +1079,31 @@ THE SOFTWARE.
           const stop=element("section","route-platform"+(current?" current":""));stop.tabIndex=-1;
           stop.setAttribute("aria-label","View workspace "+lane.workspace_path+" · "+branchName(lane)+" · "+lane.worktree_id);stop.setAttribute("data-no-pan","");
           stop.dataset.worktreeId=lane.worktree_id;stop.dataset.objectId="workspace:"+lane.worktree_id;stop.dataset.headOid=a.head_oid;stop.dataset.workspaceCount="1";
-          stop.title=lane.workspace_path;position(stop,a);stop.style.width=a.width+"px";stop.style.height=(layout.cardHeights?.[lane.worktree_id]||platformHeight(lane))*scale+"px";
+          stop.title=lane.workspace_path;position(stop,a);stop.style.width=a.width+"px";stop.style.height=(layout.cardHeights?.[lane.worktree_id]||platformHeight(lane,value))*scale+"px";
           stop.setAttribute("aria-expanded",String(expanded));
           const toggle=()=>toggleWorkspaceSummary(lane.worktree_id,false);
           stop.addEventListener("click",event=>{if(!event||event.target===stop)toggle();});
           stop.append(element("span","platform-directory",worktreeDisplayName(lane.workspace_path)));
           if(current)stop.append(element("span","platform-current","Map source"));
-          const chats=platformChats(lane),limit=expandedPlatformChats.has(lane.worktree_id)?chats.length:2;
+          const {featured,related}=platformChatGroups(lane,value),chats=expandedPlatformChats.has(lane.worktree_id)?[...featured,...related]:featured;
           const list=element("div","platform-chats");list.tabIndex=0;list.dataset.objectId="platform-list:"+lane.worktree_id;list.setAttribute("aria-label","Chats in "+worktreeDisplayName(lane.workspace_path));
-          for(const chat of chats.slice(0,limit)) {
-            const task=createTask(chat,lane.worktree_id,value);task.classList.add("platform-chat");task.dataset.objectId="platform-task:"+taskId(chat);
+          for(const chat of chats) {
+            const task=createTask(chat,lane.worktree_id,value);task.classList.add("platform-chat");if(related.includes(chat))task.classList.add("associated-chat");task.dataset.objectId="platform-task:"+taskId(chat);
             const heading=task.querySelector(".task-heading");heading.querySelector(".passenger-icon")?.remove();
             heading.replaceChildren(cardIcon("chat"),...heading.children);
             if(directTaskUrl(chat))task.append(cardIcon("arrow"));
             if(chat.codex_thread_id===(window.location.hash||"").slice(12))task.querySelector(".task-heading").append(element("span","current-chat","Current chat"));
             list.append(task);
           }
-          if(!chats.length)list.append(element("p","platform-empty",tasksConfirmed(value)?"No observed chats":"No chats in this observation · list unconfirmed"));
+          if(!chats.length&&!related.length)list.append(element("p","platform-empty",tasksConfirmed(value)?"No observed chats":"No chats in this observation · list unconfirmed"));
           stop.append(list);
-          if(chats.length>2) {
-            const more=button("platform-more","Show more chats",()=>{
+          if(related.length) {
+            const more=button("platform-more","Toggle associated chats",()=>{
               if(expandedPlatformChats.has(lane.worktree_id))expandedPlatformChats.delete(lane.worktree_id);else expandedPlatformChats.add(lane.worktree_id);
               renderSnapshot(lastSnapshot,true);
             });
             more.dataset.objectId="platform-more:"+lane.worktree_id;more.setAttribute("aria-expanded",String(expandedPlatformChats.has(lane.worktree_id)));
-            more.textContent=expandedPlatformChats.has(lane.worktree_id)?"Show fewer chats":"Show "+(chats.length-2)+" more chats";more.append(cardIcon("disclosure"));stop.append(more);
+            more.textContent=(expandedPlatformChats.has(lane.worktree_id)?"Hide associated chats":"Associated chats")+" · "+related.length;more.title="Chats associated with this workspace; association does not prove authorship of its changes.";more.append(cardIcon("disclosure"));stop.append(more);
           }
           const label=element("span","platform-meta"),count=populatePassengers(element("span"),lane,value);label.textContent=layout.nodes.some(n=>n.id===a.head_oid)?passengerLabel(count,value):"Position unavailable";
           const state=platformState([{lane,facts}],lane.worktree_id),status=element("span","platform-state",state.short);status.title=state.full;
@@ -1101,7 +1114,7 @@ THE SOFTWARE.
           if(plans.length)stop.append(element("span","platform-target","→ "+(plans[0].target_ref?.replace(/^refs\/heads\//,"")||"unspecified")+" · planned"));
           const details=button("platform-details","Workspace details for "+lane.workspace_path,toggle);details.dataset.objectId="platform-details:"+lane.worktree_id;details.textContent=expanded?"Hide workspace details":"Workspace details";details.append(cardIcon("disclosure"));details.setAttribute("aria-expanded",String(expanded));details.setAttribute("aria-controls","workspace-summary");stop.append(details);
           nodes.push(stop);
-          if(expanded)nodes.push(workspaceSummary([{lane,facts}],value,{...a,y:a.y+((layout.cardHeights?.[lane.worktree_id]||platformHeight(lane))-76)*scale,detailHeight:layout.expandedHeight},scale));
+          if(expanded)nodes.push(workspaceSummary([{lane,facts}],value,{...a,y:a.y+((layout.cardHeights?.[lane.worktree_id]||platformHeight(lane,value))-76)*scale,detailHeight:layout.expandedHeight},scale));
         }
         return nodes;
       }
@@ -1269,7 +1282,7 @@ THE SOFTWARE.
         if(value.schema_version==="devmap/dock/4") {
           const textScale=typeof getComputedStyle==="function"?Math.max(1,parseFloat(getComputedStyle(document.documentElement).fontSize)/16)||1:1;
           if(lastSnapshot?.repository_id!==value.repository_id||!records.some(r=>r.lane.worktree_id===inlineWorkspaceId))inlineWorkspaceId=null;
-          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),workspaceCards:true,cardHeights:Object.fromEntries(records.map(r=>[r.lane.worktree_id,platformHeight(r.lane)])),vertical:mapDirection==="auto"?viewport.clientWidth<=760:mapDirection==="vertical",textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
+          const options={repositoryId:value.repository_id,width:Math.max(280,viewport.clientWidth-32),workspaceCards:true,cardHeights:Object.fromEntries(records.map(r=>[r.lane.worktree_id,platformHeight(r.lane,value)])),vertical:mapDirection==="auto"?viewport.clientWidth<=760:mapDirection==="vertical",textScale,expandedWorktreeId:inlineWorkspaceId,foldHistory:true,expandedHistory:[...expandedHistory],historyKeepOids:[...(value.route_plans||[]).map(p=>p.start_commit),...records.flatMap(r=>[r.lane.relationship?.fork_point?.commit,r.facts?.merge_commit_oid,r.facts?.origin?.recorded_creation?.oid,r.facts?.origin?.common_ancestor?.oid,...(r.facts?.origin?.plan_starts||[]).map(p=>p.oid)])]};
           options.expandedHistoryCommits=(surface.metroLayout?.historyRanges||[]).filter(r=>expandedHistory.has(r.id)).flatMap(r=>r.commit_ids);
           const key=JSON.stringify([value.repository_id,value.topology,dimensions,options,value.route_plans]);
           layout=geometryCache?.key===key?geometryCache.layout:Core.layoutRouteMap(value.topology,dimensions,options);
@@ -1788,10 +1801,10 @@ THE SOFTWARE.
       async function gitOnlyRefresh() {
         if (transport === "mcp") {
           callTool("devmap_read_map", {});
-          finishRefresh("Git refresh requested · Agent locations not updated · Ask Codex: Refresh DevMap");
+          finishRefresh("Map refresh requested");
         } else {
           const ok = await fetchSnapshot();
-          finishRefresh(ok ? "Git refreshed · task names not resynced · Agent locations not updated · Ask Codex: Refresh DevMap" : "Refresh failed · last valid map retained · retry when connected");
+          finishRefresh(ok ? "Map refreshed" : "Refresh failed · last valid map retained · retry when connected");
         }
       }
       async function requestFullRefresh() {
@@ -1817,10 +1830,10 @@ THE SOFTWARE.
         const label = value ? observationLabel(value) : "Task observation unavailable";
         const text = "Tasks · " + label.replace(/^Tasks /, "");
         if (node.textContent !== text) node.textContent = text;
-        node.dataset.stale = String(!value || !tasksConfirmed(value));
+        node.dataset.stale = String(!inventoryConfirmed(value));
         const action = byId("agent-refresh-action");
         if (!action.children.length) action.append(copyButton("control", "Copy Agent refresh request", REFRESH_PROMPT, "Copy Agent refresh request"));
-        action.hidden = !!value && tasksConfirmed(value);
+        action.hidden = inventoryConfirmed(value);
         action.title = "Paste this request into Codex to refresh Agent information. Git refresh does not update the task inventory.";
         updateAgentLocation(value);
       }

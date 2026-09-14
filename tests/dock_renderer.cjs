@@ -1592,7 +1592,7 @@ test('hundreds of active, idle and historical tasks stay reachable in the inspec
     assert.equal(ui.ids.get('metric-tasks').textContent, '400');
     assert.equal(ui.ids.get('metric-open').textContent, '1');
     const measured = map.metroLayout.attachments.find(a => a.worktree_id === lane.worktree_id);
-    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,category==='completed'?242:378,'default card size stays bounded regardless of inspector roster size');
+    assert.equal(map.metroLayout,geometry);assert.equal(measured.height,category==='completed'?242:category==='idle'?186:378,'default card size stays bounded regardless of inspector roster size');
     assert.ok(measured.height <= 16384);
     card.scrollTop = 18000;
     const lastTask = card.querySelectorAll('.task-node').at(-1); lastTask.focus();
@@ -1644,8 +1644,8 @@ test('browser refresh distinguishes Git from Agent observation updates', async (
   const value = snapshot();
   const ui = harness({mode:'browser',fetchImpl:async()=>({ok:true,json:async()=>value})});
   await ui.ids.get('refresh').listeners.click();
-  assert.match(ui.ids.get('refresh-status').textContent,/Git refreshed/);
-  assert.match(ui.ids.get('refresh-status').textContent,/Agent locations not updated/);
+  assert.match(ui.ids.get('refresh-status').textContent,/Map refreshed/);
+  assert.doesNotMatch(ui.ids.get('refresh-status').textContent,/not resynced|locations not updated/);
 });
 
 test('Agent locator requires exact identity and fresh reported directory, never active-state guessing', () => {
@@ -1716,11 +1716,13 @@ test('partial Agent inventory preserves named cards across long idle and fresh G
  const before=names();assert.ok(before.length>0);
  assert.match(ui.ids.get('journey-context').textContent,/4 known Agents.*partial inventory/);
  ui.advance(3600000);ui.refreshDynamicState();
- assert.deepEqual(names(),before);
+ assert.equal(names().length,0);
  assert.match(ui.ids.get('journey-context').textContent,/4 known Agents.*status update needed/);
  const stampBefore=value.task_observation.observed_at;
  ui.acceptSnapshot({...value,observation_revision:value.observation_revision+1});
- assert.deepEqual(names(),before);
+ assert.equal(names().length,0);
+ ui.ids.get('relationship-map').querySelector('.platform-more').listeners.click();
+ assert.equal(names().length,4);
  assert.match(ui.ids.get('task-inventory').textContent,/status update needed/);
  assert.equal(value.task_observation.observed_at,stampBefore);
  assert.doesNotMatch(ui.ids.get('journey-context').textContent,/Passengers unknown/);
@@ -1740,8 +1742,21 @@ test('fresh automatic catalog does not inherit an old location report age',()=>{
  const ui=harness(),value=snapshot();ui.acceptSnapshot(value);ui.advance(180000);
  value.observation_revision++;value.task_inventory_synced_at=new Date(now+180000).toISOString();
  ui.acceptSnapshot(value);
- assert.match(ui.ids.get('task-inventory').textContent,/fresh.*location report needs update/);
+ assert.match(ui.ids.get('task-inventory').textContent,/fresh/);
+ assert.equal(ui.ids.get('task-inventory').dataset.stale,'false');
+ assert.equal(ui.ids.get('agent-refresh-action').hidden,true);
  assert.doesNotMatch(ui.ids.get('task-inventory').textContent,/status update needed/);
  assert.match(ui.ids.get('journey-context').textContent,/known Agents.*location update needed/);
  assert.doesNotMatch(ui.ids.get('journey-context').textContent,/Passengers unknown/);
 });
+
+ test('idle associations stay folded while the current task remains visible',()=>{
+ const v=snapshot();v.lanes[0].chats=Array.from({length:6},(_,i)=>chat('associated-'+i,'Associated '+i,'idle'));
+ const self=v.lanes[0].chats[4],ui=harness({mode:'browser',taskFragment:'#codex-task='+self.codex_thread_id});ui.acceptSnapshot(v);
+ const map=ui.ids.get('relationship-map');assert.equal(map.querySelectorAll('.platform-chat').length,1);
+ assert.match(map.querySelector('.platform-chat').textContent,/Associated 4/);
+ assert.match(map.querySelector('.platform-more').textContent,/Associated chats · 5/);
+ map.querySelector('.platform-more').listeners.click();assert.equal(map.querySelectorAll('.platform-chat').length,6);
+ const other=map.querySelectorAll('.platform-chat').find(n=>n.getAttribute('href')==='codex://threads/'+v.lanes[0].chats[0].codex_thread_id);assert.ok(other);
+ map.querySelector('.platform-more').listeners.click();assert.equal(map.querySelectorAll('.platform-chat').length,1);
+ });
